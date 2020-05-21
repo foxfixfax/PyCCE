@@ -1,8 +1,6 @@
 import numpy as np
 import functools
 import operator
-from .hamiltonian import total_hamiltonian
-from .coherence_function import computeL
 
 
 def cluster_expansion_decorator(_func=None, *, result_operator=operator.imul, contribution_operator=operator.ipow):

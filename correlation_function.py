@@ -1,165 +1,120 @@
 import numpy as np
 import numpy.ma as ma
-from .hamiltonian import total_elhamiltonian, expand
-from .elham import full_dm
+import operator
+
+from .cluster_expansion import cluster_expansion_decorator
+from .density_matrix import propagator_dm
+from .hamiltonian import expand, zeeman, projected_hyperfine
+from .hamiltonian import total_elhamiltonian, dipole_dipole
 
 
-def compute_correlation(dm0, dimensions, H, S, timespace):
-    # Initializing all of the nuclear spins in the completely random state - their
+def correlation_it_j0(operator_i, operator_j, dm0_expanded, U):
+    operator_i_t = np.matmul(np.transpose(U.conj(), axes=(0, 2, 1)), np.matmul(operator_i, U))
+    it_j0 = np.matmul(operator_i_t, operator_j)
+    matmul = np.matmul(dm0_expanded, it_j0)
+    corr = matmul.trace(axis1=1, axis2=2, dtype=np.complex128)
 
-    dm0 = expand(dm0, len(dimensions) - 1, dimensions) / \
-          np.prod(dimensions[:-1])
-
-    dm = full_dm(dm0, dimensions, H, S, timespace, pulse_sequence=None, as_delay=False)
-
-    initial_shape = dm.shape
-    dm.shape = (initial_shape[0], *dimensions, *dimensions)
-    for d in range(len(dimensions) + 1, 2, -1):  # The last one is el spin
-        dm = np.trace(dm, axis1=1, axis2=d)
-    return dm
+    return corr
 
 
-def cluster_correlation(subclusters, nspin, ntype,
-                        dm0, I, S, B, gyro_e, D, E,
-                        timespace, pulse_sequence, as_delay=False):
-    # List of orders from highest to lowest
-    revorders = sorted(subclusters)[::-1]
-    norders = len(revorders)
+@cluster_expansion_decorator(result_operator=operator.iadd, contribution_operator=operator.imul)
+def decorated_noise_correlation(nspin, ntype,
+                                dm0, I, S, B, D, E,
+                                timespace,
+                                gyro_e=-17608.597050):
 
-    # Data for zero cluster
-    H, dimensions = total_elhamiltonian(np.array([]), ntype,
+    H, dimensions = total_elhamiltonian(nspin, ntype,
                                         I, B, S, gyro_e, D, E)
-    dms_zero = compute_dm(dm0, dimensions, H, S, timespace, pulse_sequence,
-                          as_delay=as_delay)
-    dms_zero = ma.masked_array(dms_zero, mask=(dms_zero == 0))
-    # print(dms_zero.mask)
-    # If there is only one set of indexes for only one order,
-    # Then for this subcluster nelements < maximum CCE order
-    if norders == 1 and subclusters[revorders[0]].shape[0] == 1:
-        verticles = subclusters[revorders[0]][0]
 
-        H, dimensions = total_elhamiltonian(nspin[verticles], ntype,
-                                            I, B, S, gyro_e, D, E)
-        dms = compute_dm(dm0, dimensions, H, S, timespace,
-                         pulse_sequence, as_delay=as_delay) / dms_zero
+    U = propagator_dm(timespace, H, 0,  S, dimensions)
+    dm0_expanded = expand(dm0, len(dimensions) - 1, dimensions) / np.prod(dimensions[:-1])
+    # nnuclei = nspin.shape[0]
+    # AIs = []
+    AIs = 0
+    for j, n in enumerate(nspin):
+        s = ntype[n['N']].s
 
-        return dms
+        Ivec = np.array([expand(I[s].x, j, dimensions),
+                         expand(I[s].y, j, dimensions),
+                         expand(I[s].z, j, dimensions)],
+                        dtype=np.complex128)
 
-        # print(zero_power)
-    # The Highest possible L will have all powers of 1
-    power = {}
-    zero_power = 0
-    # Number of visited orders from highest to lowest
-    visited = 0
-    dms = np.ones([*timespace.shape, *dm0.shape], dtype=np.complex128)
-    dms = ma.masked_array(dms, mask=(dms_zero == 0))
-    for order in revorders:
-        power[order] = np.ones(subclusters[order].shape[0], dtype=np.int32)
-        # indexes of the cluster of size order are stored in v
+        ATensor = n['A']
 
-        for index in range(subclusters[order].shape[0]):
+        # AIvec = np.einsum('ij,jkl->ikl', ATensor, Ivec,
+        #                   dtype=np.complex128)  # AIvec = Atensor @ Ivector
+        # # AIs.append(AIvec)
+        AIvec = np.array([ATensor[0, 0] * Ivec[0], ATensor[1, 1] * Ivec[1], ATensor[2, 2] * Ivec[2]])
+        AIs += AIvec
 
-            v = subclusters[order][index]
-            # First, find the correct power. Iterate over all higher orders
-            for higherorder in revorders[:visited]:
-                # np.isin gives bool array of shape subclusters[higherorder],
-                # which is np.array of
-                # indexes of subclusters with order = higherorder.
-                # Entries are True if value is
-                # present in v and False if values are not present in v.
-                # Sum bool entries in inside cluster,
-                # if the sum equal to size of v,
-                # then v is inside the given subcluster.
-                # containv is 1D bool array with values of i-element True
-                # if i-subcluster of
-                # subclusters[higherorder] contains v
-                containv = np.count_nonzero(
-                    np.isin(subclusters[higherorder], v), axis=1) == v.size
+    AI_x = correlation_it_j0(AIs[0], AIs[0], dm0_expanded, U)
+    AI_y = correlation_it_j0(AIs[1], AIs[1], dm0_expanded, U)
+    AI_z = correlation_it_j0(AIs[2], AIs[2], dm0_expanded, U)
 
-                # Power of cluster v is decreased by sum of powers of all the higher orders,
-                # As all of them have to be divided by v
-                power[order][index] -= np.sum(power[higherorder]
-                                              [containv], dtype=np.int32)
-
-            H, dimensions = total_elhamiltonian(nspin[v], ntype,
-                                                I, B, S, gyro_e, D, E)
-            dms_v = (compute_dm(dm0, dimensions, H, S, timespace, pulse_sequence,
-                                as_delay=as_delay) / dms_zero) ** power[order][index]
-            dms *= dms_v
-
-            zero_power -= power[order][index]
-        print(np.abs(power[order]).max())
-        print(zero_power)
-        visited += 1
-        print('Computed density matrices of order {} for {} clusters in subcluster of size {}'.format(
-            order, subclusters[order].shape[0], subclusters[1].size))
-
-    return dms
+    # for i in range(nnuclei):
+    #     for j in range(nnuclei):
+    #         AI_x += correlation_it_j0(AIs[i][0], AIs[j][0], dm0_expanded, U)
+    #         AI_y += correlation_it_j0(AIs[i][1], AIs[j][1], dm0_expanded, U)
+    #         AI_z += correlation_it_j0(AIs[i][2], AIs[j][2], dm0_expanded, U)
+    return np.array([AI_x, AI_y, AI_z])
 
 
-def cluster2_dm(subclusters, nspin, ntype,
-                dm0, I, S, B, gyro_e, D, E,
-                timespace, pulse_sequence, as_delay=False):
-    orders = sorted(subclusters)
-    norders = len(orders)
+@cluster_expansion_decorator(result_operator=operator.iadd, contribution_operator=operator.imul)
+def decorated_proj_noise_correlation(nspin, ntype, I, S, B, timespace):
+    dimensions = [I[ntype[n['N']].s].dim for n in nspin]
+    nnuclei = nspin.shape[0]
 
-    # Data for zero cluster
-    H, dimensions = total_elhamiltonian(np.array([]), ntype,
-                                        I, B, S, gyro_e, D, E)
-    dms_zero = compute_dm(dm0, dimensions, H, S, timespace, pulse_sequence,
-                          as_delay=as_delay)
-    dms_zero = ma.masked_array(dms_zero, mask=(dms_zero == 0))
-    # print(dms_zero.mask)
-    # If there is only one set of indexes for only one order,
-    # Then for this subcluster nelements < maximum CCE order
-    if norders == 1 and subclusters[orders[0]].shape[0] == 1:
-        verticles = subclusters[orders[0]][0]
+    tdim = np.prod(dimensions, dtype=np.int32)
 
-        H, dimensions = total_elhamiltonian(nspin[verticles], ntype,
-                                            I, B, S, gyro_e, D, E)
-        dms = compute_dm(dm0, dimensions, H, S, timespace,
-                         pulse_sequence, as_delay=as_delay) / dms_zero
+    H = np.zeros((tdim, tdim), dtype=np.complex128)
+    AIs = 0
+    Ivectors = []
 
-        return dms
+    for j in range(nnuclei):
+        H_zeeman = zeeman(nspin[j], ntype, I, B)
+        H_HF = projected_hyperfine(nspin[j], S.alpha, ntype, I, S)
 
-        # print(zero_power)
-    # The Highest possible L will have all powers of 1
-    dm_tilda = {}
-    visited = 0
-    dms = np.ones([*timespace.shape, *dm0.shape], dtype=np.complex128)
-    dms = ma.masked_array(dms, mask=(dms_zero == 0))
+        H_j = H_zeeman + H_HF
+        H += expand(H_j, j, dimensions)
 
-    for order in orders:
-        dm_tilda[order] = []
-        # indexes of the cluster of size order are stored in v
+        s = ntype[nspin[j]['N']].s
+        Ivec = np.array([expand(I[s].x, j, dimensions),
+                         expand(I[s].y, j, dimensions),
+                         expand(I[s].z, j, dimensions)],
+                        dtype=np.complex128)
 
-        for index in range(subclusters[order].shape[0]):
+        ATensor = nspin[j]['A']
 
-            v = subclusters[order][index]
+        # AIvec = np.einsum('ij,jkl->ikl', ATensor, Ivec,
+        #                   dtype=np.complex128)  # AIvec = Atensor @ Ivector
+        # # AIs.append(AIvec)
+        AIvec = np.array([ATensor[0, 0] * Ivec[0], ATensor[1, 1] * Ivec[1], ATensor[2, 2] * Ivec[2]])
+        AIs += AIvec
 
-            H, dimensions = total_elhamiltonian(nspin[v], ntype,
-                                                I, B, S, gyro_e, D, E)
-            dms_v = (compute_dm(dm0, dimensions, H, S, timespace, pulse_sequence,
-                                as_delay=as_delay) / dms_zero)
+        Ivectors.append(Ivec)
 
-            for lowerorder in orders[:visited]:
-                contained_in_v = np.all(np.isin(subclusters[lowerorder], v), axis=1)
-                lower_dmtilda = np.prod(dm_tilda[lowerorder][contained_in_v], axis=0)
-                dms_v /= lower_dmtilda
+    for i in range(nnuclei):
+        for j in range(i + 1, nnuclei):
 
-            dms *= dms_v
-            dm_tilda[order].append(dms_v)
+            Ivec_1 = Ivectors[i]
+            Ivec_2 = Ivectors[j]
 
-        dm_tilda[order] = np.array(dm_tilda[order], copy=False)
+            H_DD = dipole_dipole(nspin[(i, j), ], Ivec_1, Ivec_2, ntype)
 
-        visited += 1
+            H += H_DD
 
-        print('Computed density matrices of order {} for {} clusters'.format(
-            order, subclusters[order].shape[0]))
+    eval0, evec0 = np.linalg.eigh(H)
 
-        # zero_power -= np.sum(power[order])
-    # print(dms_zero)
-    # print(dms)
-    # dms *= dms_v ** zero_power
-    # print(dms)
-    return dms
+    eigen_exp0 = np.exp(-1j * np.tensordot(timespace,
+                                           eval0, axes=0), dtype=np.complex128)
+
+    U = np.matmul(np.einsum('ij,kj->kij', evec0, eigen_exp0,
+                            dtype=np.complex128),
+                  evec0.conj().T, dtype=np.complex128)
+    dm0_expanded = np.eye(tdim) / tdim
+
+    AI_x = correlation_it_j0(AIs[0], AIs[0], dm0_expanded, U)
+    AI_y = correlation_it_j0(AIs[1], AIs[1], dm0_expanded, U)
+    AI_z = correlation_it_j0(AIs[2], AIs[2], dm0_expanded, U)
+
+    return np.array([AI_x, AI_y, AI_z])

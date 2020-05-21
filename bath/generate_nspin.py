@@ -1,14 +1,16 @@
 import numpy as np
+import sys
 from string import digits
 import collections
 
 err_range = 0.1
 FLOAT_ERROR_RANGE = 1e-10
 
-class UnitCell:
+
+class NSpinCell:
     _conv = {'rad': 1, 'deg': 2 * np.pi / 360}
 
-    def __init__(self, a, b, c,
+    def __init__(self, a=0, b=0, c=0,
                  alpha=None, beta=None, gamma=None,
                  units='rad'):
 
@@ -52,7 +54,15 @@ class UnitCell:
         #        [a_z b_z c_z]
 
         self.cell[2, 2] = self.volume / a / b / np.sin(gamma)
-        self._zdir = np.linalg.inv(self.cell) @ np.array([0, 0, 1])
+
+        if np.linalg.cond(self.cell) < 1 / sys.float_info.epsilon:
+            zdr = np.linalg.inv(self.cell) @ np.array([0, 0, 1])
+            zdr = zdr / np.linalg.norm(zdr)
+        else:
+            zdr = np.zeros(3)
+
+        self._zdir = zdr
+
         self.atoms = {}
         self.isotopes = {}
 
@@ -70,10 +80,15 @@ class UnitCell:
         b = ud / np.linalg.norm(ud)  # Final vector
 
         # Rotational matrix
-        if b @ a < FLOAT_ERROR_RANGE:
+        # If z direction is opposite
+        if abs(a @ b + 1) < FLOAT_ERROR_RANGE:
             R = np.array([[0, 1, 0],
-                           [1, 0, 0],
-                           [0, 0, -1]])
+                          [1, 0, 0],
+                          [0, 0, -1]])
+
+        elif abs(a @ b - 1) < FLOAT_ERROR_RANGE:
+            R = np.eye(3)
+
         else:
             R = rotmatrix(a, b)
 
@@ -121,16 +136,16 @@ class UnitCell:
         anumber = int(size * np.linalg.norm(bxc) / (bxc @ self.cell[:, 0]) + 1)
         bnumber = int(size * np.linalg.norm(cxa) / (cxa @ self.cell[:, 1]) + 1)
         cnumber = int(size * np.linalg.norm(axb) / (axb @ self.cell[:, 2]) + 1)
-        print(anumber, bnumber, cnumber)
+        # print(anumber, bnumber, cnumber)
 
         dt = np.dtype([('N', np.unicode_, 16), ('xyz', np.float64, (3,))])
         atoms = []
 
         for a in self.isotopes:
             nsites = len(self.atoms[a])
-            print(nsites)
+            # print(nsites)
             sites_xyz = np.asarray(self.atoms[a]) @ self.cell.T
-            print(sites_xyz)
+            # print(sites_xyz)
             maxind = np.array([anumber,
                                bnumber,
                                cnumber,
@@ -172,11 +187,27 @@ class UnitCell:
         atoms = np.concatenate(atoms)
         atoms = atoms[np.linalg.norm(atoms['xyz'], axis=1) <= size]
 
-        defective_atoms = defect(a.cell, atoms, add=add, remove=remove)
+        defective_atoms = defect(self.cell, atoms, add=add, remove=remove)
         return defective_atoms
 
     def cell_to_cartesian(self, coord):
         return self.cell @ np.asarray(coord)
+
+    @classmethod
+    def from_ase_Atoms(cls, atoms_object):
+        self = cls()
+        self.cell = atoms_object.cell[:].T
+        positions = atoms_object.get_scaled_positions(wrap=True)
+        symbols = atoms_object.get_chemical_symbols()
+
+        zdr = np.linalg.inv(self.cell) @ np.array([0, 0, 1])
+        zdr = zdr / np.linalg.norm(zdr)
+        self._zdir = zdr
+        for s in symbols:
+            self.atoms[s] = []
+        for sym, pos in zip(symbols, positions):
+            self.atoms[sym].append(pos)
+        return self
 
 
 def defect(cell, atoms, add=None, remove=None):
@@ -203,14 +234,16 @@ def defect(cell, atoms, add=None, remove=None):
             position_cc = np.asarray(removals[1])  # Given in the cell coordinates
 
             position = cell @ position_cc
-            print(name, position)
+            # print(name, position)
             print(np.core.defchararray.find(atoms['N'], name) != -1)
             offsets = np.linalg.norm((atoms['xyz'] - position), axis=1)
-            print(offsets <= err_range)
+            # print(offsets <= err_range)
             where += np.logical_and(np.core.defchararray.find(atoms['N'], name) != -1,
                                     offsets <= err_range)
 
-        print(where)
+        print('I see {} removals'.format(np.count_nonzero(where)))
+        print('Removing: \n', atoms[where])
+
         defective_atoms = atoms[~where]
 
     if isinstance(add, str):
@@ -252,6 +285,8 @@ def rotmatrix(initial_vector, final_vector):
     if c == -1.:
         raise ValueError('Vectors are antiparallel')
 
-    R = 2 * np.tensordot((a + b), (a + b), axes=0) / ((a + b) @ (a + b)) - np.eye(3)
+    v = np.cross(a, b)
+    screw_v = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
+    r = np.eye(3) + screw_v + np.dot(screw_v, screw_v) / (1 + c)
 
-    return R
+    return r

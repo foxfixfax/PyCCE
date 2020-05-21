@@ -1,9 +1,9 @@
 import numpy as np
 import numpy.ma as ma
 from .bath.read_bath import read_pos, read_external, gen_hyperfine
-from .coherence_function import cluster_L
+from .coherence_function import decorated_coherence_function
 from .find_clusters import make_graph, connected_components, find_subclusters
-from .elham import cluster_dm, cluster_dm_direct_approach, compute_dm
+from .density_matrix import decorated_density_matrix, cluster_dm_direct_approach, compute_dm
 from .hamiltonian import generate_SpinMatricies, QSpinMatrix, total_elhamiltonian
 
 
@@ -24,6 +24,7 @@ class QSpin:
                             ('A', np.float64, (3, 3))])
 
     def __init__(self, spin=1, position=None,
+                 alpha=None, beta=None,
                  gyro=-17608.597050):
 
         if position is None:
@@ -34,9 +35,17 @@ class QSpin:
         self.ntype = {}
 
         self.spin = spin
-        self.alpha = np.zeros(round(2 * spin + 1), dtype=np.complex128)
-        self.beta = np.zeros(round(2 * spin + 1), dtype=np.complex128)
 
+        if alpha is None:
+            alpha = np.zeros(int(round(2 * spin + 1)), dtype=np.complex128)
+            alpha[1] = 1
+
+        if beta is None:
+            beta = np.zeros(int(round(2 * spin + 1)), dtype=np.complex128)
+            beta[1] = 1
+
+        self.alpha = np.asarray(alpha)
+        self.beta = np.asarray(beta)
         self.gyro = gyro
 
         self.bath = None
@@ -55,24 +64,26 @@ class QSpin:
 
     def read_bath(self, nspin, r_bath, *,
                   skiprows=1,
+                  external_bath=None,
                   hf_positions=None,
                   hf_dipole=None,
                   hf_contact=None,
                   error_range=0.5):
 
         self.bath = None
-        external_atoms = None
-        atoms = read_pos(nspin, center=self.position,
-                             r_bath=r_bath, skiprows=skiprows)
 
-        if hf_positions and (hf_dipole or hf_contact):
-            external_atoms = read_external(hf_positions, hf_dipole, hf_contact)
+        atoms = read_pos(nspin, center=self.position,
+                         r_bath=r_bath, skiprows=skiprows)
+
+        if hf_positions and (hf_dipole or hf_contact) and external_bath is None:
+            external_bath = read_external(hf_positions, hf_dipole, hf_contact)
 
         self.bath = gen_hyperfine(atoms, self.ntype,
                                   center=self.position,
-                                  gamma_e=self.gyro,
+                                  gyro_e=self.gyro,
                                   error_range=error_range,
-                                  external_atoms=external_atoms)
+                                  external_atoms=external_bath)
+
         return self.bath
 
     def generate_graph(self, r_dipole, r_inner=0):
@@ -97,9 +108,8 @@ class QSpin:
     def compute_coherence(self, timespace, B, N, as_delay=False):
         I = generate_SpinMatricies(self.ntype)
         S = QSpinMatrix(self.spin, self.alpha, self.beta)
-
-        L = cluster_L(self.clusters, self.bath, self.ntype, I, S, B, timespace, N,
-                      as_delay=as_delay)
+        L = decorated_coherence_function(self.clusters, self.bath, self.ntype, I, S, B,
+                                         timespace, N, as_delay=as_delay)
 
         return L
 
@@ -117,16 +127,19 @@ class QSpin:
 
         dms = compute_dm(dm0, dimensions0, H0, S, timespace, pulse_sequence,
                          as_delay=as_delay)
+
         dms = ma.masked_array(dms, mask=(dms == 0), fill_value=0j, dtype=np.complex128)
 
         if check:
-            dms_c = cluster_dm(self.clusters, self.bath, self.ntype,
-                               dm0, I, S, B, self.gyro, D, E,
-                               timespace, pulse_sequence, as_delay=False)
+            dms_c = decorated_density_matrix(self.clusters, self.bath, self.ntype,
+                                            dm0, I, S, B, D, E,
+                                            timespace, pulse_sequence, gyro_e=self.gyro,
+                                            as_delay=as_delay, zeroth_cluster=dms)
+
         else:
             dms_c = cluster_dm_direct_approach(self.clusters, self.bath, self.ntype,
                                                dm0, I, S, B, self.gyro, D, E,
-                                               timespace, pulse_sequence, as_delay=False)
+                                               timespace, pulse_sequence, as_delay=as_delay)
         dms *= dms_c
 
         return dms

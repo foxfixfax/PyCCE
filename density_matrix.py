@@ -2,22 +2,27 @@ import numpy as np
 import numpy.ma as ma
 import scipy.linalg
 from .hamiltonian import total_elhamiltonian, expand
+from .cluster_expansion import cluster_expansion_decorator
 
 hbar = 1.05457172  # When everything else in rad, kHz, ms, G, A
 
-def propagator_dm(timespace, evec, evalues, pulse_sequence, S, dimensions):
+
+def propagator_dm(timespace, H, pulse_sequence, S, dimensions):
     """pulse_sequence should have format of list with tuples,
        containing two entries:
        first: axis the rotation is about; 
        second: angle of rotation"""
+    evalues, evec = np.linalg.eigh(H)
+
     eigexp = np.exp(-1j * np.tensordot(timespace, evalues, axes=0),
                     dtype=np.complex128)
 
     u = np.matmul(np.einsum('ij,kj->kij', evec, eigexp, dtype=np.complex128),
-                  evec.conj().T, dtype=np.complex128)
+                  evec.conj().T)
 
     if not pulse_sequence:
         return u
+
     else:
         alpha_x_alpha = np.tensordot(S.alpha, S.alpha, axes=0)
         beta_x_beta = np.tensordot(S.beta, S.beta, axes=0)
@@ -44,14 +49,13 @@ def propagator_dm(timespace, evec, evalues, pulse_sequence, S, dimensions):
 
 def compute_dm(dm0, dimensions, H, S, timespace,
                pulse_sequence=None, as_delay=False):
-
     if not as_delay and pulse_sequence:
         N = len(pulse_sequence)
         timespace = timespace / (2 * N)
 
     dm0 = expand(dm0, len(dimensions) - 1, dimensions) / np.prod(dimensions[:-1])
 
-    dm = full_dm(dm0, dimensions, H, S, timespace, pulse_sequence=pulse_sequence, as_delay=as_delay)
+    dm = full_dm(dm0, dimensions, H, S, timespace, pulse_sequence=pulse_sequence)
 
     initial_shape = dm.shape
     dm.shape = (initial_shape[0], *dimensions, *dimensions)
@@ -60,12 +64,11 @@ def compute_dm(dm0, dimensions, H, S, timespace,
     return dm
 
 
-def full_dm(dm0, dimensions, H, S, timespace, pulse_sequence=None, as_delay=False):
-    evalues, evec = np.linalg.eigh(H)
+def full_dm(dm0, dimensions, H, S, timespace, pulse_sequence=None):
     # if timespace was given not as delay between pulses,
     # divide to obtain the delay
 
-    U = propagator_dm(timespace, evec, evalues, pulse_sequence, S, dimensions)
+    U = propagator_dm(timespace, H, pulse_sequence, S, dimensions)
     dmUdagger = np.matmul(dm0, np.transpose(U.conj(), axes=(0, 2, 1)))
     dm = np.matmul(U, dmUdagger)
 
@@ -75,7 +78,6 @@ def full_dm(dm0, dimensions, H, S, timespace, pulse_sequence=None, as_delay=Fals
 def cluster_dm(subclusters, nspin, ntype,
                dm0, I, S, B, gyro_e, D, E,
                timespace, pulse_sequence, as_delay=False):
-
     # List of orders from highest to lowest
     revorders = sorted(subclusters)[::-1]
     norders = len(revorders)
@@ -99,7 +101,7 @@ def cluster_dm(subclusters, nspin, ntype,
 
         return dms
 
-        # print(zero_power)
+    # print(zero_power)
     # The Highest possible L will have all powers of 1
     power = {}
     zero_power = 0
@@ -142,8 +144,8 @@ def cluster_dm(subclusters, nspin, ntype,
             dms *= dms_v
 
             zero_power -= power[order][index]
-        print(np.abs(power[order]).max())
-        print(zero_power)
+        # print(np.abs(power[order]).max())
+        # print(zero_power)
         visited += 1
         print('Computed density matrices of order {} for {} clusters in subcluster of size {}'.format(
             order, subclusters[order].shape[0], subclusters[1].size))
@@ -154,7 +156,6 @@ def cluster_dm(subclusters, nspin, ntype,
 def cluster_dm_direct_approach(subclusters, nspin, ntype,
                                dm0, I, S, B, gyro_e, D, E,
                                timespace, pulse_sequence, as_delay=False):
-
     orders = sorted(subclusters)
     norders = len(orders)
 
@@ -210,11 +211,50 @@ def cluster_dm_direct_approach(subclusters, nspin, ntype,
         visited += 1
 
         print('Computed density matrices of order {} for {} clusters'.format(
-              order, subclusters[order].shape[0]))
+            order, subclusters[order].shape[0]))
 
-        # zero_power -= np.sum(power[order])
-    # print(dms_zero)
-    # print(dms)
-    # dms *= dms_v ** zero_power
-    # print(dms)
+    return dms
+
+
+@cluster_expansion_decorator
+def decorated_density_matrix(nspin, ntype,
+                             dm0, I, S, B, D, E,
+                             timespace, pulse_sequence,
+                             gyro_e=-17608.597050,
+                             as_delay=False, zeroth_cluster=None):
+
+    if zeroth_cluster is None:
+        H, dimensions = total_elhamiltonian(np.array([]), ntype,
+                                            I, B, S, gyro_e, D, E)
+        zeroth_cluster = compute_dm(dm0, dimensions, H, S, timespace, pulse_sequence,
+                                    as_delay=as_delay)
+        zeroth_cluster = ma.masked_array(zeroth_cluster, mask=(zeroth_cluster == 0))
+
+    H, dimensions = total_elhamiltonian(nspin, ntype,
+                                        I, B, S, gyro_e, D, E)
+    dms = compute_dm(dm0, dimensions, H, S, timespace,
+                     pulse_sequence, as_delay=as_delay) / zeroth_cluster
+
+    return dms
+
+
+@cluster_expansion_decorator
+def decorated_density_matrix(nspin, ntype,
+                             dm0, I, S, B, D, E,
+                             timespace, pulse_sequence,
+                             gyro_e=-17608.597050,
+                             as_delay=False, zeroth_cluster=None):
+
+    if zeroth_cluster is None:
+        H, dimensions = total_elhamiltonian(np.array([]), ntype,
+                                            I, B, S, gyro_e, D, E)
+        zeroth_cluster = compute_dm(dm0, dimensions, H, S, timespace, pulse_sequence,
+                                    as_delay=as_delay)
+        zeroth_cluster = ma.masked_array(zeroth_cluster, mask=(zeroth_cluster == 0))
+
+    H, dimensions = total_elhamiltonian(nspin, ntype,
+                                        I, B, S, gyro_e, D, E)
+    dms = compute_dm(dm0, dimensions, H, S, timespace,
+                     pulse_sequence, as_delay=as_delay) / zeroth_cluster
+
     return dms

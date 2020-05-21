@@ -34,13 +34,13 @@ def read_pos(nspin, center: np.array = None,
 
 
 def gen_hyperfine(atoms_inside: np.ndarray, ntype: dict, center: np.ndarray = None,
-                  gamma_e: float = -17608.597050, external_atoms: np.ndarray = None,
+                  gyro_e: float = -17608.597050, external_atoms: np.ndarray = None,
                   error_range: float = 0.5) -> np.ndarray:
     """
     :param atoms_inside: numpy array with dtype [('N', np.unicode_, 16), ('xyz', np.float64, (3,))] containing the \
     coordinates of the nuclear isotope N and it's type
     :param ntype: dictionary, which contains instances of SpinType class with nuclear types, present in the atoms array
-    :param gamma_e: gyromagnetic ratio of the qubit spin (rad/kHz/G)
+    :param gyro_e: gyromagnetic ratio of the qubit spin (rad/kHz/G)
     :param error_range: error range within which the coordinates of atoms in dft cell are considered the same as in \
     the atoms_inside array
     :param external_atoms: np.ndarray containing atoms with predefined hf
@@ -67,7 +67,7 @@ def gen_hyperfine(atoms_inside: np.ndarray, ntype: dict, center: np.ndarray = No
         pos = d['xyz'] - center
         r = np.linalg.norm(pos)
 
-        d['A'] = -(3 * np.outer(pos, pos) - I * r ** 2) / (r ** 5) * gamma_e * ntype[d['N']].gyro * hbar
+        d['A'] = -(3 * np.outer(pos, pos) - I * r ** 2) / (r ** 5) * gyro_e * ntype[d['N']].gyro * hbar
 
     if external_atoms is not None:
         counter_ext = 0

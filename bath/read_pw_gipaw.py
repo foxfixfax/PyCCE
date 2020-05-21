@@ -43,7 +43,7 @@ def read_qe(coord_f, hf_f, s=1, pw_type=None):
 
         if pw_type == 'out':
             fcoord = 'Begin final coordinates'
-            pl = find_line(coord, fcoord)
+            find_line(coord, fcoord)
 
         pw_keyword = 'ATOMIC_POSITIONS'
 
@@ -130,7 +130,7 @@ def transform(atoms, center=None, cell=None, rotate=None, style='col', copy=Fals
                ' Otherwise expect the unexpected')
         warnings.warn(mes, RuntimeWarning)
 
-    atoms['xyz'] -= center
+    atoms['xyz'] -= np.asarray(center)
 
     if style.lower() == 'row':
         cell = cell.T

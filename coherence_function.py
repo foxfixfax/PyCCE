@@ -1,7 +1,13 @@
 import numpy as np
-from .hamiltonian import total_hamiltonian
 
-def propagators(timespace, evec0, eval0, evec1, eval1, N):
+from .hamiltonian import total_hamiltonian
+from .cluster_expansion import cluster_expansion_decorator
+
+
+def propagators(timespace, H0, H1, N):
+    eval0, evec0 = np.linalg.eigh(H0)
+    eval1, evec1 = np.linalg.eigh(H1)
+
     eigen_exp0 = np.exp(-1j * np.tensordot(timespace,
                                            eval0, axes=0), dtype=np.complex128)
     eigen_exp1 = np.exp(-1j * np.tensordot(timespace,
@@ -38,15 +44,12 @@ def propagators(timespace, evec0, eval0, evec1, eval1, N):
 
 
 def computeL(H0, H1, timespace, N, as_delay=False):
-    eval0, evec0 = np.linalg.eigh(H0)
-    eval1, evec1 = np.linalg.eigh(H1)
-
     # if timespace was given not as delay between pulses,
     # divide to obtain the delay
     if not as_delay and N > 0:
         timespace = timespace / (2 * N)
 
-    U0, U1 = propagators(timespace, evec0, eval0, evec1, eval1, N)
+    U0, U1 = propagators(timespace, H0, H1, N)
     L = np.trace(np.matmul(U0, np.transpose(
         U1.conj(), axes=(0, 2, 1))), axis1=1, axis2=2) / U0.shape[1]
 

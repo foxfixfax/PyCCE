@@ -34,6 +34,8 @@ class QSpinMatrix(SpinMatrix):
     def __init__(self, s, alpha, beta):
         super().__init__(s)
 
+        alpha = np.asarray(alpha)
+        beta = np.asarray(beta)
         self.alpha = alpha
         self.beta = beta
 
@@ -42,17 +44,26 @@ class QSpinMatrix(SpinMatrix):
                                            alpha.conj() @ self.z @ alpha],
                                           dtype=np.complex128)
 
-        self.proj_beta = np.array([beta.conj() @ self.x @ beta,
-                                   beta.conj() @ self.y @ beta,
-                                   beta.conj() @ self.z @ beta],
-                                  dtype=np.complex128)
+        self.projections_beta = np.array([beta.conj() @ self.x @ beta,
+                                          beta.conj() @ self.y @ beta,
+                                          beta.conj() @ self.z @ beta],
+                                         dtype=np.complex128)
 
     def __getitem__(self, state):
         if np.all(state == self.alpha):
             return self.projections_alpha
 
         elif np.all(state == self.beta):
-            return self.proj_beta
+            return self.projections_beta
+        else:
+            raise KeyError('There is no such qubit state!')
+
+    def __setitem__(self, state, value):
+        if np.all(state == self.alpha):
+            self.projections_alpha = value
+
+        elif np.all(state == self.beta):
+            self.projections_beta = value
         else:
             raise KeyError('There is no such qubit state!')
 
@@ -205,6 +216,7 @@ def total_elhamiltonian(nspin, ntype, I, B, S, gyro_e, D, E):
     H += expand(H_electron, nnuclei, dimensions)
 
     Ivectors = []
+
     for j in range(nnuclei):
         s = ntype[nspin[j]['N']].s
         Ivec = np.array([expand(I[s].x, j, dimensions),
@@ -216,6 +228,95 @@ def total_elhamiltonian(nspin, ntype, I, B, S, gyro_e, D, E):
         H_HF = hyperfine(nspin[j], Svec, Ivec)
 
         H += expand(H_zeeman, j, dimensions) + H_HF
+
+        Ivectors.append(Ivec)
+
+    for i in range(nnuclei):
+        for j in range(i + 1, nnuclei):
+
+            Ivec_1 = Ivectors[i]
+            Ivec_2 = Ivectors[j]
+
+            H_dd = dipole_dipole(nspin[(i, j), ], Ivec_1, Ivec_2, ntype)
+
+            H += H_dd
+
+    return H, dimensions
+
+
+def mf_electron(S, others, others_state):
+    H_mf = 0
+    zfield = np.sum(others['A'][:, 2, 2] * others_state)
+    H_mf += zfield * S.z
+
+    return H_mf
+
+
+def mf_nucleus(nspin, ntype, I, others, others_state):
+    g = ntype[nspin['N']].gyro
+    s = ntype[nspin['N']].s
+
+    gyros = np.empty(others.shape, dtype=np.float64)
+    for n in ntype:
+        other_g = ntype[n].gyro
+        mask = others['N'] == n
+        gyros[mask] = other_g
+
+    pre = g * gyros * hbar
+
+    pos = nspin['xyz'] - others['xyz']
+    r = np.linalg.norm(pos, axis=1)
+    cos_theta = pos[:, 2] / r
+
+    zfield = np.sum(pre / r ** 3 * (1 - cos_theta ** 2) * others_state)
+    H_mf = zfield * I[s].z
+
+    return H_mf
+
+
+def mf_hamiltonian(nspin, ntype, I, B, S, gyro_e, D, E, allspins, bath_state=None):
+    if bath_state is None:
+        rgen = np.random.default_rng()
+        bath_state = np.empty(allspins.shape, dtype=np.float64)
+
+        for n in ntype:
+            s = ntype[n].s
+            snumber = int(round(2*s + 1))
+            mask = allspins['N'] == n
+            bath_state[mask] = rgen.integers(snumber, size=np.count_nonzero(mask)) - s
+
+    others_mask = np.isin(allspins, nspin)
+    others = allspins[~others_mask]
+    others_state = bath_state[~others_mask]
+
+    dimensions = [I[ntype[n['N']].s].dim for n in nspin] + [S.dim]
+    nnuclei = nspin.shape[0]
+
+    tdim = np.prod(dimensions, dtype=np.int32)
+    H = np.zeros((tdim, tdim), dtype=np.complex128)
+
+    H_electron = self_electron(B, S, gyro_e, D, E)
+    H_mf_electron = mf_electron(S, others, others_state)
+    Svec = np.array([expand(S.x, nnuclei, dimensions),
+                     expand(S.y, nnuclei, dimensions),
+                     expand(S.z, nnuclei, dimensions)],
+                    dtype=np.complex128)
+
+    H += expand(H_electron, nnuclei, dimensions) + expand(H_mf_electron, nnuclei, dimensions)
+    Ivectors = []
+
+    for j in range(nnuclei):
+        s = ntype[nspin[j]['N']].s
+        Ivec = np.array([expand(I[s].x, j, dimensions),
+                         expand(I[s].y, j, dimensions),
+                         expand(I[s].z, j, dimensions)],
+                        dtype=np.complex128)
+
+        H_zeeman = zeeman(nspin[j], ntype, I, B)
+        H_HF = hyperfine(nspin[j], Svec, Ivec)
+        H_mf_nucleus = mf_hamiltonian(nspin[j], ntype, ntype, I, others, others_state)
+
+        H += expand(H_zeeman, j, dimensions) + expand(H_mf_nucleus, j, dimensions) + H_HF
 
         Ivectors.append(Ivec)
 

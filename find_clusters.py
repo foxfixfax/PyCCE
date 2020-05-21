@@ -4,6 +4,7 @@ import numpy as np
 import scipy.sparse
 import scipy.sparse.csgraph
 from scipy.sparse import csr_matrix
+from itertools import combinations
 
 
 def make_graph(atoms, R_dipole, R_inner=0):
@@ -15,7 +16,7 @@ def make_graph(atoms, R_dipole, R_inner=0):
     except ZeroDivisionError:
         print('No spins, no neighbours.')
 
-    # Generate sparce matrix contain connectivity
+    # Generate sparse matrix contain connectivity
     graph = csr_matrix(atoms_within, dtype=np.bool)
 
     return graph
@@ -36,16 +37,17 @@ def find_subclusters(CCE_order, graph, labels, n_components, strong=False):
         ncomp = np.count_nonzero(vert_pos)
         verticles = np.nonzero(vert_pos)[0]
 
-        print('{} cluster contains {} components'.format(component, ncomp))
+        # print('{} cluster contains {} components'.format(component, ncomp))
 
-        if ncomp <= CCE_order:
+        # if ncomp <= CCE_order:
+        #
+        #     clusters[ncomp].append(verticles[np.newaxis, :])
+        #
+        # else:
 
-            clusters[ncomp].append(verticles[:, np.newaxis])
-
-        else:
-
-            subclusters = {1: verticles[:, np.newaxis]}
-            clusters[1].append(verticles[:, np.newaxis])
+        subclusters = {1: verticles[:, np.newaxis]}
+        clusters[1].append(verticles[:, np.newaxis])
+        if verticles.size >= 2:
             for order in range(2, CCE_order + 1):
 
                 if order == 2:
@@ -71,7 +73,6 @@ def find_subclusters(CCE_order, graph, labels, n_components, strong=False):
                     # List of cluster of size 4
                     ltriplets = []
 
-                    stime = time.time()
                     # For ith triplet check i+1:N pairs, if one of them contains
                     # one and only one element of jth pair, they form a cluster of 4
                     # There is no need to check the last one, as it would be included
@@ -146,12 +147,45 @@ def find_subclusters(CCE_order, graph, labels, n_components, strong=False):
 
                     subclusters[order] = ltriplets
 
-            clusters[order].append(subclusters[order])
+                clusters[order].append(subclusters[order])
+
     for o in range(1, CCE_order + 1):
         if clusters[o]:
-            print(clusters[o])
+            # print(clusters[o])
             clusters[o] = np.concatenate(clusters[o], axis=0)
         else:
-            clusters.remove(o)
+            print('Set of clusters of order {} is empty!'.format(o))
+            clusters.pop(o)
 
     return clusters
+
+
+def expand_clusters(sc):
+    indexes = np.arange(sc[1].size, dtype=np.int32)
+    comb = np.array([*combinations(indexes, 2)], dtype=np.int32)
+
+    newsc = {}
+    newsc[1] = indexes[:, np.newaxis]
+    newsc[2] = comb
+
+    for o in sorted(sc)[1:]:
+        lexpanded = []
+
+        for test in sc[o]:
+            cond = np.any(comb.reshape(comb.shape + (1,)) == test, axis=1)
+            rows = np.equal(np.count_nonzero(cond, axis=1), 1)
+
+            tiled_test = np.tile(test, (np.count_nonzero(rows), 1))
+
+            flatten = tiled_test[~cond[rows]]
+            appendix = flatten.reshape(-1, o - 1)
+
+            triplets = np.concatenate((comb[rows], appendix), axis=1)
+            lexpanded.append(triplets)
+
+        lexpanded = np.concatenate(lexpanded, axis=0)
+        lexpanded = np.unique(np.sort(lexpanded, axis=1), axis=0)
+        newsc[o + 1] = lexpanded
+
+    return newsc
+
