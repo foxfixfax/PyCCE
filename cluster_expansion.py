@@ -62,8 +62,8 @@ def cluster_expansion_decorator(_func=None, *, result_operator=operator.imul, co
                     result = result_operator(result, vcalc)
 
                 visited += 1
-                print('Computed {} of order {} for {} clusters'.format(
-                    function.__name__, order, subclusters[order].shape[0]))
+                # print('Computed {} of order {} for {} clusters'.format(
+                #     function.__name__, order, subclusters[order].shape[0]))
 
             return result
         return cluster_expansion

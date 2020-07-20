@@ -235,14 +235,14 @@ def defect(cell, atoms, add=None, remove=None):
 
             position = cell @ position_cc
             # print(name, position)
-            print(np.core.defchararray.find(atoms['N'], name) != -1)
+            # print(np.core.defchararray.find(atoms['N'], name) != -1)
             offsets = np.linalg.norm((atoms['xyz'] - position), axis=1)
             # print(offsets <= err_range)
             where += np.logical_and(np.core.defchararray.find(atoms['N'], name) != -1,
                                     offsets <= err_range)
-
-        print('I see {} removals'.format(np.count_nonzero(where)))
-        print('Removing: \n', atoms[where])
+        if np.count_nonzero(where):
+            print('I see {} removals'.format(np.count_nonzero(where)))
+            print('Removing: \n', atoms[where])
 
         defective_atoms = atoms[~where]
 

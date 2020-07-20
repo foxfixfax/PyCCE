@@ -41,8 +41,8 @@ def propagator_dm(timespace, H, pulse_sequence, S, dimensions):
             angle = pulse[1]
             ax = pulse[0]
             rotation = scipy.linalg.expm(-1j * sigma[ax] * angle / 2)
-            U = np.matmul(U, rotation)
-            U = np.matmul(U, u)
+            U = np.matmul(rotation, U)
+            U = np.matmul(u, U)
 
         return U
 

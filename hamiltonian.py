@@ -245,9 +245,12 @@ def total_elhamiltonian(nspin, ntype, I, B, S, gyro_e, D, E):
 
 
 def mf_electron(S, others, others_state):
-    H_mf = 0
+
+    # xfield = np.sum(others['A'][:, 2, 0] * others_state)
+    # yfield = np.sum(others['A'][:, 2, 1] * others_state)
     zfield = np.sum(others['A'][:, 2, 2] * others_state)
-    H_mf += zfield * S.z
+
+    H_mf = zfield * S.z  # + xfield * S.x + yfield * S.y
 
     return H_mf
 
@@ -274,21 +277,7 @@ def mf_nucleus(nspin, ntype, I, others, others_state):
     return H_mf
 
 
-def mf_hamiltonian(nspin, ntype, I, B, S, gyro_e, D, E, allspins, bath_state=None):
-    if bath_state is None:
-        rgen = np.random.default_rng()
-        bath_state = np.empty(allspins.shape, dtype=np.float64)
-
-        for n in ntype:
-            s = ntype[n].s
-            snumber = int(round(2*s + 1))
-            mask = allspins['N'] == n
-            bath_state[mask] = rgen.integers(snumber, size=np.count_nonzero(mask)) - s
-
-    others_mask = np.isin(allspins, nspin)
-    others = allspins[~others_mask]
-    others_state = bath_state[~others_mask]
-
+def mf_hamiltonian(nspin, ntype, I, B, S, gyro_e, D, E, others, others_state):
     dimensions = [I[ntype[n['N']].s].dim for n in nspin] + [S.dim]
     nnuclei = nspin.shape[0]
 
@@ -296,7 +285,9 @@ def mf_hamiltonian(nspin, ntype, I, B, S, gyro_e, D, E, allspins, bath_state=Non
     H = np.zeros((tdim, tdim), dtype=np.complex128)
 
     H_electron = self_electron(B, S, gyro_e, D, E)
+
     H_mf_electron = mf_electron(S, others, others_state)
+
     Svec = np.array([expand(S.x, nnuclei, dimensions),
                      expand(S.y, nnuclei, dimensions),
                      expand(S.z, nnuclei, dimensions)],
@@ -314,7 +305,7 @@ def mf_hamiltonian(nspin, ntype, I, B, S, gyro_e, D, E, allspins, bath_state=Non
 
         H_zeeman = zeeman(nspin[j], ntype, I, B)
         H_HF = hyperfine(nspin[j], Svec, Ivec)
-        H_mf_nucleus = mf_hamiltonian(nspin[j], ntype, ntype, I, others, others_state)
+        H_mf_nucleus = mf_nucleus(nspin[j], ntype, I, others, others_state)
 
         H += expand(H_zeeman, j, dimensions) + expand(H_mf_nucleus, j, dimensions) + H_HF
 
