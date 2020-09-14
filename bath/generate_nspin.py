@@ -9,8 +9,8 @@ FLOAT_ERROR_RANGE = 1e-10
 
 class NSpinCell:
     _conv = {'rad': 1, 'deg': 2 * np.pi / 360}
-
-    def __init__(self, a=0, b=0, c=0,
+    _coord_types = ['angstrom', 'cell']
+    def __init__(self, a=1, b=1, c=1,
                  alpha=None, beta=None, gamma=None,
                  units='rad'):
 
@@ -33,8 +33,8 @@ class NSpinCell:
         else:
             gamma = gamma * self._conv[units]
 
-        self.alpha, self.beta, self.gamma = alpha, beta, gamma
-        self.a, self.b, self.c = a, b, c
+        # self.alpha, self.beta, self.gamma = alpha, beta, gamma
+        # self.a, self.b, self.c = a, b, c
 
         inbr = (1 + 2 * np.cos(alpha) * np.cos(beta) * np.cos(gamma) -
                 np.cos(alpha) ** 2 - np.cos(beta) ** 2 - np.cos(gamma) ** 2)
@@ -104,14 +104,19 @@ class NSpinCell:
         # in other words, columns of M are coordinates of the new
         # basis in the old basis.
 
-    def add_atoms(self, *args):
-
+    def add_atoms(self, *args, type='cell'):
+        if not type in self._coord_types:
+            raise ValueError('Unsupported coordinates type. Supported:',
+                             '\n'.join(str(x) for x in self._coord_types))
         for tup in args:
-
+            if type == 'cell':
+                coord = np.asarray(tup[1])
+            elif type == 'angstrom':
+                coord = np.linalg.inv(self.cell) @ np.asarray(tup[1])
             if tup[0] in self.atoms:
-                self.atoms[tup[0]].append(np.asarray(tup[1]))
+                self.atoms[tup[0]].append(coord)
             else:
-                self.atoms[tup[0]] = [np.asarray(tup[1])]
+                self.atoms[tup[0]] = [coord]
 
         return self.atoms
 
@@ -185,7 +190,7 @@ class NSpinCell:
                 atoms.append(subatoms)
 
         atoms = np.concatenate(atoms)
-        atoms = atoms[np.linalg.norm(atoms['xyz'], axis=1) <= size]
+        # atoms = atoms[np.linalg.norm(atoms['xyz'], axis=1) <= size]
 
         defective_atoms = defect(self.cell, atoms, add=add, remove=remove)
         return defective_atoms
@@ -214,7 +219,7 @@ def defect(cell, atoms, add=None, remove=None):
     defective_atoms = atoms.copy()
     dt = atoms.dtype
 
-    if isinstance(remove[0], str):
+    if remove is not None and isinstance(remove[0], str):
         name = remove[0]
         position_cc = np.asarray(remove[1])  # Given in the cell coordinates
 
@@ -246,14 +251,15 @@ def defect(cell, atoms, add=None, remove=None):
 
         defective_atoms = atoms[~where]
 
-    if isinstance(add, str):
+    if add is not None and isinstance(add[0], str):
         name = add[0]
         position_cc = np.asarray(add[1])  # Given in the cell coordinates
 
         position = cell @ position_cc
 
-        newentry = np.array([name, position], dtype=dt)
+        newentry = np.array((name, position), dtype=dt)
 
+        print('Adding: \n', newentry)
         defective_atoms = np.append(defective_atoms, newentry)
 
     elif add is not None:
@@ -265,9 +271,11 @@ def defect(cell, atoms, add=None, remove=None):
 
             position = cell @ position_cc
 
-            newentry = np.array([name, position], dtype=dt)
+            newentry = np.array((name, position), dtype=dt)
 
             newlist.append(newentry)
+
+        print('Adding: \n', np.asarray(newlist))
 
         defective_atoms = np.append(defective_atoms, newlist)
 

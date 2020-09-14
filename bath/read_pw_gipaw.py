@@ -59,7 +59,10 @@ def read_qe(coord_f, hf_f, s=1, pw_type=None):
                 break
 
             typ = pl.split()[0]
-            coord = np.array([float(x) for x in pl.split()[1:]])
+            try:
+                coord = np.array([float(x) for x in pl.split()[1:]])
+            except ValueError:
+                break
             A = []
             # divided by spin, b/c fucked in the GIPAW code
             for i in range(3):

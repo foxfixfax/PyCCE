@@ -1,7 +1,7 @@
 import numpy as np
 import numpy.ma as ma
 import scipy.linalg
-from .hamiltonian import total_elhamiltonian, expand
+from .hamiltonian import total_elhamiltonian, expand, eta_hamiltonian
 from .cluster_expansion import cluster_expansion_decorator
 
 hbar = 1.05457172  # When everything else in rad, kHz, ms, G, A
@@ -48,13 +48,15 @@ def propagator_dm(timespace, H, pulse_sequence, S, dimensions):
 
 
 def compute_dm(dm0, dimensions, H, S, timespace,
-               pulse_sequence=None, as_delay=False):
+               pulse_sequence=None, as_delay=False, states=None):
     if not as_delay and pulse_sequence:
         N = len(pulse_sequence)
         timespace = timespace / (2 * N)
 
-    dm0 = expand(dm0, len(dimensions) - 1, dimensions) / np.prod(dimensions[:-1])
-
+    if states is None:
+        dm0 = expand(dm0, len(dimensions) - 1, dimensions) / np.prod(dimensions[:-1])
+    else:
+        dm0 = generate_dm0(dm0, dimensions, states)
     dm = full_dm(dm0, dimensions, H, S, timespace, pulse_sequence=pulse_sequence)
 
     initial_shape = dm.shape
@@ -65,6 +67,7 @@ def compute_dm(dm0, dimensions, H, S, timespace,
 
 
 def full_dm(dm0, dimensions, H, S, timespace, pulse_sequence=None):
+    """ A function to compute dm using hamiltonian H from expanded dm0"""
     # if timespace was given not as delay between pulses,
     # divide to obtain the delay
 
@@ -73,6 +76,23 @@ def full_dm(dm0, dimensions, H, S, timespace, pulse_sequence=None):
     dm = np.matmul(U, dmUdagger)
 
     return dm
+
+def generate_dm0(dm0, dimensions, states):
+    states = np.asarray(states)
+    dmtotal0 = np.eye(1, dtype=np.complex128)
+    scheck = (len(states.shape) == 1)
+    for s, d in zip(states, dimensions[:-1]):
+        dm_nucleus = np.zeros((d, d), dtype=np.complex128)
+        if scheck:
+            state_number = int(round((d - 1) / 2 - s))
+            dm_nucleus[state_number, state_number] = 1
+        else:
+            np.fill_diagonal(dm_nucleus, s)
+
+        dmtotal0 = np.kron(dmtotal0, dm_nucleus)
+
+    dmtotal0 = np.kron(dmtotal0, dm0)
+    return dmtotal0
 
 
 def cluster_dm(subclusters, nspin, ntype,
@@ -221,7 +241,12 @@ def decorated_density_matrix(nspin, ntype,
                              dm0, I, S, B, D, E,
                              timespace, pulse_sequence,
                              gyro_e=-17608.597050,
-                             as_delay=False, zeroth_cluster=None):
+                             as_delay=False, zeroth_cluster=None,
+                             bath_state=None, allspins=None,
+                             eta=None, alpha=None, beta=None):
+    if allspins is not None and bath_state is not None:
+        others_mask = np.isin(allspins, nspin)
+        states = bath_state[others_mask]
 
     if zeroth_cluster is None:
         H, dimensions = total_elhamiltonian(np.array([]), ntype,
@@ -232,29 +257,11 @@ def decorated_density_matrix(nspin, ntype,
 
     H, dimensions = total_elhamiltonian(nspin, ntype,
                                         I, B, S, gyro_e, D, E)
+    if eta is not None:
+        if alpha is None or beta is None:
+            raise ValueError('Eta Hamiltonian requires input of qubit states')
+        H += eta_hamiltonian(nspin, ntype, I, S, eta, alpha, beta)
     dms = compute_dm(dm0, dimensions, H, S, timespace,
-                     pulse_sequence, as_delay=as_delay) / zeroth_cluster
-
-    return dms
-
-
-@cluster_expansion_decorator
-def decorated_density_matrix(nspin, ntype,
-                             dm0, I, S, B, D, E,
-                             timespace, pulse_sequence,
-                             gyro_e=-17608.597050,
-                             as_delay=False, zeroth_cluster=None):
-
-    if zeroth_cluster is None:
-        H, dimensions = total_elhamiltonian(np.array([]), ntype,
-                                            I, B, S, gyro_e, D, E)
-        zeroth_cluster = compute_dm(dm0, dimensions, H, S, timespace, pulse_sequence,
-                                    as_delay=as_delay)
-        zeroth_cluster = ma.masked_array(zeroth_cluster, mask=(zeroth_cluster == 0))
-
-    H, dimensions = total_elhamiltonian(nspin, ntype,
-                                        I, B, S, gyro_e, D, E)
-    dms = compute_dm(dm0, dimensions, H, S, timespace,
-                     pulse_sequence, as_delay=as_delay) / zeroth_cluster
+                     pulse_sequence, as_delay=as_delay, states=states) / zeroth_cluster
 
     return dms

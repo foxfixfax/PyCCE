@@ -323,3 +323,20 @@ def mf_hamiltonian(nspin, ntype, I, B, S, gyro_e, D, E, others, others_state):
 
     return H, dimensions
 
+def eta_hamiltonian(nspin, ntype, I, S, eta, alpha, beta):
+    nnuclei = nspin.shape[0]
+    dimensions = [I[ntype[n['N']].s].dim for n in nspin] + [S.dim]
+
+    AIzi = 0
+    for j in range(nnuclei):
+        s = ntype[nspin[j]['N']].s
+        Ivec = np.array([expand(I[s].x, j, dimensions),
+                         expand(I[s].y, j, dimensions),
+                         expand(I[s].z, j, dimensions)],
+                        dtype=np.complex128)
+
+        AIzi += np.einsum('j,jkl->kl', nspin[j]['A'][2, :], Ivec, dtype=np.complex128)
+
+    up_down = (1 - eta) / 2 * (np.tensordot(alpha, alpha, axes=0) + np.tensordot(beta, beta, axes=0))
+    H_eta = expand(up_down, nnuclei, dimensions) @ AIzi
+    return H_eta

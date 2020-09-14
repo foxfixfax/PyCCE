@@ -6,6 +6,7 @@ from .find_clusters import make_graph, connected_components, find_subclusters
 from .density_matrix import decorated_density_matrix, cluster_dm_direct_approach, compute_dm
 from .hamiltonian import generate_SpinMatricies, QSpinMatrix, total_elhamiltonian, mf_hamiltonian
 from .mean_field_dm import mean_field_density_matrix
+from .correlation_function import mean_field_noise_correlation, decorated_noise_correlation
 
 
 class QSpin:
@@ -155,14 +156,14 @@ class QSpin:
         return dms
 
     def compute_mf_dm(self, timespace, B, D, E, pulse_sequence, as_delay=False, state=None,
-                      nbstates=100, seed=None, masked=True, normalized=None, parallel=False):
+                      nbstates=100, seed=None, masked=True, normalized=None, parallel=False,
+                      fixstates=None):
         if parallel:
             try:
                 from mpi4py import MPI
             except ImportError:
                 print('Parallel failed: mpi4py is not found. Running serial')
                 parallel = False
-
 
         if state is None:
             state = np.sqrt(1 / 2) * (self.alpha + self.beta)
@@ -172,7 +173,7 @@ class QSpin:
         S = QSpinMatrix(self.spin, self.alpha, self.beta)
 
         if masked:
-            divider = 0
+            divider = np.zeros(timespace.shape, dtype=np.int32)
         else:
             root_divider = nbstates
 
@@ -193,8 +194,8 @@ class QSpin:
 
         rgen = np.random.default_rng(seed)
 
-        averaged_dms = 0
-        avdm0 = 0
+        averaged_dms = ma.zeros((timespace.size, *dm0.shape), dtype=np.complex128)
+        # avdm0 = 0
 
         for _ in range(nbstates):
 
@@ -204,13 +205,15 @@ class QSpin:
                 snumber = int(round(2 * s + 1))
                 mask = self.bath['N'] == n
                 bath_state[mask] = rgen.integers(snumber, size=np.count_nonzero(mask)) - s
-
+            if fixstates is not None:
+                for fs in fixstates:
+                    bath_state[fs] = fixstates[fs]
             H0, d0 = mf_hamiltonian(np.array([]), self.ntype,
                                     I, B, S, self.gyro, D, E, self.bath, bath_state)
 
             dmzero = compute_dm(dm0, d0, H0, S, timespace, pulse_sequence, as_delay=as_delay)
             dmzero = ma.array(dmzero, mask=(dmzero == 0), fill_value=0j, dtype=np.complex128)
-            avdm0 += dmzero
+            # avdm0 += dmzero
             dms = mean_field_density_matrix(self.clusters, self.bath, self.ntype,
                                             dm0, I, S, B, D, E,
                                             timespace, pulse_sequence, self.bath, bath_state,
@@ -261,6 +264,86 @@ class QSpin:
             return root_dms
         else:
             return
+
+    def mean_field_corr(self, timespace, B, D, E, state=None,
+                        nbstates=100, seed=None, parallel=False):
+        if parallel:
+            try:
+                from mpi4py import MPI
+            except ImportError:
+                print('Parallel failed: mpi4py is not found. Running serial')
+                parallel = False
+
+        if state is None:
+            state = np.sqrt(1 / 2) * (self.alpha + self.beta)
+
+        dm0 = np.tensordot(state, state, axes=0)
+        I = generate_SpinMatricies(self.ntype)
+        S = QSpinMatrix(self.spin, self.alpha, self.beta)
+
+        root_divider = nbstates
+
+        if parallel:
+            comm = MPI.COMM_WORLD
+
+            size = comm.Get_size()
+            rank = comm.Get_rank()
+
+            remainder = nbstates % size
+            add = int(rank < remainder)
+            nbstates = nbstates // size + add
+
+            if seed:
+                seed = seed + rank
+        else:
+            rank = 0
+
+        rgen = np.random.default_rng(seed)
+
+        averaged_corr = 0
+
+        for _ in range(nbstates):
+
+            bath_state = np.empty(self.bath.shape, dtype=np.float64)
+            for n in self.ntype:
+                s = self.ntype[n].s
+                snumber = int(round(2 * s + 1))
+                mask = self.bath['N'] == n
+                bath_state[mask] = rgen.integers(snumber, size=np.count_nonzero(mask)) - s
+
+            corr = mean_field_noise_correlation(self.clusters, self.bath, self.ntype,
+                                                dm0, I, S, B, D, E, timespace,
+                                                self.bath, bath_state, gyro_e=self.gyro)
+
+            averaged_corr += corr
+
+        if parallel:
+            root_corr = np.array(np.zeros(averaged_corr.shape), dtype=np.complex128)
+            comm.Reduce(averaged_corr, root_corr, MPI.SUM, root=0)
+
+        else:
+            root_corr = averaged_corr
+
+        if rank == 0:
+            root_corr /= root_divider
+
+            return root_corr
+        else:
+            return
+
+    def compute_corr(self, timespace, B, D, E, state=None):
+        if state is None:
+            state = np.sqrt(1 / 2) * (self.alpha + self.beta)
+
+        dm0 = np.tensordot(state, state, axes=0)
+        I = generate_SpinMatricies(self.ntype)
+        S = QSpinMatrix(self.spin, self.alpha, self.beta)
+
+        corr = decorated_noise_correlation(self.clusters, self.bath, self.ntype,
+                                           dm0, I, S, B, D, E,
+                                           timespace,
+                                           gyro_e=self.gyro)
+        return corr
 
 
 class SpinType:

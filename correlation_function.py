@@ -4,9 +4,9 @@ import operator
 
 from .cluster_expansion import cluster_expansion_decorator
 from .density_matrix import propagator_dm
-from .hamiltonian import expand, zeeman, projected_hyperfine
+from .hamiltonian import expand, zeeman, projected_hyperfine, mf_hamiltonian
 from .hamiltonian import total_elhamiltonian, dipole_dipole
-
+from .mean_field_dm import generate_dm0
 
 def correlation_it_j0(operator_i, operator_j, dm0_expanded, U):
     operator_i_t = np.matmul(np.transpose(U.conj(), axes=(0, 2, 1)), np.matmul(operator_i, U))
@@ -41,9 +41,6 @@ def decorated_noise_correlation(nspin, ntype,
 
         ATensor = n['A']
 
-        # AIvec = np.einsum('ij,jkl->ikl', ATensor, Ivec,
-        #                   dtype=np.complex128)  # AIvec = Atensor @ Ivector
-        # # AIs.append(AIvec)
         AIvec = np.array([ATensor[0, 0] * Ivec[0], ATensor[1, 1] * Ivec[1], ATensor[2, 2] * Ivec[2]])
         AIs += AIvec
 
@@ -51,11 +48,45 @@ def decorated_noise_correlation(nspin, ntype,
     AI_y = correlation_it_j0(AIs[1], AIs[1], dm0_expanded, U)
     AI_z = correlation_it_j0(AIs[2], AIs[2], dm0_expanded, U)
 
-    # for i in range(nnuclei):
-    #     for j in range(nnuclei):
-    #         AI_x += correlation_it_j0(AIs[i][0], AIs[j][0], dm0_expanded, U)
-    #         AI_y += correlation_it_j0(AIs[i][1], AIs[j][1], dm0_expanded, U)
-    #         AI_z += correlation_it_j0(AIs[i][2], AIs[j][2], dm0_expanded, U)
+    return np.array([AI_x, AI_y, AI_z])
+
+
+
+@cluster_expansion_decorator(result_operator=operator.iadd, contribution_operator=operator.imul)
+def mean_field_noise_correlation(nspin, ntype,
+                                 dm0, I, S, B, D, E,
+                                 timespace, allspins, bath_state,
+                                 gyro_e=-17608.597050):
+    others_mask = np.isin(allspins, nspin)
+
+    others = allspins[~others_mask]
+    others_state = bath_state[~others_mask]
+
+    states = bath_state[others_mask]
+
+    H, dimensions = mf_hamiltonian(nspin, ntype,
+                                   I, B, S, gyro_e, D, E, others, others_state)
+    U = propagator_dm(timespace, H, 0, S, dimensions)
+    dmtotal0 = generate_dm0(dm0, dimensions, states)
+
+    AIs = 0
+    for j, n in enumerate(nspin):
+        s = ntype[n['N']].s
+
+        Ivec = np.array([expand(I[s].x, j, dimensions),
+                         expand(I[s].y, j, dimensions),
+                         expand(I[s].z, j, dimensions)],
+                        dtype=np.complex128)
+
+        ATensor = n['A']
+
+        AIvec = np.array([ATensor[0, 0] * Ivec[0], ATensor[1, 1] * Ivec[1], ATensor[2, 2] * Ivec[2]])
+        AIs += AIvec
+
+    AI_x = correlation_it_j0(AIs[0], AIs[0], dmtotal0, U)
+    AI_y = correlation_it_j0(AIs[1], AIs[1], dmtotal0, U)
+    AI_z = correlation_it_j0(AIs[2], AIs[2], dmtotal0, U)
+
     return np.array([AI_x, AI_y, AI_z])
 
 

@@ -97,7 +97,7 @@ def gen_hyperfine(atoms_inside: np.ndarray, ntype: dict, center: np.ndarray = No
             newatoms['A'][indexes] += identity[np.newaxis, :, :] * \
                                       external_atoms['contact'][ext_indexes][:, np.newaxis, np.newaxis] * prefactor
 
-        newcounter = np.count_nonzero(criteria)
+        newcounter = ext_indexes.size
         # print('\nold external atoms')
         # for ea in external_atoms:
         #     possible = np.linalg.norm(atoms['xyz'] - ea['xyz'], axis=1) < error_range
@@ -120,11 +120,15 @@ def gen_hyperfine(atoms_inside: np.ndarray, ntype: dict, center: np.ndarray = No
         # print('Number of atoms with external HF in dataset: {}'.format(counter_ext))
         print('Number of atoms with external HF in new approach: {}'.format(newcounter))
         # print('Check for equality: {}'.format(np.all(newatoms == atoms)))
+    else:
+        newatoms = atoms
+
     print('Number of overall Nuclear spins is {}'.format(newatoms.shape[0]))
     return newatoms
 
 
-def read_external(coord_f: str, hf_f: str, cont_f: str, skiprows: int = 1, erbath=None, center=None) -> np.ndarray:
+def read_external(coord_f: str, hf_f: str = None, cont_f: str = None, skiprows: int = 1, erbath=None,
+                  center=None) -> np.ndarray:
     """
     :param coord_f: hf_pos, containing coord of atoms with external hyperfine
     :param hf_f: external dipolar-dipolar
