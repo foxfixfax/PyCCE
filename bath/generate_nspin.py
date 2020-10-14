@@ -90,6 +90,7 @@ class NSpinCell:
             R = np.eye(3)
 
         else:
+            # a -> b
             R = rotmatrix(a, b)
 
         self.cell = np.linalg.inv(R) @ self.cell

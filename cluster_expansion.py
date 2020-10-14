@@ -4,6 +4,12 @@ import operator
 
 
 def cluster_expansion_decorator(_func=None, *, result_operator=operator.imul, contribution_operator=operator.ipow):
+    """Decorator for creating cluster correlation expansion. Each expanded function will have two first arguments:
+       subclusters: dict of structure {int order: np.array([[i,j],[i,j]])}
+       nspin: np.array of atoms
+       :param subclusters:
+       :param hf_f: gipaw output
+       :param s: spin of the qubit spin"""
     def inner_cluster_expansion_decorator(function):
 
         @functools.wraps(function)

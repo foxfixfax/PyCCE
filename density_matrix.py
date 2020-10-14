@@ -36,11 +36,13 @@ def propagator_dm(timespace, H, pulse_sequence, S, dimensions):
         sigma = {'x': expand(sigmax, len(dimensions) - 1, dimensions),
                  'y': expand(sigmay, len(dimensions) - 1, dimensions),
                  'z': expand(sigmaz, len(dimensions) - 1, dimensions)}
-        U = u
+
+        U = np.eye(u.shape[1])
         for pulse in pulse_sequence:
             angle = pulse[1]
             ax = pulse[0]
             rotation = scipy.linalg.expm(-1j * sigma[ax] * angle / 2)
+            U = np.matmul(u, U)
             U = np.matmul(rotation, U)
             U = np.matmul(u, U)
 

@@ -95,7 +95,7 @@ def read_qe(coord_f, hf_f, s=1, pw_type=None):
     return atoms
 
 
-def transform(atoms, center=None, cell=None, rotate=None, style='col', copy=False):
+def transform(atoms, center=None, cell=None, rotate=None, style='col', inplace=True):
     """
     :param atoms: array of nuclei for which the transformation will be applied. Coordinates should be stored in cell
     coordinates,
@@ -113,7 +113,7 @@ def transform(atoms, center=None, cell=None, rotate=None, style='col', copy=Fals
     if not style in styles:
         raise ValueError('Unsupported style of matrices. Available styles are: ' + ', '.join(*styles))
 
-    if copy:
+    if not inplace:
         atoms = atoms.copy()
 
     if len(atoms.shape) == 0:
