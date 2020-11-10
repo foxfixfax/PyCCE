@@ -4,7 +4,7 @@ import numpy as np
 # UPDATE: derived, it checks out
 hbar = 1.054571729
 # External HF given in MHz, transform to kHz * rad
-prefactor = 2 * np.pi * 1000
+PREFACTOR = 2 * np.pi * 1000
 
 
 def read_pos(nspin, center: np.array = None,
@@ -56,7 +56,8 @@ def gen_hyperfine(atoms_inside: np.ndarray, ntype: dict, center: np.ndarray = No
 
     dt_out = np.dtype([('N', np.unicode_, 16),
                        ('xyz', np.float64, (3,)),
-                       ('A', np.float64, (3, 3))])
+                       ('A', np.float64, (3, 3)),
+                       ('V', np.float64, (3, 3))])
 
     atoms = np.zeros(atoms_inside.shape[0], dtype=dt_out)
 
@@ -91,11 +92,13 @@ def gen_hyperfine(atoms_inside: np.ndarray, ntype: dict, center: np.ndarray = No
 
         if 'A' in external_atoms.dtype.names:
             # print('found A')
-            newatoms['A'][indexes] = external_atoms['A'][ext_indexes].copy() * prefactor
+            newatoms['A'][indexes] = external_atoms['A'][ext_indexes].copy() * PREFACTOR
         if 'contact' in external_atoms.dtype.names:
             # print('found contact')
             newatoms['A'][indexes] += identity[np.newaxis, :, :] * \
-                                      external_atoms['contact'][ext_indexes][:, np.newaxis, np.newaxis] * prefactor
+                                      external_atoms['contact'][ext_indexes][:, np.newaxis, np.newaxis] * PREFACTOR
+        if 'V' in external_atoms.dtype.names:
+            newatoms['V'][indexes] = external_atoms['V'][ext_indexes].copy() * PREFACTOR
 
         newcounter = ext_indexes.size
         # print('\nold external atoms')
@@ -109,10 +112,10 @@ def gen_hyperfine(atoms_inside: np.ndarray, ntype: dict, center: np.ndarray = No
         #             atoms[cindex]['xyz'] = ea['xyz']  # Change position to external
         #
         #             if 'A' in ea.dtype.names:
-        #                 atoms[cindex]['A'] = ea['A'] * prefactor
+        #                 atoms[cindex]['A'] = ea['A'] * PREFACTOR
         #
         #             if 'contact' in ea.dtype.names:
-        #                 atoms[cindex]['A'] += identity * ea['contact'] * prefactor
+        #                 atoms[cindex]['A'] += identity * ea['contact'] * PREFACTOR
         #             counter_ext += 1
         #             break
         # print('\nnewatoms\n', newatoms)

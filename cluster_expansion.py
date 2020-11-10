@@ -4,16 +4,35 @@ import operator
 
 
 def cluster_expansion_decorator(_func=None, *, result_operator=operator.imul, contribution_operator=operator.ipow):
-    """Decorator for creating cluster correlation expansion. Each expanded function will have two first arguments:
-       subclusters: dict of structure {int order: np.array([[i,j],[i,j]])}
-       nspin: np.array of atoms
-       :param subclusters:
-       :param hf_f: gipaw output
-       :param s: spin of the qubit spin"""
+    """
+    Decorator for creating cluster correlation expansion. Each expanded function will have two first arguments:
+    subclusters and allnspin
+    @param _func: function to expand
+    @param result_operator: function
+        operator which will combine the result of expansion (default: operator.imul)
+    @param contribution_operator: function
+        operator which will combine multiple contributions
+        of the same cluster (default: operator.ipow)
+    @return: function
+    """
     def inner_cluster_expansion_decorator(function):
 
         @functools.wraps(function)
-        def cluster_expansion(subclusters, nspin, *arg, **kwarg):
+        def cluster_expansion(subclusters, allnspin, *arg, **kwarg):
+            """
+            Inner part of cluster expansion. 
+            @param subclusters: dict
+                dict of subclusters included in different CCE order
+                of structure {int order: np.array([[i,j],[i,j]])}
+            @param allnspin: ndarray
+                array of atoms
+
+            @param arg:
+                all additional arguments
+            @param kwarg:
+                all additional keyward
+            @return:
+            """
             revorders = sorted(subclusters)[::-1]
             norders = len(revorders)
 
@@ -21,7 +40,7 @@ def cluster_expansion_decorator(_func=None, *, result_operator=operator.imul, co
             # Then for this subcluster nelements < maximum CCE order
             if norders == 1 and subclusters[revorders[0]].shape[0] == 1:
                 verticles = subclusters[revorders[0]][0]
-                result = function(nspin[verticles], *arg, **kwarg)
+                result = function(allnspin[verticles], *arg, **kwarg)
 
                 return result
 
@@ -61,7 +80,7 @@ def cluster_expansion_decorator(_func=None, *, result_operator=operator.imul, co
                         power[order][index] -= np.sum(power[higherorder]
                                                       [containv], dtype=np.int32)
 
-                    vcalc = function(nspin[v], *arg, **kwarg)
+                    vcalc = function(allnspin[v], *arg, **kwarg)
 
                     vcalc = contribution_operator(vcalc, power[order][index])
 

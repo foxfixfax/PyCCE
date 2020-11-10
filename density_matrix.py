@@ -8,10 +8,24 @@ hbar = 1.05457172  # When everything else in rad, kHz, ms, G, A
 
 
 def propagator_dm(timespace, H, pulse_sequence, S, dimensions):
-    """pulse_sequence should have format of list with tuples,
-       containing two entries:
-       first: axis the rotation is about; 
-       second: angle of rotation"""
+    """
+    Function to compute bath propagator U in gCCE
+
+    @param timespace: ndarray
+        Time delay values at which to compute propagators
+    @param H: ndarray
+        Cluster Hamiltonian
+    @param pulse_sequence: list
+    pulse_sequence should have format of list with tuples,
+       each tuple contains two entries:
+       first: axis the rotation is about;
+       second: angle of rotation. E.g. for Hahn-Echo [('x', np.pi/2)]
+    @param S: QSpinMatrix
+        QSpinMatrix of the central spin
+    @param dimensions: list
+        list of nuclear spin dimensions. Last entry - electron spin dimensions
+    @return: U
+    """
     evalues, evec = np.linalg.eigh(H)
 
     eigexp = np.exp(-1j * np.tensordot(timespace, evalues, axes=0),
@@ -51,6 +65,31 @@ def propagator_dm(timespace, H, pulse_sequence, S, dimensions):
 
 def compute_dm(dm0, dimensions, H, S, timespace,
                pulse_sequence=None, as_delay=False, states=None):
+    """
+    Function to compute density matrix of the central spin S, given Hamiltonian H
+    @param dm0: ndarray
+        initial density matrix of nuclear spin
+    @param dimensions: list
+        list of nuclear spin dimensions. Last entry - electron spin dimensions
+    @param H: ndarray
+        Cluster Hamiltonian
+    @param S: QSpinMatrix
+        QSpinMatrix of the central spin
+    @param timespace: ndarray
+        Time delay values at which to compute propagators
+    @param pulse_sequence: list
+        pulse_sequence should have format of list with tuples,
+        each tuple contains two entries: first: axis the rotation is about; second: angle of rotation.
+        E.g. for Hahn-Echo [('x', np.pi/2)]. For now only pulses with same delay are supported
+    @param as_delay: bool
+        True if time points are delay between pulses,
+        False if time points are total time
+    @param states: array_like
+        List of nuclear spin states. if len(shape) == 1, contains Sz projections of nuclear spins.
+        Otherwise, contains array of initial dms of nuclear spins
+    @return: dm
+        density matrix of the electron
+    """
     if not as_delay and pulse_sequence:
         N = len(pulse_sequence)
         timespace = timespace / (2 * N)
@@ -69,7 +108,25 @@ def compute_dm(dm0, dimensions, H, S, timespace,
 
 
 def full_dm(dm0, dimensions, H, S, timespace, pulse_sequence=None):
-    """ A function to compute dm using hamiltonian H from expanded dm0"""
+    """
+     A function to compute dm using hamiltonian H from expanded dm0
+    @param dm0: ndarray
+        initial density matrix of nuclear spin
+    @param dimensions: list
+        list of nuclear spin dimensions. Last entry - electron spin dimensions
+    @param H: ndarray
+        Cluster Hamiltonian
+    @param S: QSpinMatrix
+        QSpinMatrix of the central spin
+    @param timespace: ndarray
+        Time delay values at which to compute propagators
+    @param pulse_sequence: list
+        pulse_sequence should have format of list with tuples,
+        each tuple contains two entries: first: axis the rotation is about; second: angle of rotation.
+        E.g. for Hahn-Echo [('x', np.pi/2)]. For now only even pulses are supported
+    @return: dm
+        density matrix of the cluster
+    """
     # if timespace was given not as delay between pulses,
     # divide to obtain the delay
 
@@ -80,14 +137,31 @@ def full_dm(dm0, dimensions, H, S, timespace, pulse_sequence=None):
     return dm
 
 def generate_dm0(dm0, dimensions, states):
+    """
+    A function to generate initial density matrix of the cluster
+    @param dm0: ndarray
+        initial dm of the central spin
+    @param dimensions: list
+        list of nuclear spin dimensions. Last entry - electron spin dimensions
+    @param states: array_like
+        List of nuclear spin states. if len(shape) == 1, contains Sz projections of nuclear spins.
+        Otherwise, contains array of initial dms of nuclear spins
+    @return: dm
+        initial density matrix of the cluster
+    """
     states = np.asarray(states)
     dmtotal0 = np.eye(1, dtype=np.complex128)
     scheck = (len(states.shape) == 1)
     for s, d in zip(states, dimensions[:-1]):
         dm_nucleus = np.zeros((d, d), dtype=np.complex128)
         if scheck:
-            state_number = int(round((d - 1) / 2 - s))
-            dm_nucleus[state_number, state_number] = 1
+            try:
+                state_number = int(round((d - 1) / 2 - s))
+                dm_nucleus[state_number, state_number] = 1
+            except IndexError:
+                print('All dims', dimensions)
+                print('state', s)
+                raise RuntimeError('fuckup')
         else:
             np.fill_diagonal(dm_nucleus, s)
 
@@ -96,10 +170,11 @@ def generate_dm0(dm0, dimensions, states):
     dmtotal0 = np.kron(dmtotal0, dm0)
     return dmtotal0
 
-
+### OUTDATED CODE WHICH I'M AFRAID TO DELETE
 def cluster_dm(subclusters, nspin, ntype,
                dm0, I, S, B, gyro_e, D, E,
                timespace, pulse_sequence, as_delay=False):
+
     # List of orders from highest to lowest
     revorders = sorted(subclusters)[::-1]
     norders = len(revorders)
@@ -178,6 +253,41 @@ def cluster_dm(subclusters, nspin, ntype,
 def cluster_dm_direct_approach(subclusters, nspin, ntype,
                                dm0, I, S, B, gyro_e, D, E,
                                timespace, pulse_sequence, as_delay=False):
+    """
+    Direct function to compute electron density matrix with gCCE (without mean field)
+    @param subclusters: dict
+        dict of subclusters included in different CCE order
+        of structure {int order: np.array([[i,j],[i,j]])}
+    @param nspin: ndarray
+        array of all atoms
+    @param ntype: dict
+        dict with NSpinType objects inside, each key - name of the isotope
+    @param dm0: ndarray
+        initial density matrix of the central spin
+    @param I: dict
+        dict with SpinMatrix objects inside, each key - spin
+    @param S: QSpinMatrix
+        QSpinMatrix of the central spin
+    @param B: ndarray
+        Magnetic field of B = np.array([Bx, By, Bz])
+    @param gyro_e: float
+        gyromagnetic ratio (in rad/(msec*Gauss)) of the central spin
+    @param D: float
+        D parameter in central spin ZFS
+    @param E: float
+        E parameter in central spin ZFS
+    @param timespace: ndarray
+        Time points at which to compute density matrix
+    @param pulse_sequence: list
+        pulse_sequence should have format of list with tuples,
+        each tuple contains two entries: first: axis the rotation is about; second: angle of rotation.
+        E.g. for Hahn-Echo [('x', np.pi/2)]. For now only pulses with same delay are supported
+    @param as_delay: bool
+        True if time points are delay between pulses,
+        False if time points are total time
+    @return: dms
+        array of central spin dm for each time point
+    """
     orders = sorted(subclusters)
     norders = len(orders)
 
@@ -245,7 +355,52 @@ def decorated_density_matrix(nspin, ntype,
                              gyro_e=-17608.597050,
                              as_delay=False, zeroth_cluster=None,
                              bath_state=None, allspins=None,
-                             eta=None, alpha=None, beta=None):
+                             eta=None):
+    """
+    Decorated function to compute electron density matrix with gCCE (without mean field)
+    @param subclusters: dict
+        dict of subclusters included in different CCE order
+        of structure {int order: np.array([[i,j],[i,j]])}
+    @param allnspin: ndarray
+        array of all atoms
+    @param ntype: dict
+        dict with NSpinType objects inside, each key - name of the isotope
+    @param dm0: ndarray
+        initial density matrix of the central spin
+    @param I: dict
+        dict with SpinMatrix objects inside, each key - spin
+    @param S: QSpinMatrix
+        QSpinMatrix of the central spin
+    @param B: ndarray
+        Magnetic field of B = np.array([Bx, By, Bz])
+    @param D: float
+        D parameter in central spin ZFS
+    @param E: float
+        E parameter in central spin ZFS
+    @param timespace: ndarray
+        Time points at which to compute density matrix
+    @param pulse_sequence: list
+        pulse_sequence should have format of list with tuples,
+        each tuple contains two entries: first: axis the rotation is about; second: angle of rotation.
+        E.g. for Hahn-Echo [('x', np.pi/2)]. For now only pulses with same delay are supported
+    @param gyro_e: float
+        gyromagnetic ratio (in rad/(msec*Gauss)) of the central spin
+    @param as_delay: bool
+        True if time points are delay between pulses,
+        False if time points are total time
+    @param zeroth_cluster: ndarray
+        density matrix of isolated central spin at all time poins.
+        Shape (n x m x m) where n = len(time_space) and m is central spin dimensions
+    @param bath_state: list or None
+        List of nuclear spin states. if len(shape) == 1, contains Sz projections of nuclear spins.
+        Otherwise, contains array of initial dms of nuclear spins
+    @param allspins: ndarray
+        array of all atoms. Passed twice because one is passed to decorator, another - directly to function
+    @param eta: float
+        value of eta (see eta_hamiltonian)
+    @return: dms
+        array of central spin dm for each time point
+    """
     if allspins is not None and bath_state is not None:
         others_mask = np.isin(allspins, nspin)
         states = bath_state[others_mask]
@@ -260,9 +415,7 @@ def decorated_density_matrix(nspin, ntype,
     H, dimensions = total_elhamiltonian(nspin, ntype,
                                         I, B, S, gyro_e, D, E)
     if eta is not None:
-        if alpha is None or beta is None:
-            raise ValueError('Eta Hamiltonian requires input of qubit states')
-        H += eta_hamiltonian(nspin, ntype, I, S, eta, alpha, beta)
+        H += eta_hamiltonian(nspin, ntype, I, S, eta, S.alpha, S.beta)
     dms = compute_dm(dm0, dimensions, H, S, timespace,
                      pulse_sequence, as_delay=as_delay, states=states) / zeroth_cluster
 

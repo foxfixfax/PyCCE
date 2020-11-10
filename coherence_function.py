@@ -5,6 +5,18 @@ from .cluster_expansion import cluster_expansion_decorator
 
 
 def propagators(timespace, H0, H1, N):
+    """
+    Function to compute propagators U(1) and U(2) in conventional CCE
+    @param timespace: ndarray
+        Time delay values at which to compute propagators
+    @param H0: ndarray
+        Hamiltonian projected on alpha qubit state
+    @param H1: ndarray
+        Hamiltonian projected on beta qubit state
+    @param N: int
+        number of pulses in CPMG
+    @return: U0, U1
+    """
     eval0, evec0 = np.linalg.eigh(H0)
     eval1, evec1 = np.linalg.eigh(H1)
 
@@ -44,6 +56,21 @@ def propagators(timespace, H0, H1, N):
 
 
 def computeL(H0, H1, timespace, N, as_delay=False):
+    """
+    Function to compute cluster L in conventional CCE
+    @param H0: ndarray
+        Hamiltonian projected on alpha qubit state
+    @param H1: ndarray
+        Hamiltonian projected on beta qubit state
+    @param timespace: ndarray
+        Time points at which to compute L
+    @param N: int
+        number of pulses in CPMG
+    @param as_delay: bool
+        True if time points are delay between pulses,
+        False if time points are total time
+    @return: L
+    """
     # if timespace was given not as delay between pulses,
     # divide to obtain the delay
     if not as_delay and N > 0:
@@ -57,6 +84,31 @@ def computeL(H0, H1, timespace, N, as_delay=False):
 
 
 def cluster_L(subclusters, nspin, ntype, I, S, B, timespace, N, as_delay=False):
+    """
+    Older version of the cluster expansion, specifically for L in conventional CCE
+    @param subclusters: dict
+        dict of subclusters included in different CCE order
+        of structure {int order: np.array([[i,j],[i,j]])}
+    @param nspin: ndarray
+        array of all atoms
+    @param ntype: dict
+        dict with NSpinType objects inside, each key - name of the isotope
+    @param I: dict
+        dict with SpinMatrix objects inside, each key - spin
+    @param S: QSpinMatrix
+        QSpinMatrix of the central spin
+    @param B: ndarray
+        Magnetic field of B = np.array([Bx, By, Bz])
+    @param timespace: ndarray
+        Time points at which to compute L
+    @param N: int
+        number of pulses in CPMG
+    @param as_delay: bool
+        True if time points are delay between pulses,
+        False if time points are total time
+    @return: L
+        L computed with conventional CCE
+    """
     # List of orders from highest to lowest
     revorders = sorted(subclusters)[::-1]
     norders = len(revorders)
@@ -119,6 +171,31 @@ def cluster_L(subclusters, nspin, ntype, I, S, B, timespace, N, as_delay=False):
 
 @cluster_expansion_decorator
 def decorated_coherence_function(nspin, ntype, I, S, B, timespace, N, as_delay=False):
+    """
+        Overarching decorated function to compute L in conventional CCE. The call of the function includes:
+    @param subclusters: dict
+        dict of subclusters included in different CCE order
+        of structure {int order: np.array([[i,j],[i,j]])}
+    @param allnspin: ndarray
+        array of all atoms
+    @param ntype: dict
+        dict with NSpinType objects inside, each key - name of the isotope
+    @param I: dict
+        dict with SpinMatrix objects inside, each key - spin
+    @param S: QSpinMatrix
+        QSpinMatrix of the central spin
+    @param B: ndarray
+        Magnetic field of B = np.array([Bx, By, Bz])
+    @param timespace: ndarray
+        Time points at which to compute L
+    @param N: int
+        number of pulses in CPMG
+    @param as_delay: bool
+        True if time points are delay between pulses,
+        False if time points are total time
+    @return: L
+        L computed with conventional CCE
+    """
     H0, H1 = total_hamiltonian(nspin, ntype, I, B, S)
     L = computeL(H0, H1, timespace, N, as_delay=as_delay)
     return L

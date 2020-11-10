@@ -4,6 +4,14 @@ hbar = 1.05457172  # When everything else in rad, kHz, ms, G, A
 
 
 class SpinMatrix:
+    """
+    Class containing the spin matrices in Sz basis
+
+    Parameters
+    ----------
+    @param s: float
+    total spin
+    """
     def __init__(self, s):
         dim = np.int(2 * s + 1 + 1e-8)
 
@@ -31,6 +39,18 @@ class SpinMatrix:
 
 
 class QSpinMatrix(SpinMatrix):
+    """
+    Class containing the spin matrices in Sz basis for central spin
+
+    Parameters
+    ----------
+    @param s: float
+        total spin
+    @param alpha: ndarray
+        0 state of the qubit
+    @param beta: ndarray
+        1 state of the qubit
+    """
     def __init__(self, s, alpha, beta):
         super().__init__(s)
 
@@ -69,6 +89,13 @@ class QSpinMatrix(SpinMatrix):
 
 
 def generate_SpinMatricies(ntype):
+    """
+    Generate spin matrices for all bath spin types
+    @param ntype: dict
+        dict of SpinType objects
+    @return: dict
+        dict with keys corresponding total spin, values - SpinMatrix objects
+    """
     nmatrices = {}
 
     for N in ntype:
@@ -78,6 +105,17 @@ def generate_SpinMatricies(ntype):
 
 
 def expand(M, i, dim):
+    """
+    Expand matrix M from it's own dimensions to the total Hilbert space
+    @param M: ndarray
+        Inital matrix
+    @param i: int
+        Index of the spin in dim
+    @param dim: list
+        list of dimensions of all spins present in the cluster
+    @return: ndarray
+        Expanded matrix
+    """
     dbefore = np.prod(dim[:i], dtype=np.int32)
     dafter = np.prod(dim[i + 1:], dtype=np.int32)
 
@@ -88,6 +126,18 @@ def expand(M, i, dim):
 
 
 def zeeman(n, ntype, I, B):
+    """
+    Zeeman interactions of the n spin
+    @param n: ndarray
+        bath spin element
+    @param ntype: dict
+        dict of SpinTypes
+    @param I: dict
+        dict of SpinMatrix objects
+    @param B: array_like
+        magnetic field as (Bx, By, Bz)
+    @return: H
+    """
     s = ntype[n['N']].s
 
     BI = B[0] * I[s].x + B[1] * I[s].y + B[2] * I[s].z
@@ -95,6 +145,21 @@ def zeeman(n, ntype, I, B):
     H_zeeman = - ntype[n['N']].gyro * BI
 
     return H_zeeman
+
+
+def quadrupole(n, ntype, I):
+    s = ntype[n['N']].s
+    Iv = np.asarray([I[s].x, I[s].y, I[s].z])
+
+    VIvec = np.einsum('ij,jkl->ikl', n['V'], Iv, dtype=np.complex128)
+    IVI = np.einsum('lij,ljk->ik', Iv, VIvec, dtype=np.complex128)
+
+    pref = ntype[n['N']].q / (6 * s * (2 * s - 1))
+    delI2 = np.sum(np.diag(n['V'])) * np.eye(I[s].x.shape[0]) * s * (s + 1)
+
+    H_quad = pref * (3 * IVI - delI2)
+
+    return H_quad
 
 
 def dipole_dipole(nuclei, Ivec_1, Ivec_2, ntype):
@@ -145,17 +210,26 @@ def total_hamiltonian(nspin, ntype, I, B, S):
     Ivectors = []
 
     for j in range(nnuclei):
+        s = ntype[nspin[j]['N']].s
+
+        if s > 0.5:
+            H_quad = quadrupole(nspin[j], ntype, I)
+        else:
+            H_quad = 0
+
         H_zeeman = zeeman(nspin[j], ntype, I, B)
+
         H_HF_alpha = projected_hyperfine(nspin[j], S.alpha, ntype, I, S)
         H_HF_beta = projected_hyperfine(nspin[j], S.beta, ntype, I, S)
 
-        H_j_alpha = H_zeeman + H_HF_alpha
-        H_j_beta = H_zeeman + H_HF_beta
+        H_j_alpha = H_zeeman + H_HF_alpha + H_quad
+        H_j_beta = H_zeeman + H_HF_beta + H_quad
+
 
         H_alpha += expand(H_j_alpha, j, dimensions)
         H_beta += expand(H_j_beta, j, dimensions)
 
-        s = ntype[nspin[j]['N']].s
+
         Ivec = np.array([expand(I[s].x, j, dimensions),
                          expand(I[s].y, j, dimensions),
                          expand(I[s].z, j, dimensions)],
@@ -165,11 +239,10 @@ def total_hamiltonian(nspin, ntype, I, B, S):
 
     for i in range(nnuclei):
         for j in range(i + 1, nnuclei):
-
             Ivec_1 = Ivectors[i]
             Ivec_2 = Ivectors[j]
 
-            H_DD = dipole_dipole(nspin[(i, j), ], Ivec_1, Ivec_2, ntype)
+            H_DD = dipole_dipole(nspin[(i, j),], Ivec_1, Ivec_2, ntype)
 
             H_alpha += H_DD
             H_beta += H_DD
@@ -194,7 +267,7 @@ def self_electron(B, S, gyro_e, D, E):
     D, E in rad * kHz"""
 
     H0 = D * (S.z @ S.z - 1 / 3 * S.s * (S.s + 1) * S.eye) + \
-        E * (S.x @ S.x - S.y @ S.y)
+         E * (S.x @ S.x - S.y @ S.y)
     H1 = -gyro_e * (B[0] * S.x + B[1] * S.y + B[2] * S.z)
 
     return H1 + H0
@@ -223,21 +296,24 @@ def total_elhamiltonian(nspin, ntype, I, B, S, gyro_e, D, E):
                          expand(I[s].y, j, dimensions),
                          expand(I[s].z, j, dimensions)],
                         dtype=np.complex128)
+        if s > 1/2:
+            H_quad = quadrupole(nspin[j], ntype, I)
+        else:
+            H_quad = 0
 
-        H_zeeman = zeeman(nspin[j], ntype, I, B)
+        H_single = zeeman(nspin[j], ntype, I, B) + H_quad
         H_HF = hyperfine(nspin[j], Svec, Ivec)
 
-        H += expand(H_zeeman, j, dimensions) + H_HF
+        H += expand(H_single, j, dimensions) + H_HF
 
         Ivectors.append(Ivec)
 
     for i in range(nnuclei):
         for j in range(i + 1, nnuclei):
-
             Ivec_1 = Ivectors[i]
             Ivec_2 = Ivectors[j]
 
-            H_dd = dipole_dipole(nspin[(i, j), ], Ivec_1, Ivec_2, ntype)
+            H_dd = dipole_dipole(nspin[(i, j),], Ivec_1, Ivec_2, ntype)
 
             H += H_dd
 
@@ -245,7 +321,6 @@ def total_elhamiltonian(nspin, ntype, I, B, S, gyro_e, D, E):
 
 
 def mf_electron(S, others, others_state):
-
     # xfield = np.sum(others['A'][:, 2, 0] * others_state)
     # yfield = np.sum(others['A'][:, 2, 1] * others_state)
     zfield = np.sum(others['A'][:, 2, 2] * others_state)
@@ -307,21 +382,27 @@ def mf_hamiltonian(nspin, ntype, I, B, S, gyro_e, D, E, others, others_state):
         H_HF = hyperfine(nspin[j], Svec, Ivec)
         H_mf_nucleus = mf_nucleus(nspin[j], ntype, I, others, others_state)
 
-        H += expand(H_zeeman, j, dimensions) + expand(H_mf_nucleus, j, dimensions) + H_HF
+        if s > 1/2:
+            H_quad = quadrupole(nspin[j], ntype, I)
+            H_single = H_zeeman + H_mf_nucleus + H_quad
+        else:
+            H_single = H_zeeman + H_mf_nucleus
+
+        H += expand(H_single, j, dimensions) + H_HF
 
         Ivectors.append(Ivec)
 
     for i in range(nnuclei):
         for j in range(i + 1, nnuclei):
-
             Ivec_1 = Ivectors[i]
             Ivec_2 = Ivectors[j]
 
-            H_dd = dipole_dipole(nspin[(i, j), ], Ivec_1, Ivec_2, ntype)
+            H_dd = dipole_dipole(nspin[(i, j),], Ivec_1, Ivec_2, ntype)
 
             H += H_dd
 
     return H, dimensions
+
 
 def eta_hamiltonian(nspin, ntype, I, S, eta, alpha, beta):
     nnuclei = nspin.shape[0]

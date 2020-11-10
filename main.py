@@ -11,13 +11,27 @@ from .correlation_function import mean_field_noise_correlation, decorated_noise_
 
 class QSpin:
     """
-     The main object for CCE calculations
+    The main class for CCE calculations
 
-     Default Units
-     Length: Angstrom, A
-     Time: Millisecond, ms
-     Magnetic Field: Gaussian, G = 1e-4 Tesla
-     Gyromagnetic Ratio: rad/(msec*Gauss)
+    Default Units
+    Length: Angstrom, A
+    Time: Millisecond, ms
+    Magnetic Field: Gaussian, G = 1e-4 Tesla
+    Gyromagnetic Ratio: rad/(msec*Gauss)
+    Quadrupole moment: millibarn
+
+    Parameters
+    ------------
+    @param spin: float
+        total spin of the central spin (default 1.)
+    @param position: ndarray
+        xyz coordinates in angstrom of the central spin (default (0., 0., 0.))
+    @param alpha: ndarray
+        0 state of the qubit in Sz basis (default not set)
+    @param beta: ndarray
+        1 state of the qubit in Sz basis (default not set)
+    @param gyro: ndarray
+        gyromagnetic ratio of central spin in rad/(ms * G) (default -17608.597050)
 
     """
     _dtype_read = np.dtype([('N', np.unicode_, 16), ('xyz', np.float64, (3,))])
@@ -25,7 +39,7 @@ class QSpin:
                             ('xyz', np.float64, (3,)),
                             ('A', np.float64, (3, 3))])
 
-    def __init__(self, spin=1, position=None,
+    def __init__(self, spin=1., position=None,
                  alpha=None, beta=None,
                  gyro=-17608.597050):
 
@@ -59,6 +73,16 @@ class QSpin:
         self.clusters = []
 
     def add_spintype(self, *args):
+        """
+        Add types of spin in the spin bath
+        @param args: tuple or tuples
+        arbitrary number of tuples, with each of them initializing Spin Type object:
+        SpinType(isotope, s=0, gyro=0, q=0)
+        where isotope (str) is the name of the bath spin, s (float) is the total spin,
+        gyro (float) is the gyromagnetic ratio in rad/(ms*G), q is spin quadrupole moment in millibarn (for s > 1/2)
+        @return: dict
+            dict of the SpinType instances
+        """
         for nuc in args:
             self.ntype[nuc[0]] = SpinType(*nuc)
 
@@ -72,7 +96,32 @@ class QSpin:
                   hf_contact=None,
                   error_range=0.2,
                   ext_r_bath=None):
-
+        """
+        Read spin bath
+        @param nspin: ndarray or str
+            Either ndarray with dtype([('N', np.unicode_, 16), ('xyz', np.float64, (3,))]) containing names
+            of bath spins (same ones as stored in self.ntype) and positions of the spins in A;
+            or the name of the text file containing 4 rows: name of the bath spin and xyz coordinates in A
+        @param r_bath: cutoff size of the nuclear bath
+        @param skiprows: int, optional
+            if nspin is name of the file, number of rows to skip in reading the file (default 1)
+        @param external_bath: ndarray, optional
+            ndarray of atoms read from GIPAW output (see bath.read_pw_gipaw)
+        @param hf_positions: str, optional
+            name of the file with positions of bath spins from GIPAW output (used for backwards capabilities)
+        @param hf_dipole: str, optional
+            name of the file with dipolar tensors of bath spins, similar to GIPAW output
+        @param hf_contact: str, optional
+            name of the file with contact terms from GIPAW output
+        @param error_range: float, optional
+            maximum distance between positions in nspin and external bath to consider two positions the same
+            (default 0.2)
+        @param ext_r_bath: float, optional
+            maximum distance from the central spins of the bath spins for which to use the DFT positions
+        @return: bath
+            ndarray of atoms with dtype([('N', np.unicode_, 16), ('xyz', np.float64, (3,)), ('A', np.float64, (3, 3))])
+            where N is the name of the isotope, xyz are coordinates (in A), A are HF tensors (in rad * KHz)
+        """
         self.bath = None
 
         atoms = read_pos(nspin, center=self.position,
@@ -94,13 +143,39 @@ class QSpin:
 
         return self.bath
 
-    def generate_graph(self, r_dipole, r_inner=0):
+    def generate_graph(self, r_dipole, r_inner=0.):
+        """
+        Generate the connectivity matrix for the given bath
+        @param r_dipole: float
+            maximum connectivity distance
+        @param r_inner: float
+            minimum connectivity distance
+        @return: csr_matrix
+            sparse connectivity matrix in csr format (see scipy.sparse.csr_matrix for details).
+        """
         self.graph = None
         self.graph = make_graph(self.bath, r_dipole, R_inner=r_inner)
 
         return self.graph
 
     def generate_clusters(self, CCE_order, r_dipole=None, r_inner=0, strong=False):
+        """
+        Generate clusters used in CCE calculations. First generates connectivity matrix
+        if was not generated previously
+        @param CCE_order: int
+            maximum size of the cluster
+        @param r_dipole: float
+            maximum connectivity distance (used if graph was not generated before)
+        @param r_inner: float
+            minimum connectivity distance (used if graph was not generated before)
+        @param strong: bool
+            True -  generate only clusters with "strong" connectivity (all nodes should be interconnected)
+            default False
+        @return: dict
+        dict with keys corresponding to size of the cluster, and value corresponds to ndarray of shape (M, N),
+        M is the number of clusters of given size, N is the size of the cluster. Each row contains indexes of the bath
+        spins included in the given cluster
+        """
         if self.graph is None:
             assert r_dipole is not None, "Graph generation failed: r_dipole is not provided"
             self.graph = make_graph(self.bath, r_dipole, R_inner=r_inner)
@@ -117,6 +192,20 @@ class QSpin:
         return self.clusters
 
     def compute_coherence(self, timespace, B, N, as_delay=False):
+        """
+        Compute coherence function L with conventional CCE
+        @param timespace: 1D-ndarray
+            time points at which compute coherence function L
+        @param B: ndarray
+            magnetic field as (Bx, By, Bz)
+        @param N: int
+            number of pulses of CPMG sequence
+        @param as_delay: bool
+            True if time points correspond to delay between pulses
+            False if time points correspond to the total time of the experiment
+        @return: 1D-ndarray
+            Coherence function computed at the time points in timespace
+        """
         I = generate_SpinMatricies(self.ntype)
         S = QSpinMatrix(self.spin, self.alpha, self.beta)
         L = decorated_coherence_function(self.clusters, self.bath, self.ntype, I, S, B,
@@ -124,7 +213,37 @@ class QSpin:
 
         return L
 
-    def compute_dmatrix(self, timespace, B, D, E, pulse_sequence, as_delay=False, state=None, check=True):
+    def compute_dmatrix(self, timespace: np.ndarray, B: np.ndarray,
+                        D: float, E: float, pulse_sequence: list,
+                        as_delay: bool = False, state: np.ndarray = None,
+                        check: bool = True) -> np.ndarray:
+        """
+        Compute density matrix of the central spin using generalized CCE
+        @param timespace: 1D-ndarray
+            time points at which compute density matrix
+        @param B: ndarray
+            magnetic field as (Bx, By, Bz)
+        @param D: float
+            D (longitudinal splitting) parameter of central spin in ZFS tensor of central spin in rad * kHz
+        @param E: float
+            E (transverse splitting) parameter of central spin in ZFS tensor of central spin in rad * kHz
+        @param pulse_sequence: list
+            pulse_sequence should have format of list with tuples,
+            each tuple contains two entries: first: axis the rotation is about; second: angle of rotation.
+            E.g. for Hahn-Echo [('x', np.pi/2)]. For now only pulses with same delay are supported
+        @param as_delay: bool
+            True if time points are delay between pulses,
+            False if time points are total time
+        @param state: ndarray
+            Initial state of the central spin. Defaults to sqrt(1 / 2) * (alpha + beta) if not set
+        @param check: bool
+            True if use optimized algorithm of computing cluster contributions
+            (faster but might fail if too many clusters)
+            False if use direct approach (slower)
+        @return: ndarray
+            array of density matrix, where first dimension corresponds to the time space size and last two -
+            density matrix dimensions
+        """
         if state is None:
             state = np.sqrt(1 / 2) * (self.alpha + self.beta)
 
@@ -158,6 +277,43 @@ class QSpin:
     def compute_mf_dm(self, timespace, B, D, E, pulse_sequence, as_delay=False, state=None,
                       nbstates=100, seed=None, masked=True, normalized=None, parallel=False,
                       fixstates=None):
+        """
+        Compute density matrix of the central spin using generalized CCE with Monte-Carlo bath state sampling
+        @param timespace: 1D-ndarray
+            time points at which compute density matrix
+        @param B: ndarray
+            magnetic field as (Bx, By, Bz)
+        @param D: float
+            D (longitudinal splitting) parameter of central spin in ZFS tensor of central spin in rad * kHz
+        @param E: float
+            E (transverse splitting) parameter of central spin in ZFS tensor of central spin in rad * kHz
+        @param pulse_sequence: list
+            pulse_sequence should have format of list with tuples,
+            each tuple contains two entries: first: axis the rotation is about; second: angle of rotation.
+            E.g. for Hahn-Echo [('x', np.pi/2)]. For now only pulses with same delay are supported
+        @param as_delay: bool
+            True if time points are delay between pulses,
+            False if time points are total time
+        @param state: ndarray
+            Initial state of the central spin. Defaults to sqrt(1 / 2) * (alpha + beta) if not set
+        @param nbstates: int
+            Number of random bath states to sample
+        @param seed: int
+            Seed for the RNG
+        @param masked: bool
+            True if mask numerically unstable points (with density matrix elements > 1)
+            in the averaging over bath states
+            False if not. Default True
+        @param normalized: ndarray of bools
+            which diagonal elements to renormalize, so the total sum of the diagonal elements is 1
+        @param parallel: bool
+            whether to use MPI to parallelize the calculations of density matrix
+            for each random bath state
+        @param fixstates: dict
+            dict of which bath states to fix. Each key is the index of bath spin,
+            value - fixed Sz projection of the mixed state of nuclear spin
+        @return: dms
+        """
         if parallel:
             try:
                 from mpi4py import MPI
@@ -205,9 +361,11 @@ class QSpin:
                 snumber = int(round(2 * s + 1))
                 mask = self.bath['N'] == n
                 bath_state[mask] = rgen.integers(snumber, size=np.count_nonzero(mask)) - s
+
             if fixstates is not None:
                 for fs in fixstates:
                     bath_state[fs] = fixstates[fs]
+
             H0, d0 = mf_hamiltonian(np.array([]), self.ntype,
                                     I, B, S, self.gyro, D, E, self.bath, bath_state)
 
@@ -267,6 +425,30 @@ class QSpin:
 
     def mean_field_corr(self, timespace, B, D, E, state=None,
                         nbstates=100, seed=None, parallel=False):
+        """
+        EXPERIMENTAL Compute noise auto correlation function
+        using generalized CCE with Monte-Carlo bath state sampling
+        @param timespace: 1D-ndarray
+            time points at which compute density matrix
+        @param B: ndarray
+            magnetic field as (Bx, By, Bz)
+        @param D: float
+            D (longitudinal splitting) parameter of central spin in ZFS tensor of central spin in rad * kHz
+        @param E: float
+            E (transverse splitting) parameter of central spin in ZFS tensor of central spin in rad * kHz
+        @param state: ndarray
+            Initial state of the central spin. Defaults to sqrt(1 / 2) * (alpha + beta) if not set
+        @param nbstates: int
+            Number of random bath states to sample
+        @param seed: int
+            Seed for the RNG
+        @param parallel: bool
+            whether to use MPI to parallelize the calculations of density matrix
+            for each random bath state
+        @return: ndarray
+            Autocorrelation function of the noise, in (kHz*rad)^2 of shape (N, 3)
+            where N is the number of time points and at each point (Ax, Ay, Az) are noise autocorrelation functions
+        """
         if parallel:
             try:
                 from mpi4py import MPI
@@ -332,6 +514,22 @@ class QSpin:
             return
 
     def compute_corr(self, timespace, B, D, E, state=None):
+        """
+        EXPERIMENTAL Compute noise autocorrelation function of the noise with generalized CCE
+        @param timespace:  1D-ndarray
+            time points at which compute density matrix
+        @param B: ndarray
+            magnetic field as (Bx, By, Bz)
+        @param D: float
+            D (longitudinal splitting) parameter of central spin in ZFS tensor of central spin in rad * kHz
+        @param E: float
+            E (transverse splitting) parameter of central spin in ZFS tensor of central spin in rad * kHz
+        @param state: ndarray
+            Initial state of the central spin. Defaults to sqrt(1 / 2) * (alpha + beta) if not set
+        @return: ndarray
+            Autocorrelation function of the noise, in (kHz*rad)^2 of shape (N, 3)
+            where N is the number of time points and at each point (Ax, Ay, Az) are noise autocorrelation functions
+        """
         if state is None:
             state = np.sqrt(1 / 2) * (self.alpha + self.beta)
 
@@ -347,7 +545,22 @@ class QSpin:
 
 
 class SpinType:
-    def __init__(self, isotope, s=0, gyro=0):
+    """
+    Class which contains properties of each spin type in the bath
+
+    Parameters
+    ----------
+    @param isotope: str
+        Name of the bath spin
+    @param s: float
+        Total spin
+    @param gyro:
+        Gyromagnetic ratio in rad/(ms * G)
+    @param q:
+        Quadrupole moment in millibarn (for s > 1/2)
+    """
+    def __init__(self, isotope, s=0, gyro=0, q=0):
         self.isotope = isotope
         self.s = s
         self.gyro = gyro
+        self.q = q
