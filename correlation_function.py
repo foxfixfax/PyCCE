@@ -5,7 +5,7 @@ import operator
 from .cluster_expansion import cluster_expansion_decorator
 from .density_matrix import propagator_dm
 from .hamiltonian import expand, zeeman, projected_hyperfine, mf_hamiltonian
-from .hamiltonian import total_elhamiltonian, dipole_dipole
+from .hamiltonian import total_hamiltonian, dipole_dipole
 from .mean_field_dm import generate_dm0
 
 def correlation_it_j0(operator_i, operator_j, dm0_expanded, U):
@@ -63,8 +63,7 @@ def decorated_noise_correlation(nspin, ntype,
     @return: ndarray
         autocorrelation function
     """
-    H, dimensions = total_elhamiltonian(nspin, ntype,
-                                        I, B, S, gyro_e, D, E)
+    H, dimensions = total_hamiltonian(nspin, ntype, I, S, B, gyro_e, D, E)
 
     U = propagator_dm(timespace, H, 0,  S, dimensions)
     dm0_expanded = expand(dm0, len(dimensions) - 1, dimensions) / np.prod(dimensions[:-1])
@@ -138,8 +137,7 @@ def mean_field_noise_correlation(nspin, ntype,
 
     states = bath_state[others_mask]
 
-    H, dimensions = mf_hamiltonian(nspin, ntype,
-                                   I, B, S, gyro_e, D, E, others, others_state)
+    H, dimensions = mf_hamiltonian(nspin, ntype, I, S, B, gyro_e, D, E, others, others_state)
     U = propagator_dm(timespace, H, 0, S, dimensions)
     dmtotal0 = generate_dm0(dm0, dimensions, states)
 

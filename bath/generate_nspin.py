@@ -10,6 +10,7 @@ FLOAT_ERROR_RANGE = 1e-10
 class NSpinCell:
     _conv = {'rad': 1, 'deg': 2 * np.pi / 360}
     _coord_types = ['angstrom', 'cell']
+
     def __init__(self, a=1, b=1, c=1,
                  alpha=None, beta=None, gamma=None,
                  units='rad'):
@@ -201,25 +202,26 @@ class NSpinCell:
 
     @classmethod
     def from_ase_Atoms(cls, atoms_object):
-        self = cls()
-        self.cell = atoms_object.cell[:].T
+        nspin_cell = cls()
+        nspin_cell.cell = atoms_object.cell[:].T
         positions = atoms_object.get_scaled_positions(wrap=True)
         symbols = atoms_object.get_chemical_symbols()
 
-        zdr = np.linalg.inv(self.cell) @ np.array([0, 0, 1])
+        zdr = np.linalg.inv(nspin_cell.cell) @ np.array([0, 0, 1])
         zdr = zdr / np.linalg.norm(zdr)
-        self._zdir = zdr
+        nspin_cell._zdir = zdr
         for s in symbols:
-            self.atoms[s] = []
+            nspin_cell.atoms[s] = []
         for sym, pos in zip(symbols, positions):
-            self.atoms[sym].append(pos)
-        return self
+            nspin_cell.atoms[sym].append(pos)
+        return nspin_cell
 
 
 def defect(cell, atoms, add=None, remove=None):
     defective_atoms = atoms.copy()
     dt = atoms.dtype
 
+    where = None
     if remove is not None and isinstance(remove[0], str):
         name = remove[0]
         position_cc = np.asarray(remove[1])  # Given in the cell coordinates
@@ -227,10 +229,8 @@ def defect(cell, atoms, add=None, remove=None):
         position = cell @ position_cc
 
         offsets = np.linalg.norm((atoms['xyz'] - position), axis=1)
-        where = np.logical_and(atoms['N'] == name,
+        where = np.logical_and(np.core.defchararray.find(atoms['N'], name) != -1,
                                offsets <= err_range)
-
-        defective_atoms = atoms[~where]
 
     elif remove is not None:
         where = np.zeros(defective_atoms.shape, dtype=bool)
@@ -246,11 +246,11 @@ def defect(cell, atoms, add=None, remove=None):
             # print(offsets <= err_range)
             where += np.logical_and(np.core.defchararray.find(atoms['N'], name) != -1,
                                     offsets <= err_range)
-        if np.count_nonzero(where):
-            print('I see {} removals'.format(np.count_nonzero(where)))
-            print('Removing: \n', atoms[where])
+    if np.count_nonzero(where):
+        print('I see {} removals'.format(np.count_nonzero(where)))
+        print('Removing: \n', atoms[where])
 
-        defective_atoms = atoms[~where]
+        defective_atoms = defective_atoms[~where]
 
     if add is not None and isinstance(add[0], str):
         name = add[0]

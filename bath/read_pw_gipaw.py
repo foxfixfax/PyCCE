@@ -1,16 +1,15 @@
 import numpy as np
 import warnings
+from ..units_conversion import MHZ_TO_RADKHZ, HARTREE_TO_MHZ, M_TO_BOHR
 
 FLOAT_ERROR_RANGE = 1e-6
-HARTREE_TO_MHZ = 6579680000.0
-
-M_TO_BOHR = 18897300000.0
 MILLIBARN_TO_BOHR2 = M_TO_BOHR**2 * 1E-31
+EFG_CONVERSION = MILLIBARN_TO_BOHR2 * HARTREE_TO_MHZ * MHZ_TO_RADKHZ # units to convert EFG
 
-# units of EFGs are MHz / millibarn
-# necessary units of Q are q / millibarn
+# units of Hyperfine are kHz * rad
+# units of EFGs are kHz * rad / millibarn
+# necessary units of Q are millibarn
 
-EFG_CONVERSION = MILLIBARN_TO_BOHR2 * HARTREE_TO_MHZ # units to convert EFG
 
 # Qs = { # isotope | Q in Q/millibarn
 #     "N": ("14", 20.44),
@@ -94,7 +93,7 @@ def read_qe(coord_f, hf_f=None, efg_f=None, s=1, pw_type=None):
                 # divided by spin, b/c fucked in the GIPAW code
                 for i in range(3):
                     gl = next(hf)
-                    A.append([float(x) / (2 * s) for x in gl.split()[2:]])
+                    A.append([float(x) / (2 * s) * MHZ_TO_RADKHZ for x in gl.split()[2:]])
                 dipolars.append(A)
                 next(hf)
 
@@ -122,7 +121,7 @@ def read_qe(coord_f, hf_f=None, efg_f=None, s=1, pw_type=None):
             gl = next(hf)
             # divided by spin, b/c fucked in the GIPAW code
             cont = float(gl.split()[-1]) / (2 * s)
-            a['contact'] = cont
+            a['contact'] = cont * MHZ_TO_RADKHZ
         hf.close()
 
     if efg_f is not None:

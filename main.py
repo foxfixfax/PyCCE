@@ -4,12 +4,11 @@ from .bath.read_bath import read_pos, read_external, gen_hyperfine
 from .coherence_function import decorated_coherence_function
 from .find_clusters import make_graph, connected_components, find_subclusters
 from .density_matrix import decorated_density_matrix, cluster_dm_direct_approach, compute_dm
-from .hamiltonian import generate_SpinMatricies, QSpinMatrix, total_elhamiltonian, mf_hamiltonian
+from .hamiltonian import generate_spinmatrices, QSpinMatrix, total_hamiltonian, mf_hamiltonian
 from .mean_field_dm import mean_field_density_matrix
 from .correlation_function import mean_field_noise_correlation, decorated_noise_correlation
 
-
-class QSpin:
+class Simulator:
     """
     The main class for CCE calculations
 
@@ -35,9 +34,11 @@ class QSpin:
 
     """
     _dtype_read = np.dtype([('N', np.unicode_, 16), ('xyz', np.float64, (3,))])
+
     _dtype_bath = np.dtype([('N', np.unicode_, 16),
                             ('xyz', np.float64, (3,)),
-                            ('A', np.float64, (3, 3))])
+                            ('A', np.float64, (3, 3)),
+                            ('V', np.float64, (3, 3))])
 
     def __init__(self, spin=1., position=None,
                  alpha=None, beta=None,
@@ -72,18 +73,23 @@ class QSpin:
 
         self.clusters = []
 
-    def add_spintype(self, *args):
+    def add_spintype(self, *spin_types):
         """
         Add types of spin in the spin bath
-        @param args: tuple or tuples
-        arbitrary number of tuples, with each of them initializing Spin Type object:
-        SpinType(isotope, s=0, gyro=0, q=0)
-        where isotope (str) is the name of the bath spin, s (float) is the total spin,
-        gyro (float) is the gyromagnetic ratio in rad/(ms*G), q is spin quadrupole moment in millibarn (for s > 1/2)
+        @param spin_types: tuple(s) or SpinType(s)
+            arbitrary number of tuples, with each of them initializing SpinType object:
+            SpinType(isotope, s=0, gyro=0, q=0)
+            where isotope (str) is the name of the bath spin, s (float) is the total spin,
+            gyro (float) is the gyromagnetic ratio in rad/(ms*G),
+            q is spin quadrupole moment in millibarn (for s > 1/2)
+            OR
+            instances of SpinTypes
         @return: dict
             dict of the SpinType instances
         """
-        for nuc in args:
+        for nuc in spin_types:
+            if isinstance(nuc, SpinType):
+                self.ntype[nuc.isotope] = nuc
             self.ntype[nuc[0]] = SpinType(*nuc)
 
         return self.ntype
@@ -158,11 +164,11 @@ class QSpin:
 
         return self.graph
 
-    def generate_clusters(self, CCE_order, r_dipole=None, r_inner=0, strong=False):
+    def generate_clusters(self, order, r_dipole=None, r_inner=0, strong=False):
         """
         Generate clusters used in CCE calculations. First generates connectivity matrix
         if was not generated previously
-        @param CCE_order: int
+        @param order: int
             maximum size of the cluster
         @param r_dipole: float
             maximum connectivity distance (used if graph was not generated before)
@@ -185,7 +191,7 @@ class QSpin:
                                                     return_labels=True)
 
         clusters = find_subclusters(
-            CCE_order, self.graph, labels, n_components, strong=strong)
+            order, self.graph, labels, n_components, strong=strong)
 
         self.clusters = clusters
 
@@ -206,7 +212,7 @@ class QSpin:
         @return: 1D-ndarray
             Coherence function computed at the time points in timespace
         """
-        I = generate_SpinMatricies(self.ntype)
+        I = generate_spinmatrices(self.ntype)
         S = QSpinMatrix(self.spin, self.alpha, self.beta)
         L = decorated_coherence_function(self.clusters, self.bath, self.ntype, I, S, B,
                                          timespace, N, as_delay=as_delay)
@@ -249,11 +255,10 @@ class QSpin:
 
         dm0 = np.tensordot(state, state, axes=0)
 
-        I = generate_SpinMatricies(self.ntype)
+        I = generate_spinmatrices(self.ntype)
         S = QSpinMatrix(self.spin, self.alpha, self.beta)
 
-        H0, dimensions0 = total_elhamiltonian(np.array([]), self.ntype,
-                                              I, B, S, self.gyro, D, E)
+        H0, dimensions0 = total_hamiltonian(np.array([]), self.ntype, I, S, B, self.gyro, D, E)
 
         dms = compute_dm(dm0, dimensions0, H0, S, timespace, pulse_sequence,
                          as_delay=as_delay)
@@ -325,7 +330,7 @@ class QSpin:
             state = np.sqrt(1 / 2) * (self.alpha + self.beta)
 
         dm0 = np.tensordot(state, state, axes=0)
-        I = generate_SpinMatricies(self.ntype)
+        I = generate_spinmatrices(self.ntype)
         S = QSpinMatrix(self.spin, self.alpha, self.beta)
 
         if masked:
@@ -366,8 +371,7 @@ class QSpin:
                 for fs in fixstates:
                     bath_state[fs] = fixstates[fs]
 
-            H0, d0 = mf_hamiltonian(np.array([]), self.ntype,
-                                    I, B, S, self.gyro, D, E, self.bath, bath_state)
+            H0, d0 = mf_hamiltonian(np.array([]), self.ntype, I, S, B, self.gyro, D, E, self.bath, bath_state)
 
             dmzero = compute_dm(dm0, d0, H0, S, timespace, pulse_sequence, as_delay=as_delay)
             dmzero = ma.array(dmzero, mask=(dmzero == 0), fill_value=0j, dtype=np.complex128)
@@ -460,7 +464,7 @@ class QSpin:
             state = np.sqrt(1 / 2) * (self.alpha + self.beta)
 
         dm0 = np.tensordot(state, state, axes=0)
-        I = generate_SpinMatricies(self.ntype)
+        I = generate_spinmatrices(self.ntype)
         S = QSpinMatrix(self.spin, self.alpha, self.beta)
 
         root_divider = nbstates
@@ -534,7 +538,7 @@ class QSpin:
             state = np.sqrt(1 / 2) * (self.alpha + self.beta)
 
         dm0 = np.tensordot(state, state, axes=0)
-        I = generate_SpinMatricies(self.ntype)
+        I = generate_spinmatrices(self.ntype)
         S = QSpinMatrix(self.spin, self.alpha, self.beta)
 
         corr = decorated_noise_correlation(self.clusters, self.bath, self.ntype,
@@ -559,8 +563,13 @@ class SpinType:
     @param q:
         Quadrupole moment in millibarn (for s > 1/2)
     """
+
     def __init__(self, isotope, s=0, gyro=0, q=0):
         self.isotope = isotope
         self.s = s
         self.gyro = gyro
         self.q = q
+
+
+# Just additional alias for backwards compatibility
+QSpin = Simulator

@@ -8,6 +8,17 @@ from itertools import combinations
 
 
 def make_graph(atoms, R_dipole, R_inner=0):
+    """
+    Make a connectivity matrix for bath spins
+    @param atoms: ndarray
+    ndarray of bath spins (should contain 'xyz' in dtype)
+    @param R_dipole: float
+        maximum connectivity distance
+    @param R_inner: float
+        minimum connectivity distance
+    @return: csr_matrix
+        connectivity matrix
+    """
     dist_matrix = np.linalg.norm(atoms['xyz'][:, np.newaxis, :] - atoms['xyz'][np.newaxis, :, :], axis=-1)
     atoms_within = np.logical_and(dist_matrix < R_dipole, dist_matrix > R_inner)
     counter = np.count_nonzero(atoms_within)
@@ -21,45 +32,61 @@ def make_graph(atoms, R_dipole, R_inner=0):
 
     return graph
 
-
+# Import from connected components from scipy
 connected_components = scipy.sparse.csgraph.connected_components
 
 
-def find_subclusters(CCE_order, graph, labels, n_components, strong=False):
+def find_subclusters(maximum_order, graph, labels, n_components, strong=False):
+    """
+    Find subclusters from connectivity matrix
+    @param maximum_order: int
+        Maximum size of the clusters to find
+    @param graph: csr_matrix
+        connectivity matrix
+    @param labels: ndarray
+        The length-N array of labels of the connected components.
+    @param n_components: int
+        The number of connected components
+    @param strong: bool
+        Whether to find only completely interconnected clusters (default False)
+    @return: dict
+        dict with keys corresponding to size of the cluster, and value corresponds to ndarray of shape (M, N),
+        M is the number of clusters of given size, N is the size of the cluster. Each row contains indexes of the bath
+        spins included in the given cluster
+    """
     # bool 1D array which is true when given element of graph corresponds to
     # cluster component
     clusters = {}
-    for k in range(1, CCE_order + 1):
+    for k in range(1, maximum_order + 1):
         clusters[k] = []
     print('Number of disjointed clusters is {}'.format(n_components))
     for component in range(n_components):
         vert_pos = (labels == component)
-        ncomp = np.count_nonzero(vert_pos)
-        verticles = np.nonzero(vert_pos)[0]
+        vertices = np.nonzero(vert_pos)[0]
 
         # print('{} cluster contains {} components'.format(component, ncomp))
 
         # if ncomp <= CCE_order:
         #
-        #     clusters[ncomp].append(verticles[np.newaxis, :])
+        #     clusters[ncomp].append(vertices[np.newaxis, :])
         #
         # else:
 
-        subclusters = {1: verticles[:, np.newaxis]}
-        clusters[1].append(verticles[:, np.newaxis])
-        if verticles.size >= 2:
-            for order in range(2, CCE_order + 1):
+        subclusters = {1: vertices[:, np.newaxis]}
+        clusters[1].append(vertices[:, np.newaxis])
+        if vertices.size >= 2:
+            for order in range(2, maximum_order + 1):
 
                 if order == 2:
                     # Retrieve upper right triangle (remove i,j pairs with i>j),
-                    # choose only rows corresponding to verticles in the subcluster
-                    csrmat = scipy.sparse.triu(graph, k=0, format='csr')[verticles]
+                    # choose only rows corresponding to vertices in the subcluster
+                    csrmat = scipy.sparse.triu(graph, k=0, format='csr')[vertices]
                     # Change to coordinate format of matrix
                     coomat = csrmat.tocoo()
                     # rows, col give row and colum indexes, which correspond to
                     # edges of the graph. as we already slised out the rows,
-                    # to obtain correct row indexes we need to use verticles array
-                    row_ind, col_ind = verticles[coomat.row], coomat.col
+                    # to obtain correct row indexes we need to use vertices array
+                    row_ind, col_ind = vertices[coomat.row], coomat.col
 
                     bonds = np.column_stack([row_ind, col_ind])
                     subclusters[order] = bonds
@@ -149,7 +176,7 @@ def find_subclusters(CCE_order, graph, labels, n_components, strong=False):
 
                 clusters[order].append(subclusters[order])
 
-    for o in range(1, CCE_order + 1):
+    for o in range(1, maximum_order + 1):
         if clusters[o]:
             # print(clusters[o])
             clusters[o] = np.concatenate(clusters[o], axis=0)
@@ -159,8 +186,15 @@ def find_subclusters(CCE_order, graph, labels, n_components, strong=False):
 
     return clusters
 
-
+# Some
 def expand_clusters(sc):
+    """
+    Expand dict with subclusters so each cluster include all possible additions of one more bath spin
+    @param sc: dict
+    initial clusters dictionary
+    @return: dict
+    dict of expanded clusters
+    """
     indexes = np.arange(sc[1].size, dtype=np.int32)
     comb = np.array([*combinations(indexes, 2)], dtype=np.int32)
 

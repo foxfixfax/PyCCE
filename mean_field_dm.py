@@ -81,8 +81,7 @@ def mean_field_density_matrix(nspin, ntype,
     @param allspins: ndarray
         array of all atoms. Passed twice because one is passed to decorator, another - directly to function
     @param bath_state: list
-        List of nuclear spin states. if len(shape) == 1, contains Sz projections of nuclear spins.
-        Otherwise, contains array of initial dms of nuclear spins
+        List of nuclear spin states, contains Sz projections of nuclear spins.
     @param gyro_e: float
         gyromagnetic ratio (in rad/(msec*Gauss)) of the central spin
     @param as_delay: bool
@@ -102,14 +101,12 @@ def mean_field_density_matrix(nspin, ntype,
     states = bath_state[others_mask]
 
     if zeroth_cluster is None:
-        H, dimensions = mf_hamiltonian(np.array([]), ntype,
-                                       I, B, S, gyro_e, D, E, others, others_state)
+        H, dimensions = mf_hamiltonian(np.array([]), ntype, I, S, B, gyro_e, D, E, others, others_state)
         zeroth_cluster = compute_dm(dm0, dimensions, H, S, timespace, pulse_sequence,
                                     as_delay=as_delay)
         zeroth_cluster = ma.masked_array(zeroth_cluster, mask=(zeroth_cluster == 0))
 
-    H, dimensions = mf_hamiltonian(nspin, ntype,
-                                   I, B, S, gyro_e, D, E, others, others_state)
+    H, dimensions = mf_hamiltonian(nspin, ntype, I, S, B, gyro_e, D, E, others, others_state)
     dms = compute_mf_dm(dm0, dimensions, states, H, S, timespace,
                         pulse_sequence, as_delay=as_delay) / zeroth_cluster
     return dms

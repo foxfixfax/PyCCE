@@ -1,12 +1,12 @@
 import numpy as np
 
-from .hamiltonian import total_hamiltonian
+from .hamiltonian import projected_hamiltonian
 from .cluster_expansion import cluster_expansion_decorator
 
 
 def propagators(timespace, H0, H1, N):
     """
-    Function to compute propagators U(1) and U(2) in conventional CCE
+    Function to compute propagators U0 and U1 in conventional CCE
     @param timespace: ndarray
         Time delay values at which to compute propagators
     @param H0: ndarray
@@ -77,9 +77,11 @@ def computeL(H0, H1, timespace, N, as_delay=False):
         timespace = timespace / (2 * N)
 
     U0, U1 = propagators(timespace, H0, H1, N)
-    L = np.trace(np.matmul(U0, np.transpose(
-        U1.conj(), axes=(0, 2, 1))), axis1=1, axis2=2) / U0.shape[1]
 
+    # L = np.trace(np.matmul(U0, np.transpose(
+    #     U1.conj(), axes=(0, 2, 1))), axis1=1, axis2=2) / U0.shape[1]
+    # L is computed as Tr[rho U0 U1dagger]; rho = Identity / dim
+    L = np.einsum('zij,zij->z', U0, U1.conj()) / U0.shape[1]
     return L
 
 
@@ -89,8 +91,8 @@ def cluster_L(subclusters, nspin, ntype, I, S, B, timespace, N, as_delay=False):
     @param subclusters: dict
         dict of subclusters included in different CCE order
         of structure {int order: np.array([[i,j],[i,j]])}
-    @param nspin: ndarray
-        array of all atoms
+    @param nspin: ndarray with shape (n_atoms)
+        array of all atoms (dtype contains N, xyz, A, V)
     @param ntype: dict
         dict with NSpinType objects inside, each key - name of the isotope
     @param I: dict
@@ -99,8 +101,8 @@ def cluster_L(subclusters, nspin, ntype, I, S, B, timespace, N, as_delay=False):
         QSpinMatrix of the central spin
     @param B: ndarray
         Magnetic field of B = np.array([Bx, By, Bz])
-    @param timespace: ndarray
-        Time points at which to compute L
+    @param timespace: ndarray with shape (n_points, )
+        Time points at which to compute L. n_points is number of time points
     @param N: int
         number of pulses in CPMG
     @param as_delay: bool
@@ -118,7 +120,7 @@ def cluster_L(subclusters, nspin, ntype, I, S, B, timespace, N, as_delay=False):
     if norders == 1 and subclusters[revorders[0]].shape[0] == 1:
         verticles = subclusters[revorders[0]][0]
 
-        H0, H1 = total_hamiltonian(nspin[verticles], ntype, I, B, S)
+        H0, H1 = projected_hamiltonian(nspin[verticles], ntype, I, S, B)
         L = computeL(H0, H1, timespace, N, as_delay=as_delay)
 
         return L
@@ -158,7 +160,7 @@ def cluster_L(subclusters, nspin, ntype, I, S, B, timespace, N, as_delay=False):
                 power[order][index] -= np.sum(power[higherorder]
                                               [containv], dtype=np.int32)
 
-            H0, H1 = total_hamiltonian(nspin[v], ntype, I, B, S)
+            H0, H1 = projected_hamiltonian(nspin[v], ntype, I, S, B)
 
             Lv = computeL(H0, H1, timespace, N,
                           as_delay=as_delay) ** power[order][index]
@@ -196,6 +198,6 @@ def decorated_coherence_function(nspin, ntype, I, S, B, timespace, N, as_delay=F
     @return: L
         L computed with conventional CCE
     """
-    H0, H1 = total_hamiltonian(nspin, ntype, I, B, S)
+    H0, H1 = projected_hamiltonian(nspin, ntype, I, S, B)
     L = computeL(H0, H1, timespace, N, as_delay=as_delay)
     return L

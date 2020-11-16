@@ -1,10 +1,10 @@
 import numpy as np
-
+from ..units_conversion import MHZ_TO_RADKHZ
 # hbar mu0 /4pi I have no idea about units, from mengs code
 # UPDATE: derived, it checks out
 hbar = 1.054571729
 # External HF given in MHz, transform to kHz * rad
-PREFACTOR = 2 * np.pi * 1000
+# MHZ_TO_RADKHZ = 2 * np.pi * 1000
 
 
 def read_pos(nspin, center: np.array = None,
@@ -84,21 +84,20 @@ def gen_hyperfine(atoms_inside: np.ndarray, ntype: dict, center: np.ndarray = No
         ext_indexes = ext_indexes[uind]
         # print(indexes, ext_indexes)
 
-        newatoms = atoms
         # print('atoms wo external\n', newatoms)
-        newatoms['xyz'][indexes] = external_atoms['xyz'][ext_indexes]
+        atoms['xyz'][indexes] = external_atoms['xyz'][ext_indexes]
         # print('change coord in newatoms\n', newatoms)
         # print('external atoms \n', external_atoms[ext_indexes])
 
         if 'A' in external_atoms.dtype.names:
             # print('found A')
-            newatoms['A'][indexes] = external_atoms['A'][ext_indexes].copy() * PREFACTOR
+            atoms['A'][indexes] = external_atoms['A'][ext_indexes].copy()
         if 'contact' in external_atoms.dtype.names:
             # print('found contact')
-            newatoms['A'][indexes] += identity[np.newaxis, :, :] * \
-                                      external_atoms['contact'][ext_indexes][:, np.newaxis, np.newaxis] * PREFACTOR
+            atoms['A'][indexes] += identity[np.newaxis, :, :] * \
+                                      external_atoms['contact'][ext_indexes][:, np.newaxis, np.newaxis]
         if 'V' in external_atoms.dtype.names:
-            newatoms['V'][indexes] = external_atoms['V'][ext_indexes].copy() * PREFACTOR
+            atoms['V'][indexes] = external_atoms['V'][ext_indexes].copy()
 
         newcounter = ext_indexes.size
         # print('\nold external atoms')
@@ -112,22 +111,20 @@ def gen_hyperfine(atoms_inside: np.ndarray, ntype: dict, center: np.ndarray = No
         #             atoms[cindex]['xyz'] = ea['xyz']  # Change position to external
         #
         #             if 'A' in ea.dtype.names:
-        #                 atoms[cindex]['A'] = ea['A'] * PREFACTOR
+        #                 atoms[cindex]['A'] = ea['A']
         #
         #             if 'contact' in ea.dtype.names:
-        #                 atoms[cindex]['A'] += identity * ea['contact'] * PREFACTOR
+        #                 atoms[cindex]['A'] += identity * ea['contact']
         #             counter_ext += 1
         #             break
         # print('\nnewatoms\n', newatoms)
         # print('\natoms\n', atoms)
         # print('Number of atoms with external HF in dataset: {}'.format(counter_ext))
-        print('Number of atoms with external HF in new approach: {}'.format(newcounter))
+        print('Number of atoms with external HF: {}'.format(newcounter))
         # print('Check for equality: {}'.format(np.all(newatoms == atoms)))
-    else:
-        newatoms = atoms
 
-    print('Number of overall Nuclear spins is {}'.format(newatoms.shape[0]))
-    return newatoms
+    print('Number of overall Nuclear spins is {}'.format(atoms.shape[0]))
+    return atoms
 
 
 def read_external(coord_f: str, hf_f: str = None, cont_f: str = None, skiprows: int = 1, erbath=None,
@@ -162,7 +159,7 @@ def read_external(coord_f: str, hf_f: str = None, cont_f: str = None, skiprows: 
 
                 for i in range(3):
                     gl = next(hf)
-                    a['A'][i] = [np.float64(x) for x in gl.split()[2:]]
+                    a['A'][i] = [np.float64(x) * MHZ_TO_RADKHZ for x in gl.split()[2:]]
 
                 next(hf)
 
@@ -173,7 +170,7 @@ def read_external(coord_f: str, hf_f: str = None, cont_f: str = None, skiprows: 
 
             for a in atoms:
                 cl = next(contact)
-                a['contact'] = np.float64(cl.split()[-1])
+                a['contact'] = np.float64(cl.split()[-1]) * MHZ_TO_RADKHZ
 
     if erbath is not None and center is not None:
         atoms = atoms[np.linalg.norm(atoms['xyz'] - center, axis=-1) < erbath]
