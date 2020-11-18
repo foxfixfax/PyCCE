@@ -1,6 +1,6 @@
 import numpy as np
 import warnings
-from ..units_conversion import MHZ_TO_RADKHZ, HARTREE_TO_MHZ, M_TO_BOHR
+from ..units import MHZ_TO_RADKHZ, HARTREE_TO_MHZ, M_TO_BOHR
 
 FLOAT_ERROR_RANGE = 1e-6
 MILLIBARN_TO_BOHR2 = M_TO_BOHR**2 * 1E-31

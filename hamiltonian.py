@@ -1,6 +1,7 @@
 import numpy as np
 
-hbar = 1.05457172  # When everything else in rad, kHz, ms, G, A
+from .units import HBAR, ELECTRON_GYRO
+# HBAR = 1.05457172  # When everything else in rad, kHz, ms, G, A
 
 
 class SpinMatrix:
@@ -185,7 +186,7 @@ def dipole_dipole(nuclei, Ivec_1, Ivec_2, ntype):
     g1 = ntype[n1['N']].gyro
     g2 = ntype[n2['N']].gyro
 
-    pre = g1 * g2 * hbar
+    pre = g1 * g2 * HBAR
 
     pos = n1['xyz'] - n2['xyz']
     r = np.linalg.norm(pos)
@@ -312,7 +313,7 @@ def hyperfine(n, Svec, Ivec):
     return H_HF
 
 
-def self_electron(B, S, gyro_e, D, E):
+def self_electron(B, S, D, E, gyro_e=ELECTRON_GYRO):
     """
     central spin Hamiltonian
     @param B: ndarray with shape (3,)
@@ -364,7 +365,7 @@ def total_hamiltonian(nspin, ntype, I, S, B, gyro_e, D, E):
     tdim = np.prod(dimensions, dtype=np.int32)
     H = np.zeros((tdim, tdim), dtype=np.complex128)
 
-    H_electron = self_electron(B, S, gyro_e, D, E)
+    H_electron = self_electron(B, S, D, E, gyro_e)
     Svec = np.array([expand(S.x, nnuclei, dimensions),
                      expand(S.y, nnuclei, dimensions),
                      expand(S.z, nnuclei, dimensions)],
@@ -449,7 +450,7 @@ def mf_nucleus(n, ntype, I, others, others_state):
         mask = others['N'] == nt
         gyros[mask] = other_g
 
-    pre = g * gyros * hbar
+    pre = g * gyros * HBAR
 
     pos = n['xyz'] - others['xyz']
     r = np.linalg.norm(pos, axis=1)
@@ -495,7 +496,7 @@ def mf_hamiltonian(nspin, ntype, I, S, B, gyro_e, D, E, others, others_state):
     tdim = np.prod(dimensions, dtype=np.int32)
     H = np.zeros((tdim, tdim), dtype=np.complex128)
 
-    H_electron = self_electron(B, S, gyro_e, D, E) + mf_electron(S, others, others_state)
+    H_electron = self_electron(B, S, D, E, gyro_e) + mf_electron(S, others, others_state)
 
     Svec = np.array([expand(S.x, nnuclei, dimensions),
                      expand(S.y, nnuclei, dimensions),
