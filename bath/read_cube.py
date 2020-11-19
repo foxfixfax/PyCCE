@@ -175,8 +175,8 @@ class Cube:
 
         dist = np.linalg.norm(pos, axis=-1)
         if round(spin * 2) != round(self.integral):
-            sw = ('Number of electron from provided spin (N = {}) '.format(round(spin * 2)) +
-                  'is not equal to cube data integral ({})'.format(round(self.integral)))
+            sw = ("Number of electron from provided spin (N = {}) ".format(round(spin * 2)) +
+                  "is not equal to cube data integral ({})".format(round(self.integral)))
             warnings.warn(sw)
 
         pre = gyro_e * gyro_n * HBAR / (2 * spin) * np.linalg.det(self.voxel)

@@ -9,8 +9,7 @@ from ..units import MHZ_TO_RADKHZ, HBAR
 # MHZ_TO_RADKHZ = 2 * np.pi * 1000
 
 
-def read_pos(nspin, center: np.array = None,
-             r_bath: float = 100, skiprows: int = 1):
+def read_pos(nspin, r_bath: float, center: np.array = None, skiprows: int = 1):
     """
     read positions of atoms within r_bath
     @param nspin: ndarray or str
@@ -108,8 +107,8 @@ def gen_hyperfine(atoms_inside: np.ndarray, ntype: dict, center: np.ndarray = No
             atoms['A'][indexes] = external_atoms['A'][ext_indexes].copy()
         if 'contact' in external_atoms.dtype.names:
             # print('found contact')
-            atoms['A'][indexes] += identity[np.newaxis, :, :] * \
-                                   external_atoms['contact'][ext_indexes][:, np.newaxis, np.newaxis]
+            atoms['A'][indexes] += (identity[np.newaxis, :, :] *
+                                    external_atoms['contact'][ext_indexes][:, np.newaxis, np.newaxis])
         if 'V' in external_atoms.dtype.names:
             atoms['V'][indexes] = external_atoms['V'][ext_indexes].copy()
 

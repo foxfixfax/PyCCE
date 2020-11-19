@@ -9,7 +9,7 @@ FLOAT_ERROR_RANGE = 1e-10
 
 class NSpinCell:
     """
-
+    Generator of the ndarray of bath spins
     Parameters
     ____________
         @param a: float

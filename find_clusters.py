@@ -7,20 +7,20 @@ from scipy.sparse import csr_matrix
 from itertools import combinations
 
 
-def make_graph(atoms, R_dipole, R_inner=0):
+def make_graph(atoms, r_dipole, r_inner=0):
     """
     Make a connectivity matrix for bath spins
     @param atoms: ndarray
     ndarray of bath spins (should contain 'xyz' in dtype)
-    @param R_dipole: float
+    @param r_dipole: float
         maximum connectivity distance
-    @param R_inner: float
+    @param r_inner: float
         minimum connectivity distance
     @return: csr_matrix
         connectivity matrix
     """
     dist_matrix = np.linalg.norm(atoms['xyz'][:, np.newaxis, :] - atoms['xyz'][np.newaxis, :, :], axis=-1)
-    atoms_within = np.logical_and(dist_matrix < R_dipole, dist_matrix > R_inner)
+    atoms_within = np.logical_and(dist_matrix < r_dipole, dist_matrix > r_inner)
     counter = np.count_nonzero(atoms_within)
     try:
         print('Average number of neighbours is {:.1f}'.format(counter / atoms.shape[0]))
@@ -51,8 +51,8 @@ def find_subclusters(maximum_order, graph, labels, n_components, strong=False):
         Whether to find only completely interconnected clusters (default False)
     @return: dict
         dict with keys corresponding to size of the cluster, and value corresponds to ndarray of shape (M, N),
-        M is the number of clusters of given size, N is the size of the cluster. Each row contains indexes of the bath
-        spins included in the given cluster
+        M is the number of clusters of given size, N is the size of the cluster.
+        Each row contains indexes of the bath spins included in the given cluster
     """
     # bool 1D array which is true when given element of graph corresponds to
     # cluster component
@@ -140,11 +140,13 @@ def find_subclusters(maximum_order, graph, labels, n_components, strong=False):
                             # present in the bond[i],given by reverse cond array
                             flatten = tiled_test[~cond[rows]]
                             # Obtaining correct indexes from tiled test gives flattened array
-                            # which should be reshaped nack into (nrows, order - bond). For CCE4 we need to add 2 indexes
+                            # which should be reshaped nack into (nrows, order - bond).
+                            # For CCE4 we need to add 2 indexes
                             # to bond to create a quartet, therefore appendix should have shape (nrows, 2)
                             appendix = flatten.reshape(flatten.size // (order - 2), order - 2)
                         else:
-                            # For CCE3 it's easier to do in this way (probably, idk, I really just don't want to break it)
+                            # For CCE3 it's easier to do in this way
+                            # (probably, idk, I really just don't want to break it)
                             appendix = tiled_test[~cond[rows]][:, np.newaxis]
 
                         triplets = np.concatenate((testbonds[rows], appendix), axis=1)
@@ -186,7 +188,7 @@ def find_subclusters(maximum_order, graph, labels, n_components, strong=False):
 
     return clusters
 
-# Some
+
 def expand_clusters(sc):
     """
     Expand dict with subclusters so each cluster include all possible additions of one more bath spin

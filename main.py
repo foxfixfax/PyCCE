@@ -8,6 +8,7 @@ from .hamiltonian import generate_spinmatrices, QSpinMatrix, total_hamiltonian, 
 from .mean_field_dm import mean_field_density_matrix
 from .correlation_function import mean_field_noise_correlation, decorated_noise_correlation
 
+
 class Simulator:
     """
     The main class for CCE calculations
@@ -40,9 +41,9 @@ class Simulator:
                             ('A', np.float64, (3, 3)),
                             ('V', np.float64, (3, 3))])
 
-    def __init__(self, spin=1., position=None,
-                 alpha=None, beta=None,
-                 gyro=-17608.597050):
+    def __init__(self, spin=1., position=None, alpha=None, beta=None, gyro=-17608.597050,
+                 spin_types=None, bath_spins=None, r_bath=None, bath_kw={},
+                 r_dipole=None, order=None):
 
         if position is None:
             position = np.zeros(3)
@@ -50,6 +51,12 @@ class Simulator:
         self.position = np.asarray(position, dtype=np.float64)
 
         self.ntype = {}
+
+        if spin_types is not None:
+            self.add_spintype(*spin_types)
+        else:
+            self.I = None
+            self.S = None
 
         self.spin = spin
 
@@ -61,17 +68,43 @@ class Simulator:
             beta = np.zeros(int(round(2 * spin + 1)), dtype=np.complex128)
             beta[1] = 1
 
-        self.alpha = np.asarray(alpha)
-        self.beta = np.asarray(beta)
+        self._alpha = np.asarray(alpha)
+        self._beta = np.asarray(beta)
+        self.S = QSpinMatrix(self.spin, self.alpha, self.beta)
+
         self.gyro = gyro
 
-        self.bath = None
-        self.graph = None
+        self.r_bath = r_bath
+        if bath_spins is not None and r_bath > 0:
+            self.read_bath(bath_spins, r_bath, **bath_kw)
+        else:
+            self.bath = None
 
-        self.r_bath = None
-        self.r_dipole = None
+        self.r_dipole = r_dipole
+        if r_dipole is not None and order is not None:
+            assert self.bath is not None, "Bath spins were not provided to compute clusters"
+            self.generate_clusters(order, r_dipole)
+        else:
+            self.graph = None
+            self.clusters = None
 
-        self.clusters = []
+    @property
+    def alpha(self):
+        return self._alpha
+
+    @alpha.setter
+    def alpha(self, alpha_state):
+        self._alpha = np.asarray(alpha_state)
+        self.S = QSpinMatrix(self.spin, self.alpha, self.beta)
+
+    @property
+    def beta(self):
+        return self._beta
+
+    @beta.setter
+    def alpha(self, beta_state):
+        self._beta = np.asarray(beta_state)
+        self.S = QSpinMatrix(self.spin, self.alpha, self.beta)
 
     def add_spintype(self, *spin_types):
         """
@@ -91,6 +124,8 @@ class Simulator:
             if isinstance(nuc, SpinType):
                 self.ntype[nuc.isotope] = nuc
             self.ntype[nuc[0]] = SpinType(*nuc)
+
+        self.I = generate_spinmatrices(self.ntype)
 
         return self.ntype
 
@@ -130,8 +165,7 @@ class Simulator:
         """
         self.bath = None
 
-        atoms = read_pos(nspin, center=self.position,
-                         r_bath=r_bath, skiprows=skiprows)
+        atoms = read_pos(nspin, r_bath=r_bath, center=self.position, skiprows=skiprows)
 
         if external_bath is not None and ext_r_bath is not None:
             where = np.linalg.norm(external_bath['xyz'] - self.position, axis=1) <= ext_r_bath
@@ -160,7 +194,8 @@ class Simulator:
             sparse connectivity matrix in csr format (see scipy.sparse.csr_matrix for details).
         """
         self.graph = None
-        self.graph = make_graph(self.bath, r_dipole, R_inner=r_inner)
+        self.r_dipole = r_dipole
+        self.graph = make_graph(self.bath, r_dipole, r_inner=r_inner)
 
         return self.graph
 
@@ -183,8 +218,11 @@ class Simulator:
         spins included in the given cluster
         """
         if self.graph is None:
-            assert r_dipole is not None, "Graph generation failed: r_dipole is not provided"
-            self.graph = make_graph(self.bath, r_dipole, R_inner=r_inner)
+            if r_dipole is not None:
+                self.r_dipole = r_dipole
+
+            assert self.r_dipole is not None, "Graph generation failed: r_dipole is not provided"
+            self.graph = self.generate_graph(r_dipole, r_inner=r_inner)
 
         self.clusters = None
         n_components, labels = connected_components(csgraph=self.graph, directed=False,
@@ -212,9 +250,7 @@ class Simulator:
         @return: 1D-ndarray
             Coherence function computed at the time points in timespace
         """
-        I = generate_spinmatrices(self.ntype)
-        S = QSpinMatrix(self.spin, self.alpha, self.beta)
-        L = decorated_coherence_function(self.clusters, self.bath, self.ntype, I, S, B,
+        L = decorated_coherence_function(self.clusters, self.bath, self.ntype, self.I, self.S, B,
                                          timespace, N, as_delay=as_delay)
 
         return L
@@ -255,25 +291,22 @@ class Simulator:
 
         dm0 = np.tensordot(state, state, axes=0)
 
-        I = generate_spinmatrices(self.ntype)
-        S = QSpinMatrix(self.spin, self.alpha, self.beta)
+        H0, dimensions0 = total_hamiltonian(np.array([]), self.ntype, self.I, self.S, B, self.gyro, D, E)
 
-        H0, dimensions0 = total_hamiltonian(np.array([]), self.ntype, I, S, B, self.gyro, D, E)
-
-        dms = compute_dm(dm0, dimensions0, H0, S, timespace, pulse_sequence,
+        dms = compute_dm(dm0, dimensions0, H0, self.S, timespace, pulse_sequence,
                          as_delay=as_delay)
 
         dms = ma.masked_array(dms, mask=(dms == 0), fill_value=0j, dtype=np.complex128)
 
         if check:
             dms_c = decorated_density_matrix(self.clusters, self.bath, self.ntype,
-                                             dm0, I, S, B, D, E,
+                                             dm0, self.I, self.S, B, D, E,
                                              timespace, pulse_sequence, gyro_e=self.gyro,
                                              as_delay=as_delay, zeroth_cluster=dms)
 
         else:
             dms_c = cluster_dm_direct_approach(self.clusters, self.bath, self.ntype,
-                                               dm0, I, S, B, self.gyro, D, E,
+                                               dm0, self.I, self.S, B, self.gyro, D, E,
                                                timespace, pulse_sequence, as_delay=as_delay)
         dms *= dms_c
 
@@ -330,8 +363,6 @@ class Simulator:
             state = np.sqrt(1 / 2) * (self.alpha + self.beta)
 
         dm0 = np.tensordot(state, state, axes=0)
-        I = generate_spinmatrices(self.ntype)
-        S = QSpinMatrix(self.spin, self.alpha, self.beta)
 
         if masked:
             divider = np.zeros(timespace.shape, dtype=np.int32)
@@ -371,13 +402,14 @@ class Simulator:
                 for fs in fixstates:
                     bath_state[fs] = fixstates[fs]
 
-            H0, d0 = mf_hamiltonian(np.array([]), self.ntype, I, S, B, self.gyro, D, E, self.bath, bath_state)
+            H0, d0 = mf_hamiltonian(np.array([]), self.ntype, self.I, self.S, B,
+                                    self.gyro, D, E, self.bath, bath_state)
 
-            dmzero = compute_dm(dm0, d0, H0, S, timespace, pulse_sequence, as_delay=as_delay)
+            dmzero = compute_dm(dm0, d0, H0, self.S, timespace, pulse_sequence, as_delay=as_delay)
             dmzero = ma.array(dmzero, mask=(dmzero == 0), fill_value=0j, dtype=np.complex128)
             # avdm0 += dmzero
             dms = mean_field_density_matrix(self.clusters, self.bath, self.ntype,
-                                            dm0, I, S, B, D, E,
+                                            dm0, self.I, self.S, B, D, E,
                                             timespace, pulse_sequence, self.bath, bath_state,
                                             as_delay=as_delay, zeroth_cluster=dmzero) * dmzero
             if masked:
@@ -464,9 +496,6 @@ class Simulator:
             state = np.sqrt(1 / 2) * (self.alpha + self.beta)
 
         dm0 = np.tensordot(state, state, axes=0)
-        I = generate_spinmatrices(self.ntype)
-        S = QSpinMatrix(self.spin, self.alpha, self.beta)
-
         root_divider = nbstates
 
         if parallel:
@@ -498,7 +527,7 @@ class Simulator:
                 bath_state[mask] = rgen.integers(snumber, size=np.count_nonzero(mask)) - s
 
             corr = mean_field_noise_correlation(self.clusters, self.bath, self.ntype,
-                                                dm0, I, S, B, D, E, timespace,
+                                                dm0, self.I, self.S, B, D, E, timespace,
                                                 self.bath, bath_state, gyro_e=self.gyro)
 
             averaged_corr += corr
@@ -538,11 +567,9 @@ class Simulator:
             state = np.sqrt(1 / 2) * (self.alpha + self.beta)
 
         dm0 = np.tensordot(state, state, axes=0)
-        I = generate_spinmatrices(self.ntype)
-        S = QSpinMatrix(self.spin, self.alpha, self.beta)
 
         corr = decorated_noise_correlation(self.clusters, self.bath, self.ntype,
-                                           dm0, I, S, B, D, E,
+                                           dm0, self.I, self.S, B, D, E,
                                            timespace,
                                            gyro_e=self.gyro)
         return corr
