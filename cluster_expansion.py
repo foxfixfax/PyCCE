@@ -1,5 +1,5 @@
-import numpy as np
 import functools
+import numpy as np
 import operator
 
 
@@ -15,6 +15,7 @@ def cluster_expansion_decorator(_func=None, *, result_operator=operator.imul, co
         of the same cluster (default: operator.ipow)
     @return: function
     """
+
     def inner_cluster_expansion_decorator(function):
 
         @functools.wraps(function)
@@ -40,11 +41,8 @@ def cluster_expansion_decorator(_func=None, *, result_operator=operator.imul, co
             # Then for this subcluster nelements < maximum CCE order
             if norders == 1 and subclusters[revorders[0]].shape[0] == 1:
                 verticles = subclusters[revorders[0]][0]
-                result = function(allnspin[verticles], *arg, **kwarg)
 
-                return result
-
-                # print(zero_power)
+                return function(allnspin[verticles], *arg, **kwarg)
 
             result = 1
             result = contribution_operator(result, 0)
@@ -91,6 +89,7 @@ def cluster_expansion_decorator(_func=None, *, result_operator=operator.imul, co
                 #     function.__name__, order, subclusters[order].shape[0]))
 
             return result
+
         return cluster_expansion
 
     if _func is None:

@@ -1,9 +1,9 @@
-from distutils.core import setup
 import setuptools
+from distutils.core import setup
 
 setup(
-    name='pyCCE',
-    version='0.0.1',
+    name='pycce',
+    version='0.0.2',
     url='',
     license='',
     author='Nikita Onizhuk',

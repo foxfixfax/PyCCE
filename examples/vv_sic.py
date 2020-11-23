@@ -1,7 +1,7 @@
 import sys
 
 sys.path.append('/home/onizhuk/midway/codes_development')
-import pyCCE
+import pycce
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -9,7 +9,7 @@ if __name__ == '__main__':
     np.random.seed(42055)
     np.set_printoptions(suppress=True, precision=5)
 
-    sic = pyCCE.bath.NSpinCell(3.073, 3.073, 10.053, 90, 90, 120, 'deg')
+    sic = pycce.bath.NSpinCell(3.073, 3.073, 10.053, 90, 90, 120, 'deg')
     sic.zdir = [0, 0, 1]
 
     sic.add_atoms(('Si', [0.00000000, 0.00000000, 0.1880]),
@@ -29,7 +29,7 @@ if __name__ == '__main__':
     atoms = sic.gen_supercell(100, remove=[('Si', vsi_cell),
                                            ('C', vc_cell)])
 
-    exatoms = pyCCE.bath.read_qe('../gipaw/pw.in',
+    exatoms = pycce.bath.read_qe('../gipaw/pw.in',
                                  '../gipaw/gipaw.out')
     M = np.array([[0, 0, -1],
                   [0, -1, 0],
@@ -40,8 +40,8 @@ if __name__ == '__main__':
                      [0.000000, 0.000000, 27.863846]])
 
     center = [0.6, 0.5, 0.5]
-    exatoms = pyCCE.bath.transform(
-        exatoms, center=center, cell=cell, rotate=M, style='row', inplace=False)
+    exatoms = pycce.bath.transform(
+        exatoms, center=center, cell=cell, rotation_matrix=M, style='row', inplace=False)
 
     # Setting up CCE calculations
     pos = sic.cell_to_cartesian(vsi_cell)
@@ -52,7 +52,7 @@ if __name__ == '__main__':
     time_space = np.linspace(0, 0.01, 101)
 
     B = np.array([0, 0, 500])
-    calc = pyCCE.Simulator(1, pos)
+    calc = pycce.Simulator(1, pos)
 
     ntype = calc.add_spintype(('13C', 1 / 2, 6.72828),
                               ('29Si', 1 / 2, -5.3188))

@@ -1,6 +1,8 @@
 import numpy as np
 
 from .units import HBAR, ELECTRON_GYRO
+
+
 # HBAR = 1.05457172  # When everything else in rad, kHz, ms, G, A
 
 
@@ -313,7 +315,7 @@ def hyperfine(n, Svec, Ivec):
     return H_HF
 
 
-def self_electron(B, S, D, E, gyro_e=ELECTRON_GYRO):
+def self_electron(B, S, D, E=0, gyro_e=ELECTRON_GYRO):
     """
     central spin Hamiltonian
     @param B: ndarray with shape (3,)
@@ -322,21 +324,25 @@ def self_electron(B, S, D, E, gyro_e=ELECTRON_GYRO):
         QSpinMatrix of the central spin
     @param gyro_e: float
         gyromagnetic ratio (in rad/(msec*Gauss)) of the central spin    @return:
-    @param D: float
-        D parameter in central spin ZFS
+    @param D: float or ndarray with shape (3,3)
+        D parameter in central spin ZFS OR total ZFS tensor
     @param E: float
         E parameter in central spin ZFS
     @return: ndarray
     """
+    if isinstance(D, (np.floating, float, int)):
+        H0 = D * (S.z @ S.z - 1 / 3 * S.s * (S.s + 1) * S.eye) + \
+             E * (S.x @ S.x - S.y @ S.y)
+    else:
+        Svec = np.asarray([S.x, S.y, S.z], dtype=np.complex128)
+        H0 = np.einsum('lij,lp,pjk->ik', Svec, D, Svec, dtype=np.complex128)
 
-    H0 = D * (S.z @ S.z - 1 / 3 * S.s * (S.s + 1) * S.eye) + \
-         E * (S.x @ S.x - S.y @ S.y)
     H1 = -gyro_e * (B[0] * S.x + B[1] * S.y + B[2] * S.z)
 
     return H1 + H0
 
 
-def total_hamiltonian(nspin, ntype, I, S, B, gyro_e, D, E):
+def total_hamiltonian(nspin, ntype, I, S, B, gyro_e, D, E=0):
     """
     Total hamiltonian for cluster including central spin
     @param nspin: ndarray with shape (n,)
@@ -351,8 +357,8 @@ def total_hamiltonian(nspin, ntype, I, S, B, gyro_e, D, E):
         magnetic field of format (Bx, By, Bz)
     @param gyro_e: float
         gyromagnetic ratio (in rad/(msec*Gauss)) of the central spin    @return:
-    @param D: float
-        D parameter in central spin ZFS
+    @param D: float or ndarray with shape (3,3)
+        D parameter in central spin ZFS OR total ZFS tensor
     @param E: float
         E parameter in central spin ZFS
     @return: H, dimensions
@@ -478,8 +484,8 @@ def mf_hamiltonian(nspin, ntype, I, S, B, gyro_e, D, E, others, others_state):
         magnetic field of format (Bx, By, Bz)
     @param gyro_e: float
         gyromagnetic ratio (in rad/(msec*Gauss)) of the central spin    @return:
-    @param D: float
-        D parameter in central spin ZFS
+    @param D: float or ndarray with shape (3,3)
+        D parameter in central spin ZFS OR total ZFS tensor
     @param E: float
         E parameter in central spin ZFS
     @param others: ndarray of shape (n_bath - n_cluser,)

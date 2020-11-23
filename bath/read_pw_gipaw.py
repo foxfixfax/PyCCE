@@ -1,10 +1,12 @@
 import numpy as np
 import warnings
+
 from ..units import MHZ_TO_RADKHZ, HARTREE_TO_MHZ, M_TO_BOHR
 
 FLOAT_ERROR_RANGE = 1e-6
-MILLIBARN_TO_BOHR2 = M_TO_BOHR**2 * 1E-31
-EFG_CONVERSION = MILLIBARN_TO_BOHR2 * HARTREE_TO_MHZ * MHZ_TO_RADKHZ # units to convert EFG
+MILLIBARN_TO_BOHR2 = M_TO_BOHR ** 2 * 1E-31
+EFG_CONVERSION = MILLIBARN_TO_BOHR2 * HARTREE_TO_MHZ * MHZ_TO_RADKHZ  # units to convert EFG
+
 
 # units of Hyperfine are kHz * rad
 # units of EFGs are kHz * rad / millibarn
@@ -39,7 +41,7 @@ def read_qe(coord_f, hf_f=None, efg_f=None, s=1, pw_type=None):
        :param pw_type: type of the coord_f. if not listed, will be inferred from extension of coord_f
        :return: np.ndarray containing types of nuclei, their position, contact HF term and dipolar-dipolar term"""
 
-    dt = [('N', np.unicode_, 16), ('xyz', np.float64, (3,)),]
+    dt = [('N', np.unicode_, 16), ('xyz', np.float64, (3,)), ]
 
     if hf_f is not None:
         dt += [('contact', np.float64), ('A', np.float64, (3, 3))]
@@ -131,13 +133,13 @@ def read_qe(coord_f, hf_f=None, efg_f=None, s=1, pw_type=None):
     return atoms
 
 
-def transform(atoms, center=None, cell=None, rotate=None, style='col', inplace=True):
+def transform(atoms, center=None, cell=None, rotation_matrix=None, style='col', inplace=True):
     """
     :param atoms: array of nuclei for which the transformation will be applied. Coordinates should be stored in cell
     coordinates,
     :param center: position of center in cell coordinates
     :param cell: cell vectors in cartesian coordinates
-    :param rotate: rotation matrix, which rotates the coordinate system, in which cell vectors are stored.
+    :param rotation_matrix: rotation matrix, which rotates the coordinate system, in which cell vectors are stored.
     Note, that rotate is applied after transition from cell coordinates to the cartesian coordinates, in which cell
     vectors are stored in matrix cell
     :param style: can have two values: 'col' or 'row'. Shows how cell and rotate matrices are stored:
@@ -161,8 +163,8 @@ def transform(atoms, center=None, cell=None, rotate=None, style='col', inplace=T
     if cell is None:
         cell = np.eye(3)
 
-    if rotate is None:
-        rotate = np.eye(3)
+    if rotation_matrix is None:
+        rotation_matrix = np.eye(3)
 
     if not np.all(cell - np.diag(np.diag(cell)) < FLOAT_ERROR_RANGE) and 'A' in atoms.dtype.names:
         mes = ('Changes to A tensor are supported only when cell is diagonal matrix.',
@@ -173,17 +175,17 @@ def transform(atoms, center=None, cell=None, rotate=None, style='col', inplace=T
 
     if style.lower() == 'row':
         cell = cell.T
-        rotate = rotate.T
+        rotation_matrix = rotation_matrix.T
 
     atoms['xyz'] = np.einsum('jk,ik->ij', cell, atoms['xyz'])
-    atoms['xyz'] = np.einsum('jk,ik->ij', np.linalg.inv(rotate), atoms['xyz'])
+    atoms['xyz'] = np.einsum('jk,ik->ij', np.linalg.inv(rotation_matrix), atoms['xyz'])
 
     if 'A' in atoms.dtype.names:
-        atoms['A'] = np.matmul(atoms['A'], rotate)
-        atoms['A'] = np.matmul(np.linalg.inv(rotate), atoms['A'])
+        atoms['A'] = np.matmul(atoms['A'], rotation_matrix)
+        atoms['A'] = np.matmul(np.linalg.inv(rotation_matrix), atoms['A'])
 
     if 'V' in atoms.dtype.names:
-        atoms['V'] = np.matmul(atoms['V'], rotate)
-        atoms['V'] = np.matmul(np.linalg.inv(rotate), atoms['V'])
+        atoms['V'] = np.matmul(atoms['V'], rotation_matrix)
+        atoms['V'] = np.matmul(np.linalg.inv(rotation_matrix), atoms['V'])
 
     return atoms

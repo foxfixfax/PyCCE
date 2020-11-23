@@ -1,7 +1,8 @@
 import numpy as np
 import warnings
-from ..units import BOHR_TO_ANGSTROM, HBAR, ELECTRON_GYRO
 from scipy.integrate import simps, trapz
+
+from ..units import BOHR_TO_ANGSTROM, HBAR, ELECTRON_GYRO
 
 # Copied from ASE
 chemical_symbols = [

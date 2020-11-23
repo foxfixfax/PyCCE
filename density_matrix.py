@@ -1,8 +1,9 @@
 import numpy as np
 import numpy.ma as ma
 import scipy.linalg
-from .hamiltonian import total_hamiltonian, expand, eta_hamiltonian
+
 from .cluster_expansion import cluster_expansion_decorator
+from .hamiltonian import total_hamiltonian, expand, eta_hamiltonian
 
 hbar = 1.05457172  # When everything else in rad, kHz, ms, G, A
 
@@ -136,6 +137,7 @@ def full_dm(dm0, dimensions, H, S, timespace, pulse_sequence=None):
 
     return dm
 
+
 def generate_dm0(dm0, dimensions, states):
     """
     A function to generate initial density matrix of the cluster
@@ -164,82 +166,6 @@ def generate_dm0(dm0, dimensions, states):
 
     dmtotal0 = np.kron(dmtotal0, dm0)
     return dmtotal0
-
-### OUTDATED CODE WHICH I'M AFRAID TO DELETE
-def cluster_dm(subclusters, nspin, ntype,
-               dm0, I, S, B, gyro_e, D, E,
-               timespace, pulse_sequence, as_delay=False):
-
-    # List of orders from highest to lowest
-    revorders = sorted(subclusters)[::-1]
-    norders = len(revorders)
-
-    # Data for zero cluster
-    H, dimensions = total_hamiltonian(np.array([]), ntype, I, S, B, gyro_e, D, E)
-    dms_zero = compute_dm(dm0, dimensions, H, S, timespace, pulse_sequence,
-                          as_delay=as_delay)
-    dms_zero = ma.masked_array(dms_zero, mask=(dms_zero == 0))
-    # print(dms_zero.mask)
-    # If there is only one set of indexes for only one order,
-    # Then for this subcluster nelements < maximum CCE order
-    if norders == 1 and subclusters[revorders[0]].shape[0] == 1:
-        verticles = subclusters[revorders[0]][0]
-
-        H, dimensions = total_hamiltonian(nspin[verticles], ntype, I, S, B, gyro_e, D, E)
-        dms = compute_dm(dm0, dimensions, H, S, timespace,
-                         pulse_sequence, as_delay=as_delay) / dms_zero
-
-        return dms
-
-    # print(zero_power)
-    # The Highest possible L will have all powers of 1
-    power = {}
-    zero_power = 0
-    # Number of visited orders from highest to lowest
-    visited = 0
-    dms = np.ones([*timespace.shape, *dm0.shape], dtype=np.complex128)
-    dms = ma.masked_array(dms, mask=(dms_zero == 0))
-    for order in revorders:
-        power[order] = np.ones(subclusters[order].shape[0], dtype=np.int32)
-        # indexes of the cluster of size order are stored in v
-
-        for index in range(subclusters[order].shape[0]):
-
-            v = subclusters[order][index]
-            # First, find the correct power. Iterate over all higher orders
-            for higherorder in revorders[:visited]:
-                # np.isin gives bool array of shape subclusters[higherorder],
-                # which is np.array of
-                # indexes of subclusters with order = higherorder.
-                # Entries are True if value is
-                # present in v and False if values are not present in v.
-                # Sum bool entries in inside cluster,
-                # if the sum equal to size of v,
-                # then v is inside the given subcluster.
-                # containv is 1D bool array with values of i-element True
-                # if i-subcluster of
-                # subclusters[higherorder] contains v
-                containv = np.count_nonzero(
-                    np.isin(subclusters[higherorder], v), axis=1) == v.size
-
-                # Power of cluster v is decreased by sum of powers of all the higher orders,
-                # As all of them have to be divided by v
-                power[order][index] -= np.sum(power[higherorder]
-                                              [containv], dtype=np.int32)
-
-            H, dimensions = total_hamiltonian(nspin[v], ntype, I, S, B, gyro_e, D, E)
-            dms_v = (compute_dm(dm0, dimensions, H, S, timespace, pulse_sequence,
-                                as_delay=as_delay) / dms_zero) ** power[order][index]
-            dms *= dms_v
-
-            zero_power -= power[order][index]
-        # print(np.abs(power[order]).max())
-        # print(zero_power)
-        visited += 1
-        print('Computed density matrices of order {} for {} clusters in subcluster of size {}'.format(
-            order, subclusters[order].shape[0], subclusters[1].size))
-
-    return dms
 
 
 def cluster_dm_direct_approach(subclusters, nspin, ntype,
@@ -393,6 +319,8 @@ def decorated_density_matrix(nspin, ntype,
     if allspins is not None and bath_state is not None:
         others_mask = np.isin(allspins, nspin)
         states = bath_state[others_mask]
+    else:
+        states = None
 
     if zeroth_cluster is None:
         H, dimensions = total_hamiltonian(np.array([]), ntype, I, S, B, gyro_e, D, E)

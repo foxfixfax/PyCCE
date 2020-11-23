@@ -1,7 +1,7 @@
+import collections
 import numpy as np
 import sys
 from string import digits
-import collections
 
 err_range = 0.1
 FLOAT_ERROR_RANGE = 1e-10
@@ -271,7 +271,7 @@ class NSpinCell:
         @return: NSpinCell
         """
         nspin_cell = cls()
-        nspin_cell.cell = atoms_object.atoms[:].T
+        nspin_cell.cell = atoms_object.cell[:].T
         positions = atoms_object.get_scaled_positions(wrap=True)
         symbols = atoms_object.get_chemical_symbols()
 

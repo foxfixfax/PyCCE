@@ -1,8 +1,7 @@
-from ase.build import bulk
-
-import pyCCE
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
+import pycce
+from ase.build import bulk
 
 if __name__ == '__main__':
     np.random.seed(42055)
@@ -10,7 +9,7 @@ if __name__ == '__main__':
 
     # Generate unitcell from ase
     diamond = bulk('C', 'diamond', orthorhombic=True)
-    diamond = pyCCE.bath.NSpinCell.from_ase_Atoms(diamond)
+    diamond = pycce.bath.NSpinCell.from_ase_Atoms(diamond)
     # Add types of isotopes
     diamond.add_isotopes(('13C', 0.011))
     # set z direction of the defect
@@ -22,14 +21,14 @@ if __name__ == '__main__':
                                   add=('14N', [0.5, 0.5, 0.5]))
 
     # Parameters of CCE calculations
-    N = 0  # Number of pulses
+    N = 1  # Number of pulses
     CCE_order = 2
-    time_space = np.linspace(0, 2e-3, 201)  # in ms
+    time_space = np.linspace(0, 2, 201)  # in ms
     r_bath = 40  # in A
     r_dipole = 8  # in A
     B = np.array([0, 0, 500])  # in G
     # Setting the runner engine
-    calc = pyCCE.Simulator(1, [0, 0, 0])
+    calc = pycce.Simulator(1, [0, 0, 0])
     # Parameters of nuclear spins
     #                      name   spin   gyromagnetic ratio rad/G/ms
     ntype = calc.add_spintype(('13C', 1 / 2, 6.72828),
@@ -43,7 +42,7 @@ if __name__ == '__main__':
     # Set model EFG at N atom
     nspin['V'][nspin['N'] == '14N'] = np.asarray([[-2.5, 0, 0],
                                                   [0, -2.5, 0],
-                                                  [0, 0,  5.0]]) * 1e3 * 2 * np.pi
+                                                  [0, 0, 5.0]]) * 1e3 * 2 * np.pi
 
     calc.generate_graph(r_dipole)
     subclusters = calc.generate_clusters(CCE_order)

@@ -1,9 +1,10 @@
 import numpy as np
 import numpy.ma as ma
 import scipy.linalg
-from .hamiltonian import mf_hamiltonian, expand
+
 from .cluster_expansion import cluster_expansion_decorator
 from .density_matrix import compute_dm, full_dm, generate_dm0
+from .hamiltonian import mf_hamiltonian, expand
 
 hbar = 1.05457172  # When everything else in rad, kHz, ms, G, A
 

@@ -1,4 +1,5 @@
 import numpy as np
+
 from ..units import MHZ_TO_RADKHZ, HBAR
 
 

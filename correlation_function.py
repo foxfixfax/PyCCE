@@ -8,6 +8,7 @@ from .hamiltonian import expand, zeeman, projected_hyperfine, mf_hamiltonian
 from .hamiltonian import total_hamiltonian, dipole_dipole
 from .mean_field_dm import generate_dm0
 
+
 def correlation_it_j0(operator_i, operator_j, dm0_expanded, U):
     """
     compute correlation function of the operator i at time t and operator j at time 0
@@ -65,7 +66,7 @@ def decorated_noise_correlation(nspin, ntype,
     """
     H, dimensions = total_hamiltonian(nspin, ntype, I, S, B, gyro_e, D, E)
 
-    U = propagator_dm(timespace, H, 0,  S, dimensions)
+    U = propagator_dm(timespace, H, 0, S, dimensions)
     dm0_expanded = expand(dm0, len(dimensions) - 1, dimensions) / np.prod(dimensions[:-1])
     # nnuclei = nspin.shape[0]
     # AIs = []
@@ -88,7 +89,6 @@ def decorated_noise_correlation(nspin, ntype,
     AI_z = correlation_it_j0(AIs[2], AIs[2], dm0_expanded, U)
 
     return np.array([AI_x, AI_y, AI_z])
-
 
 
 @cluster_expansion_decorator(result_operator=operator.iadd, contribution_operator=operator.imul)
@@ -218,11 +218,10 @@ def decorated_proj_noise_correlation(nspin, ntype, I, S, B, timespace):
 
     for i in range(nnuclei):
         for j in range(i + 1, nnuclei):
-
             Ivec_1 = Ivectors[i]
             Ivec_2 = Ivectors[j]
 
-            H_DD = dipole_dipole(nspin[(i, j), ], Ivec_1, Ivec_2, ntype)
+            H_DD = dipole_dipole(nspin[(i, j),], Ivec_1, Ivec_2, ntype)
 
             H += H_DD
 

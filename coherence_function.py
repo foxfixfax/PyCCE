@@ -1,7 +1,7 @@
 import numpy as np
 
-from .hamiltonian import projected_hamiltonian
 from .cluster_expansion import cluster_expansion_decorator
+from .hamiltonian import projected_hamiltonian
 
 
 def propagators(timespace, H0, H1, N):
@@ -170,6 +170,7 @@ def cluster_L(subclusters, nspin, ntype, I, S, B, timespace, N, as_delay=False):
         print('Computed Ls of order {} for subcluster of size {}'.format(
             order, subclusters[1].size))
     return L
+
 
 @cluster_expansion_decorator
 def decorated_coherence_function(nspin, ntype, I, S, B, timespace, N, as_delay=False):

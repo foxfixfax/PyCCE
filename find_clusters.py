@@ -1,10 +1,9 @@
-import time
-
 import numpy as np
 import scipy.sparse
 import scipy.sparse.csgraph
-from scipy.sparse import csr_matrix
+import time
 from itertools import combinations
+from scipy.sparse import csr_matrix
 
 
 def make_graph(atoms, r_dipole, r_inner=0):
@@ -31,6 +30,7 @@ def make_graph(atoms, r_dipole, r_inner=0):
     graph = csr_matrix(atoms_within, dtype=np.bool)
 
     return graph
+
 
 # Import from connected components from scipy
 connected_components = scipy.sparse.csgraph.connected_components
@@ -224,4 +224,3 @@ def expand_clusters(sc):
         newsc[o + 1] = lexpanded
 
     return newsc
-

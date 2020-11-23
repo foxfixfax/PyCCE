@@ -1,12 +1,13 @@
 import numpy as np
 import numpy.ma as ma
+
 from .bath.read_bath import read_pos, read_external, gen_hyperfine
 from .coherence_function import decorated_coherence_function
-from .find_clusters import make_graph, connected_components, find_subclusters
+from .correlation_function import mean_field_noise_correlation, decorated_noise_correlation
 from .density_matrix import decorated_density_matrix, cluster_dm_direct_approach, compute_dm
+from .find_clusters import make_graph, connected_components, find_subclusters
 from .hamiltonian import generate_spinmatrices, QSpinMatrix, total_hamiltonian, mf_hamiltonian
 from .mean_field_dm import mean_field_density_matrix
-from .correlation_function import mean_field_noise_correlation, decorated_noise_correlation
 
 
 class Simulator:
@@ -75,18 +76,17 @@ class Simulator:
         self.gyro = gyro
 
         self.r_bath = r_bath
+        self.bath = None
         if bath_spins is not None and r_bath > 0:
             self.read_bath(bath_spins, r_bath, **bath_kw)
-        else:
-            self.bath = None
 
         self.r_dipole = r_dipole
+
+        self.graph = None
+        self.clusters = None
         if r_dipole is not None and order is not None:
             assert self.bath is not None, "Bath spins were not provided to compute clusters"
             self.generate_clusters(order, r_dipole)
-        else:
-            self.graph = None
-            self.clusters = None
 
     @property
     def alpha(self):
@@ -102,7 +102,7 @@ class Simulator:
         return self._beta
 
     @beta.setter
-    def alpha(self, beta_state):
+    def beta(self, beta_state):
         self._beta = np.asarray(beta_state)
         self.S = QSpinMatrix(self.spin, self.alpha, self.beta)
 
@@ -256,7 +256,7 @@ class Simulator:
         return L
 
     def compute_dmatrix(self, timespace: np.ndarray, B: np.ndarray,
-                        D: float, E: float, pulse_sequence: list,
+                        D: float, E: float = 0, pulse_sequence: list = None,
                         as_delay: bool = False, state: np.ndarray = None,
                         check: bool = True) -> np.ndarray:
         """
@@ -265,14 +265,15 @@ class Simulator:
             time points at which compute density matrix
         @param B: ndarray
             magnetic field as (Bx, By, Bz)
-        @param D: float
+        @param D: float or ndarray with shape (3,3)
             D (longitudinal splitting) parameter of central spin in ZFS tensor of central spin in rad * kHz
+            OR total ZFS tensor
         @param E: float
             E (transverse splitting) parameter of central spin in ZFS tensor of central spin in rad * kHz
         @param pulse_sequence: list
             pulse_sequence should have format of list with tuples,
             each tuple contains two entries: first: axis the rotation is about; second: angle of rotation.
-            E.g. for Hahn-Echo [('x', np.pi/2)]. For now only pulses with same delay are supported
+            E.g. for Hahn-Echo [('x', np.pi)]. For now only pulses with same delay are supported
         @param as_delay: bool
             True if time points are delay between pulses,
             False if time points are total time
@@ -312,7 +313,7 @@ class Simulator:
 
         return dms
 
-    def compute_mf_dm(self, timespace, B, D, E, pulse_sequence, as_delay=False, state=None,
+    def compute_mf_dm(self, timespace, B, D, E=0, pulse_sequence=None, as_delay=False, state=None,
                       nbstates=100, seed=None, masked=True, normalized=None, parallel=False,
                       fixstates=None):
         """
@@ -321,8 +322,9 @@ class Simulator:
             time points at which compute density matrix
         @param B: ndarray
             magnetic field as (Bx, By, Bz)
-        @param D: float
+        @param D: float or ndarray with shape (3,3)
             D (longitudinal splitting) parameter of central spin in ZFS tensor of central spin in rad * kHz
+            OR total ZFS tensor
         @param E: float
             E (transverse splitting) parameter of central spin in ZFS tensor of central spin in rad * kHz
         @param pulse_sequence: list
@@ -459,7 +461,7 @@ class Simulator:
         else:
             return
 
-    def mean_field_corr(self, timespace, B, D, E, state=None,
+    def mean_field_corr(self, timespace, B, D, E=0, state=None,
                         nbstates=100, seed=None, parallel=False):
         """
         EXPERIMENTAL Compute noise auto correlation function
@@ -468,8 +470,9 @@ class Simulator:
             time points at which compute density matrix
         @param B: ndarray
             magnetic field as (Bx, By, Bz)
-        @param D: float
+        @param D: float or ndarray with shape (3,3)
             D (longitudinal splitting) parameter of central spin in ZFS tensor of central spin in rad * kHz
+            OR total ZFS tensor
         @param E: float
             E (transverse splitting) parameter of central spin in ZFS tensor of central spin in rad * kHz
         @param state: ndarray
@@ -546,15 +549,16 @@ class Simulator:
         else:
             return
 
-    def compute_corr(self, timespace, B, D, E, state=None):
+    def compute_corr(self, timespace, B, D, E=0, state=None):
         """
         EXPERIMENTAL Compute noise autocorrelation function of the noise with generalized CCE
         @param timespace:  1D-ndarray
             time points at which compute density matrix
         @param B: ndarray
             magnetic field as (Bx, By, Bz)
-        @param D: float
+        @param D: float or ndarray with shape (3,3)
             D (longitudinal splitting) parameter of central spin in ZFS tensor of central spin in rad * kHz
+            OR total ZFS tensor
         @param E: float
             E (transverse splitting) parameter of central spin in ZFS tensor of central spin in rad * kHz
         @param state: ndarray
