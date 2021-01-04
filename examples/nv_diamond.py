@@ -10,7 +10,7 @@ if __name__ == '__main__':
     # Generate unitcell from ase
     diamond = bulk('C', 'diamond', orthorhombic=True)
     diamond = pycce.bath.NSpinCell.from_ase_Atoms(diamond)
-    # Add types of isotopes
+    # Add types of common_isotopes
     diamond.add_isotopes(('13C', 0.011))
     # set z direction of the defect
     diamond.zdir = [1, 1, 1]
@@ -40,7 +40,7 @@ if __name__ == '__main__':
     # Read bath and generate clusters
     nspin = calc.read_bath(atoms, r_bath)
     # Set model EFG at N atom
-    nspin['V'][nspin['N'] == '14N'] = np.asarray([[-2.5, 0, 0],
+    nspin['Q'][nspin['N'] == '14N'] = np.asarray([[-2.5, 0, 0],
                                                   [0, -2.5, 0],
                                                   [0, 0, 5.0]]) * 1e3 * 2 * np.pi
 

@@ -1,6 +1,7 @@
-import numpy as np
 import warnings
-from scipy.integrate import simps, trapz
+
+import numpy as np
+from numba import jit
 
 from ..units import BOHR_TO_ANGSTROM, HBAR, ELECTRON_GYRO
 
@@ -40,13 +41,11 @@ class Cube:
     ------------
         @param filename: str
             name of the .cube file
-        @param savecoord: bool
-            whether to store coordinates of atoms from .cube file
 
     """
     _dt = np.dtype([('N', np.unicode_, 16), ('xyz', np.float64, (3,))])
 
-    def __init__(self, filename, savecoord=True):
+    def __init__(self, filename):
 
         with open(filename, "r") as content:
             # first two lines are comments
@@ -60,10 +59,8 @@ class Cube:
             self.voxel = np.empty([3, 3], dtype=np.float64)
             self.size = np.empty(3, dtype=np.int32)
 
-            if savecoord:
-                self.atoms = np.empty(natoms, dtype=self._dt)
-            else:
-                self.atoms = None
+            self.atoms = np.empty(natoms, dtype=self._dt)
+
 
             for i in range(3):
                 tot = next(content).split()
@@ -78,11 +75,10 @@ class Cube:
             for j in range(natoms):
                 tot = next(content).split()
 
-                if savecoord:
-                    self.atoms[j]['N'] = chemical_symbols[int(tot[0])]
-                    self.atoms[j]['xyz'] = [float(x) for x in tot[2:]]
+                self.atoms[j]['N'] = chemical_symbols[int(tot[0])]
+                self.atoms[j]['xyz'] = [float(x) for x in tot[2:]]
 
-            if savecoord and self.size[0] > 0:
+            if self.size[0] > 0:
                 self.atoms['xyz'] *= BOHR_TO_ANGSTROM
 
             data = [float(x) for line in content for x in line.split()]
@@ -104,7 +100,8 @@ class Cube:
         mesh = a[:, na, na, :] + b[na, :, na, :] + c[na, na, :, :]
 
         self.grid = mesh + self.origin
-        self.integral = trapz(trapz(trapz(self.data))) * np.linalg.det(self.voxel)
+        self.integral = np.trapz(np.trapz(np.trapz(self.data))) * np.linalg.det(self.voxel)
+        self.spin = round(self.integral) * 0.5
 
     def transform(self, R=None, shift=None, inplace=True):
         """
@@ -152,7 +149,7 @@ class Cube:
 
         return grid
 
-    def integrate(self, position, gyro_n, gyro_e=ELECTRON_GYRO, spin=1, R=None, shift=None):
+    def integrate(self, position, gyro_n, gyro_e=ELECTRON_GYRO, spin=None):
         """
         Integrate over polarization data, stored in Cube object,
         to obtain hyperfine dipolar-dipolar tensor
@@ -164,34 +161,53 @@ class Cube:
             gyromagnetic ratio of central spin
         @param spin: float
             total spin of the central spin
-        @param R: ndarray with shape (3, 3), optional
-            rotation matrix (see Cube.transform for details)
-        @param shift: ndarray with shape (3,), optional
-            shift in the coordinates origins (see Cube.transform for details)
         @return: ndarray with shape (3, 3)
             A tensor
         """
-        grid = self.transform(R, shift, inplace=False)
-        pos = grid - position
+        if spin is None:
+            spin = self.spin
 
-        dist = np.linalg.norm(pos, axis=-1)
-        if round(spin * 2) != round(self.integral):
-            sw = ("Number of electron from provided spin (N = {}) ".format(round(spin * 2)) +
-                  "is not equal to cube data integral ({})".format(round(self.integral)))
-            warnings.warn(sw)
+        if np.around(spin * 2) != np.around(self.integral):
+            warnings.warn(f'provided spin: {spin:.2f} is not equal to one from spin density: {self.integral / 2:.2f}')
 
-        pre = gyro_e * gyro_n * HBAR / (2 * spin) * np.linalg.det(self.voxel)
+        position = np.asarray(position)
 
-        A = np.empty([3, 3], dtype=np.float64)
-        for i in range(3):
-            for j in range(3):
-                if i == j:
-                    integrand = - pre * self.data * (3 * pos[:, :, :, i] * pos[:, :, :, j] - dist ** 2) / dist ** 5
-                else:
-                    integrand = - pre * self.data * (3 * pos[:, :, :, i] * pos[:, :, :, j]) / dist ** 5
-
-                A[i, j] = trapz(trapz(trapz(integrand)))
-
+        if len(position.shape) > 1:
+            A = cube_integrate_array(self.data, self.grid, self.voxel, spin,
+                                     position, gyro_n, gyro_e)
+        else:
+            A = cube_integrate(self.data, self.grid, self.voxel, spin,
+                               position, gyro_n, gyro_e)
         return A
 
         # d['A'] = -(3 * np.outer(pos, pos) - identity * r ** 2) / (r ** 5) * pre
+
+
+@jit(nopython=True)
+def cube_integrate(data, grid, voxel, spin, position, gyro_n, gyro_e=ELECTRON_GYRO):
+    pos = grid - position
+
+    dist = np.sqrt(np.sum(pos ** 2))
+
+    pre = gyro_e * gyro_n * HBAR / (2 * spin) * np.linalg.det(voxel)
+
+    A = np.zeros((3, 3), dtype=np.float64)
+    for i in range(3):
+        for j in range(3):
+
+            if i == j:
+                integrand = - pre * data * (3 * pos[:, :, :, i] * pos[:, :, :, j] - dist ** 2) / dist ** 5
+            else:
+                integrand = - pre * data * (3 * pos[:, :, :, i] * pos[:, :, :, j]) / dist ** 5
+
+            A[i, j] = np.trapz(np.trapz(np.trapz(integrand)))
+
+    return A
+
+
+@jit(nopython=True)
+def cube_integrate_array(data, grid, voxel, spin, coordinates, gyros, gyro_e=ELECTRON_GYRO):
+    As = np.zeros((coordinates.shape[0], 3, 3), dtype=np.float64)
+    for i, position in enumerate(coordinates):
+        As[i] = cube_integrate(data, grid, voxel, spin, position, gyros[i], gyro_e)
+    return As

@@ -1,8 +1,8 @@
 import numpy as np
 
-from ..units import MHZ_TO_RADKHZ, HBAR
-
-
+from ..units import MHZ_TO_RADKHZ, HBAR, ELECTRON_GYRO
+from .read_cube import Cube
+from .array import BathArray
 # hbar mu0 /4pi I have no idea about units, from mengs code
 # UPDATE: derived, it checks out
 # HBAR = 1.054571729
@@ -10,7 +10,7 @@ from ..units import MHZ_TO_RADKHZ, HBAR
 # MHZ_TO_RADKHZ = 2 * np.pi * 1000
 
 
-def read_pos(nspin, r_bath: float, center: np.array = None, skiprows: int = 1):
+def read_xyz(nspin, r_bath: float = None, center: np.array = None, skiprows: int = 1):
     """
     read positions of atoms within r_bath
     @param nspin: ndarray or str
@@ -28,26 +28,26 @@ def read_pos(nspin, r_bath: float, center: np.array = None, skiprows: int = 1):
 
     if center is None:
         center = [0, 0, 0]
-    if isinstance(nspin, np.ndarray):
+    if isinstance(nspin, (np.ndarray, BathArray)):
         dataset = nspin
     else:
         dt_read = np.dtype([('N', np.unicode_, 16), ('xyz', np.float64, (3,))])
         dataset = np.loadtxt(nspin, dtype=dt_read, skiprows=skiprows)
+    if r_bath is not None:
+        mask = np.linalg.norm(dataset['xyz'] - np.asarray(center), axis=-1) < r_bath
+        dataset = dataset[mask]
+    atoms = BathArray(array=dataset)
 
-    mask = np.linalg.norm(dataset['xyz'] - np.asarray(center), axis=-1) < r_bath
-
-    atoms_inside = dataset[mask]
-
-    return atoms_inside
+    return atoms
 
 
-def gen_hyperfine(atoms_inside: np.ndarray, ntype: dict, center: np.ndarray = None,
-                  gyro_e: float = -17608.597050, external_atoms: np.ndarray = None,
-                  error_range: float = 0.2) -> np.ndarray:
+def gen_hyperfine(atoms: np.ndarray, ntype: dict, center: np.ndarray = None,
+                  gyro_e: float = ELECTRON_GYRO, external_atoms: np.ndarray = None,
+                  error_range: float = 0.2, cube: Cube = None) -> np.ndarray:
     """
     Generate hyperfine values for array of atoms
 
-    @param atoms_inside: ndarray with shape (natoms,)
+    @param atoms: ndarray with shape (natoms,)
         dtype should include [('N', np.unicode_, 16), ('xyz', np.float64, (3,))] containing the
         coordinates (xyz) of the nuclear isotope and it's type (N)
     @param ntype: dict
@@ -61,7 +61,8 @@ def gen_hyperfine(atoms_inside: np.ndarray, ntype: dict, center: np.ndarray = No
     @param error_range: float
         error range within which the coordinates of atoms in external_atoms are considered the same
         as in the atoms_inside array
-    @return: ndarray
+    @param cube:
+    @return: BathArray
         array of atoms with dtype [('N', np.unicode_, 16),
                                    ('xyz', np.float64, (3,)),
                                    ('A', np.float64, (3, 3))]
@@ -73,15 +74,8 @@ def gen_hyperfine(atoms_inside: np.ndarray, ntype: dict, center: np.ndarray = No
 
     identity = np.eye(3)
 
-    dt_out = np.dtype([('N', np.unicode_, 16),
-                       ('xyz', np.float64, (3,)),
-                       ('A', np.float64, (3, 3)),
-                       ('V', np.float64, (3, 3))])
-
-    atoms = np.zeros(atoms_inside.shape[0], dtype=dt_out)
-
-    atoms['N'] = atoms_inside['N']
-    atoms['xyz'] = atoms_inside['xyz']
+    if type(atoms) != BathArray:
+        atoms = BathArray(array=atoms)
 
     for d in atoms:
         pos = d['xyz'] - center
@@ -110,11 +104,19 @@ def gen_hyperfine(atoms_inside: np.ndarray, ntype: dict, center: np.ndarray = No
             # print('found contact')
             atoms['A'][indexes] += (identity[np.newaxis, :, :] *
                                     external_atoms['contact'][ext_indexes][:, np.newaxis, np.newaxis])
-        if 'V' in external_atoms.dtype.names:
-            atoms['V'][indexes] = external_atoms['V'][ext_indexes].copy()
+        if 'Q' in external_atoms.dtype.names:
+            atoms['Q'][indexes] = external_atoms['Q'][ext_indexes].copy()
+            # pref = ntype[n['N']].q / (6 * s * (2 * s - 1))
+            # delI2 = np.sum(np.diag(n['Q'])) * np.eye(I[s].x.shape[0]) * s * (s + 1)
 
         newcounter = ext_indexes.size
         print('Number of atoms with external HF: {}'.format(newcounter))
+
+    if cube is not None:
+        where = np.ones(atoms.shape, dtype=bool) if external_atoms is None else ~criteria
+        for a in atoms[where]:
+            a['A'] = cube.intergate(a['xyz'] - center, ntype[a['N']].gyro, gyro_e)
+
 
     print('Number of overall Nuclear spins is {}'.format(atoms.shape[0]))
     return atoms

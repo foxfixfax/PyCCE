@@ -1,5 +1,5 @@
-import collections
 import numpy as np
+from .array import BathArray
 import sys
 from string import digits
 
@@ -250,9 +250,10 @@ class NSpinCell:
         # atoms = atoms[np.linalg.norm(atoms['xyz'], axis=1) <= size]
 
         defective_atoms = defect(self.cell, atoms, add=add, remove=remove)
-        return defective_atoms
+        bath = BathArray(array=defective_atoms)
+        return bath
 
-    def cell_to_cartesian(self, coord):
+    def to_cartesian(self, coord):
         """
         transform coordinates from cell to cartesians
         @param coord: ndarray with shape (3,)
@@ -294,7 +295,7 @@ def defect(cell, atoms, add=None, remove=None):
     @param atoms: ndarray
         atoms in the supercell
     @param add: list
-        list of tuples containing isotopes to add as a defect. Each tuple contains name of the new isotope
+        list of tuples containing common_isotopes to add as a defect. Each tuple contains name of the new isotope
         and its coordinates in the cell basis:
         (isotope_name, x_cell, y_cell, z_cell)
     @param remove:

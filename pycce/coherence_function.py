@@ -85,7 +85,7 @@ def computeL(H0, H1, timespace, N, as_delay=False):
     return L
 
 
-def cluster_L(subclusters, nspin, ntype, I, S, B, timespace, N, as_delay=False):
+def cluster_L(subclusters, nspin, I, S, B, timespace, N, as_delay=False):
     """
     Older version of the cluster expansion, specifically for L in conventional CCE
     @param subclusters: dict
@@ -120,7 +120,7 @@ def cluster_L(subclusters, nspin, ntype, I, S, B, timespace, N, as_delay=False):
     if norders == 1 and subclusters[revorders[0]].shape[0] == 1:
         verticles = subclusters[revorders[0]][0]
 
-        H0, H1 = projected_hamiltonian(nspin[verticles], ntype, I, S, B)
+        H0, H1 = projected_hamiltonian(nspin[verticles], I, S, B)
         L = computeL(H0, H1, timespace, N, as_delay=as_delay)
 
         return L
@@ -173,7 +173,7 @@ def cluster_L(subclusters, nspin, ntype, I, S, B, timespace, N, as_delay=False):
 
 
 @cluster_expansion_decorator
-def decorated_coherence_function(nspin, ntype, I, S, B, timespace, N, as_delay=False):
+def decorated_coherence_function(nspin, I, S, B, timespace, N, as_delay=False):
     """
         Overarching decorated function to compute L in conventional CCE. The call of the function includes:
     @param subclusters: dict
@@ -199,6 +199,6 @@ def decorated_coherence_function(nspin, ntype, I, S, B, timespace, N, as_delay=F
     @return: L
         L computed with conventional CCE
     """
-    H0, H1 = projected_hamiltonian(nspin, ntype, I, S, B)
+    H0, H1 = projected_hamiltonian(nspin, I, S, B)
     L = computeL(H0, H1, timespace, N, as_delay=as_delay)
     return L

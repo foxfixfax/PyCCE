@@ -5,7 +5,7 @@ import operator
 from .cluster_expansion import cluster_expansion_decorator
 from .density_matrix import propagator_dm
 from .hamiltonian import expand, zeeman, projected_hyperfine, mf_hamiltonian
-from .hamiltonian import total_hamiltonian, dipole_dipole
+from .hamiltonian import total_hamiltonian, dipole_dipole, quadrupole
 from .mean_field_dm import generate_dm0
 
 
@@ -32,8 +32,7 @@ def correlation_it_j0(operator_i, operator_j, dm0_expanded, U):
 
 
 @cluster_expansion_decorator(result_operator=operator.iadd, contribution_operator=operator.imul)
-def decorated_noise_correlation(nspin, ntype,
-                                dm0, I, S, B, D, E,
+def decorated_noise_correlation(nspin, dm0, I, S, B, D, E,
                                 timespace,
                                 gyro_e=-17608.597050):
     """
@@ -64,25 +63,26 @@ def decorated_noise_correlation(nspin, ntype,
     @return: ndarray
         autocorrelation function
     """
-    H, dimensions = total_hamiltonian(nspin, ntype, I, S, B, gyro_e, D, E)
+    H, dimensions = total_hamiltonian(nspin, I, S, B, D, E=E, gyro_e=gyro_e)
 
     U = propagator_dm(timespace, H, 0, S, dimensions)
     dm0_expanded = expand(dm0, len(dimensions) - 1, dimensions) / np.prod(dimensions[:-1])
     # nnuclei = nspin.shape[0]
     # AIs = []
     AIs = 0
+    ntype = nspin.types
     for j, n in enumerate(nspin):
-        s = ntype[n['N']].s
+        s = ntype[n].s
 
-        Ivec = np.array([expand(I[s].x, j, dimensions),
+        ivec = np.array([expand(I[s].x, j, dimensions),
                          expand(I[s].y, j, dimensions),
                          expand(I[s].z, j, dimensions)],
                         dtype=np.complex128)
 
-        ATensor = n['A']
+        atensor = n['A']
 
-        AIvec = np.array([ATensor[0, 0] * Ivec[0], ATensor[1, 1] * Ivec[1], ATensor[2, 2] * Ivec[2]])
-        AIs += AIvec
+        a_ivec = np.array([atensor[0, 0] * ivec[0], atensor[1, 1] * ivec[1], atensor[2, 2] * ivec[2]])
+        AIs += a_ivec
 
     AI_x = correlation_it_j0(AIs[0], AIs[0], dm0_expanded, U)
     AI_y = correlation_it_j0(AIs[1], AIs[1], dm0_expanded, U)
@@ -92,8 +92,7 @@ def decorated_noise_correlation(nspin, ntype,
 
 
 @cluster_expansion_decorator(result_operator=operator.iadd, contribution_operator=operator.imul)
-def mean_field_noise_correlation(nspin, ntype,
-                                 dm0, I, S, B, D, E,
+def mean_field_noise_correlation(nspin, dm0, I, S, B, D, E,
                                  timespace, allspins, bath_state,
                                  gyro_e=-17608.597050):
     """
@@ -137,23 +136,25 @@ def mean_field_noise_correlation(nspin, ntype,
 
     states = bath_state[others_mask]
 
-    H, dimensions = mf_hamiltonian(nspin, ntype, I, S, B, gyro_e, D, E, others, others_state)
+    H, dimensions = mf_hamiltonian(nspin, I, S, B, others, others_state, D, E, gyro_e)
     U = propagator_dm(timespace, H, 0, S, dimensions)
     dmtotal0 = generate_dm0(dm0, dimensions, states)
 
     AIs = 0
-    for j, n in enumerate(nspin):
-        s = ntype[n['N']].s
+    ntype = nspin.types
 
-        Ivec = np.array([expand(I[s].x, j, dimensions),
+    for j, n in enumerate(nspin):
+        s = ntype[n].s
+
+        ivec = np.array([expand(I[s].x, j, dimensions),
                          expand(I[s].y, j, dimensions),
                          expand(I[s].z, j, dimensions)],
                         dtype=np.complex128)
 
-        ATensor = n['A']
+        atensor = n['A']
 
-        AIvec = np.array([ATensor[0, 0] * Ivec[0], ATensor[1, 1] * Ivec[1], ATensor[2, 2] * Ivec[2]])
-        AIs += AIvec
+        a_ivec = np.array([atensor[0, 0] * ivec[0], atensor[1, 1] * ivec[1], atensor[2, 2] * ivec[2]])
+        AIs += a_ivec
 
     AI_x = correlation_it_j0(AIs[0], AIs[0], dmtotal0, U)
     AI_y = correlation_it_j0(AIs[1], AIs[1], dmtotal0, U)
@@ -163,7 +164,7 @@ def mean_field_noise_correlation(nspin, ntype,
 
 
 @cluster_expansion_decorator(result_operator=operator.iadd, contribution_operator=operator.imul)
-def decorated_proj_noise_correlation(nspin, ntype, I, S, B, timespace):
+def decorated_proj_noise_correlation(nspin, I, S, B, timespace):
     """
     Decorated function to compute autocorrelation function with conventional CCE
     @param subclusters: dict
@@ -184,44 +185,54 @@ def decorated_proj_noise_correlation(nspin, ntype, I, S, B, timespace):
     @return: ndarray
         autocorrelation function
     """
-    dimensions = [I[ntype[n['N']].s].dim for n in nspin]
+    ntype = nspin.types
+    dimensions = [I[ntype[n].s].dim for n in nspin]
     nnuclei = nspin.shape[0]
 
     tdim = np.prod(dimensions, dtype=np.int32)
 
     H = np.zeros((tdim, tdim), dtype=np.complex128)
     AIs = 0
-    Ivectors = []
+    ivectors = []
 
-    for j in range(nnuclei):
-        H_zeeman = zeeman(nspin[j], ntype, I, B)
-        H_HF = projected_hyperfine(nspin[j], S.alpha, ntype, I, S)
+    for j, n in enumerate(nspin):
+        s = ntype[n].s
 
-        H_j = H_zeeman + H_HF
+        if s > 1 / 2:
+            H_quad = quadrupole(n['Q'], s, I[s])
+            H_single = zeeman(ntype[n].gyro, I[s], B) + H_quad
+        else:
+            H_single = zeeman(ntype[n].gyro, I[s], B)
+
+        H_HF = projected_hyperfine(n['A'], I[s], S.projections_alpha)
+
+        H_j = H_single + H_HF
         H += expand(H_j, j, dimensions)
 
-        s = ntype[nspin[j]['N']].s
-        Ivec = np.array([expand(I[s].x, j, dimensions),
+        ivec = np.array([expand(I[s].x, j, dimensions),
                          expand(I[s].y, j, dimensions),
                          expand(I[s].z, j, dimensions)],
                         dtype=np.complex128)
 
-        ATensor = nspin[j]['A']
+        ATensor = n['A']
 
-        # AIvec = np.einsum('ij,jkl->ikl', ATensor, Ivec,
+        # AIvec = np.einsum('ij,jkl->ikl', ATensor, ivec,
         #                   dtype=np.complex128)  # AIvec = Atensor @ Ivector
         # # AIs.append(AIvec)
-        AIvec = np.array([ATensor[0, 0] * Ivec[0], ATensor[1, 1] * Ivec[1], ATensor[2, 2] * Ivec[2]])
+        AIvec = np.array([ATensor[0, 0] * ivec[0], ATensor[1, 1] * ivec[1], ATensor[2, 2] * ivec[2]])
         AIs += AIvec
 
-        Ivectors.append(Ivec)
+        ivectors.append(ivec)
 
     for i in range(nnuclei):
         for j in range(i + 1, nnuclei):
-            Ivec_1 = Ivectors[i]
-            Ivec_2 = Ivectors[j]
+            n1 = nspin[i]
+            n2 = nspin[j]
 
-            H_DD = dipole_dipole(nspin[(i, j),], Ivec_1, Ivec_2, ntype)
+            ivec_1 = ivectors[i]
+            ivec_2 = ivectors[j]
+
+            H_DD = dipole_dipole(n1['xyz'], n2['xyz'], ntype[n1].gyro, ntype[n2].gyro, ivec_1, ivec_2)
 
             H += H_DD
 
@@ -240,3 +251,4 @@ def decorated_proj_noise_correlation(nspin, ntype, I, S, B, timespace):
     AI_z = correlation_it_j0(AIs[2], AIs[2], dm0_expanded, U)
 
     return np.array([AI_x, AI_y, AI_z])
+

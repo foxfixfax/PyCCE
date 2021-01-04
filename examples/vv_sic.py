@@ -29,8 +29,8 @@ if __name__ == '__main__':
     atoms = sic.gen_supercell(100, remove=[('Si', vsi_cell),
                                            ('C', vc_cell)])
 
-    exatoms = pycce.bath.read_qe('../gipaw/pw.in',
-                                 '../gipaw/gipaw.out')
+    exatoms = pycce.bath.read_qe('./gipaw/pw.in',
+                                 './gipaw/gipaw.out')
     M = np.array([[0, 0, -1],
                   [0, -1, 0],
                   [-1, 0, 0]])

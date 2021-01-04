@@ -1,28 +1,29 @@
 import numpy as np
 import warnings
 
-from ..units import MHZ_TO_RADKHZ, HARTREE_TO_MHZ, M_TO_BOHR
-
+from ..units import MHZ_TO_RADKHZ, HARTREE_TO_MHZ, M_TO_BOHR, BOHR_TO_ANGSTROM
+from .array import BathArray
 FLOAT_ERROR_RANGE = 1e-6
-MILLIBARN_TO_BOHR2 = M_TO_BOHR ** 2 * 1E-31
-EFG_CONVERSION = MILLIBARN_TO_BOHR2 * HARTREE_TO_MHZ * MHZ_TO_RADKHZ  # units to convert EFG
+BARN_TO_BOHR2 = M_TO_BOHR ** 2 * 1E-28
+EFG_CONVERSION = BARN_TO_BOHR2 * HARTREE_TO_MHZ * MHZ_TO_RADKHZ  # units to convert EFG
 
 
 # units of Hyperfine are kHz * rad
-# units of EFGs are kHz * rad / millibarn
-# necessary units of Q are millibarn
+# units of EFGs are kHz * rad / barn
+# necessary units of Q are barn
 
 
-# Qs = { # isotope | Q in Q/millibarn
-#     "N": ("14", 20.44),
-#     "C": ("11", 33.27),
+# Qs = { # isotope | Q in Q/barn
+#     "N": ("14", 0.02044),
+#     "C": ("11", 0.03327),
 # }
 # QeVzz = Qs['N'][1] * Vzz * EFG_CONVERSION
+# V in units of rad * kHz / barn
 
 def find_line(file, keyw):
     """find line in file with keyw in it"""
     for lin in file:
-        if keyw in lin:
+        if keyw.lower() in lin.lower():
             break
     else:
         raise RuntimeError('The {} was not found in {}'.format(keyw, file))
@@ -30,7 +31,8 @@ def find_line(file, keyw):
     return lin
 
 
-def read_qe(coord_f, hf_f=None, efg_f=None, s=1, pw_type=None):
+def read_qe(coord_f, hf_f=None, efg_f=None, s=1, pw_type=None, spin_types=None, which_isotopes=None,
+            center=None, rotation_matrix=None, rm_style='col'):
     """from quantum espresso output of pw and gipaw read atoms
        into np.ndarray of dtype [('N', np.unicode_, 16), ('xyz', np.float64, (3,)), ('contact', np.float64), \
        ('A', np.float64, (3, 3))])
@@ -40,19 +42,18 @@ def read_qe(coord_f, hf_f=None, efg_f=None, s=1, pw_type=None):
        :param s: spin of the qubit spin
        :param pw_type: type of the coord_f. if not listed, will be inferred from extension of coord_f
        :return: np.ndarray containing types of nuclei, their position, contact HF term and dipolar-dipolar term"""
+    qe_coord_types = ['crystal', 'bohr', 'angstrom']
 
-    dt = [('N', np.unicode_, 16), ('xyz', np.float64, (3,)), ]
+    dipolars = None
+    gradients = None
 
     if hf_f is not None:
-        dt += [('contact', np.float64), ('A', np.float64, (3, 3))]
         dipolars = []
 
     if efg_f is not None:
-        dt += [('V', np.float64, (3, 3))]
         gradients = []
-    dt_out = np.dtype(dt)
 
-    types = []
+    spin_names = []
     coordinates = []
 
     if not pw_type:
@@ -77,7 +78,11 @@ def read_qe(coord_f, hf_f=None, efg_f=None, s=1, pw_type=None):
             find_line(coord, fcoord)
 
         pw_keyword = 'ATOMIC_POSITIONS'
-        find_line(coord, pw_keyword)
+        lin = find_line(coord, pw_keyword)
+        try:
+            coord_type = next(filter(lambda x: x in lin.lower(), qe_coord_types))
+        except IndexError:
+            raise ValueError('ATOMIC_POSITIONS type is not supported.\nAllowed types: ', ' '.join(*qe_coord_types))
 
         for pl in coord:
             # Important only for pw out
@@ -93,7 +98,7 @@ def read_qe(coord_f, hf_f=None, efg_f=None, s=1, pw_type=None):
             if hf_f is not None:
                 A = []
                 # divided by spin, b/c fucked in the GIPAW code
-                for i in range(3):
+                for _ in range(3):
                     gl = next(hf)
                     A.append([float(x) / (2 * s) * MHZ_TO_RADKHZ for x in gl.split()[2:]])
                 dipolars.append(A)
@@ -101,21 +106,66 @@ def read_qe(coord_f, hf_f=None, efg_f=None, s=1, pw_type=None):
 
             if efg_f is not None:
                 v = []
-                for i in range(3):
+                for _ in range(3):
                     fl = next(efg)
                     v.append([float(x) * EFG_CONVERSION for x in fl.split()[2:]])
                 gradients.append(v)
                 next(efg)
 
-            types.append(typ)
+            spin_names.append(typ)
             coordinates.append(coord)
 
-    atoms = np.empty(len(types), dtype=dt_out)
-    atoms['N'] = types
-    atoms['xyz'] = coordinates
-    if hf_f is not None:
-        atoms['A'] = dipolars
+    spin_names = np.asarray(spin_names)
+    if which_isotopes is not None:
+        for gipaw_name in which_isotopes:
+            spin_names[spin_names == gipaw_name] = which_isotopes[gipaw_name]
 
+    atoms = BathArray(array=coordinates, spin_names=spin_names,
+                      hyperfines=dipolars, quadrupoles=gradients,
+                      spin_types=spin_types)
+    if efg_f is not None:
+        pref = atoms.types[atoms].q / (2 * s * (2 * s - 1))
+        atoms['Q'] *= pref
+
+    cell = None
+    if coord_type == 'bohr':
+        atoms['xyz'] *= BOHR_TO_ANGSTROM
+
+    elif coord_type == 'crystal':
+        coord = open(coord_f)
+        cell = []
+
+        if pw_type == 'in':
+            lin = find_line(coord, 'CELL_PARAMETERS')
+            cell_type = next(filter(lambda x: x in lin.lower(), qe_coord_types))
+
+            for _ in range(3):
+                lin = next(coord)
+                cell.append([float(x) for x in lin.split()])
+
+            cell = np.asarray(cell)
+
+            if cell_type == 'bohr':
+
+                cell *= BOHR_TO_ANGSTROM
+            elif cell_type != 'angstrom':
+                warnings.warn('CELL_PARAMETERS units are not recognized. Assumed angstrom')
+
+        if pw_type == 'out':
+
+            lin = find_line(coord, 'lattice parameter (alat)')
+            alat = float(lin.split()[-2])
+            lin = find_line(coord, 'crystal axes')
+
+            for _ in range(3):
+                lin = next(coord)
+                cell.append([float(x) for x in lin.split()[3:-1]])
+
+            cell = np.asarray(cell) * alat * BOHR_TO_ANGSTROM
+
+        coord.close()
+
+    if hf_f is not None:
         find_line(hf, 'Fermi contact in MHz')
         next(hf)
 
@@ -123,17 +173,27 @@ def read_qe(coord_f, hf_f=None, efg_f=None, s=1, pw_type=None):
             gl = next(hf)
             # divided by spin, b/c fucked in the GIPAW code
             cont = float(gl.split()[-1]) / (2 * s)
-            a['contact'] = cont * MHZ_TO_RADKHZ
+            a['A'] += np.eye(3) * cont * MHZ_TO_RADKHZ
         hf.close()
 
-    if efg_f is not None:
-        atoms['V'] = gradients
-    # print("finished reading")
+    if rm_style == 'col' and cell is not None:
+        cell = cell.T
 
+    atoms = transform(atoms, center, cell, rotation_matrix, rm_style)
     return atoms
 
 
 def transform(atoms, center=None, cell=None, rotation_matrix=None, style='col', inplace=True):
+    """
+
+    @param atoms: BathArray of atoms to be rotated
+    @param center:
+    @param cell:
+    @param rotation_matrix:
+    @param style:
+    @param inplace:
+    @return:
+    """
     """
     :param atoms: array of nuclei for which the transformation will be applied. Coordinates should be stored in cell
     coordinates,
@@ -184,8 +244,8 @@ def transform(atoms, center=None, cell=None, rotation_matrix=None, style='col', 
         atoms['A'] = np.matmul(atoms['A'], rotation_matrix)
         atoms['A'] = np.matmul(np.linalg.inv(rotation_matrix), atoms['A'])
 
-    if 'V' in atoms.dtype.names:
-        atoms['V'] = np.matmul(atoms['V'], rotation_matrix)
-        atoms['V'] = np.matmul(np.linalg.inv(rotation_matrix), atoms['V'])
+    if 'Q' in atoms.dtype.names:
+        atoms['Q'] = np.matmul(atoms['Q'], rotation_matrix)
+        atoms['Q'] = np.matmul(np.linalg.inv(rotation_matrix), atoms['Q'])
 
     return atoms

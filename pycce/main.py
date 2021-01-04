@@ -1,7 +1,8 @@
 import numpy as np
 import numpy.ma as ma
 
-from .bath.read_bath import read_pos, read_external, gen_hyperfine
+from .bath.read_bath import read_xyz, read_external, gen_hyperfine
+from .bath.array import SpinType, SpinDict, BathArray
 from .coherence_function import decorated_coherence_function
 from .correlation_function import mean_field_noise_correlation, decorated_noise_correlation
 from .density_matrix import decorated_density_matrix, cluster_dm_direct_approach, compute_dm
@@ -35,12 +36,6 @@ class Simulator:
         gyromagnetic ratio of central spin in rad/(ms * G) (default -17608.597050)
 
     """
-    _dtype_read = np.dtype([('N', np.unicode_, 16), ('xyz', np.float64, (3,))])
-
-    _dtype_bath = np.dtype([('N', np.unicode_, 16),
-                            ('xyz', np.float64, (3,)),
-                            ('A', np.float64, (3, 3)),
-                            ('V', np.float64, (3, 3))])
 
     def __init__(self, spin=1., position=None, alpha=None, beta=None, gyro=-17608.597050,
                  spin_types=None, bath_spins=None, r_bath=None, bath_kw={},
@@ -51,7 +46,7 @@ class Simulator:
 
         self.position = np.asarray(position, dtype=np.float64)
 
-        self.ntype = {}
+        self.ntype = SpinDict()
 
         if spin_types is not None:
             self.add_spintype(*spin_types)
@@ -76,7 +71,7 @@ class Simulator:
         self.gyro = gyro
 
         self.r_bath = r_bath
-        self.bath = None
+        self.bath = BathArray(0)
         if bath_spins is not None and r_bath > 0:
             self.read_bath(bath_spins, r_bath, **bath_kw)
 
@@ -120,11 +115,7 @@ class Simulator:
         @return: dict
             dict of the SpinType instances
         """
-        for nuc in spin_types:
-            if isinstance(nuc, SpinType):
-                self.ntype[nuc.isotope] = nuc
-            self.ntype[nuc[0]] = SpinType(*nuc)
-
+        self.ntype.add_spin_type(*spin_types)
         self.I = generate_spinmatrices(self.ntype)
 
         return self.ntype
@@ -165,7 +156,7 @@ class Simulator:
         """
         self.bath = None
 
-        atoms = read_pos(nspin, r_bath=r_bath, center=self.position, skiprows=skiprows)
+        atoms = read_xyz(nspin, r_bath=r_bath, center=self.position, skiprows=skiprows)
 
         if external_bath is not None and ext_r_bath is not None:
             where = np.linalg.norm(external_bath['xyz'] - self.position, axis=1) <= ext_r_bath
@@ -250,7 +241,7 @@ class Simulator:
         @return: 1D-ndarray
             Coherence function computed at the time points in timespace
         """
-        L = decorated_coherence_function(self.clusters, self.bath, self.ntype, self.I, self.S, B,
+        L = decorated_coherence_function(self.clusters, self.bath, self.I, self.S, B,
                                          timespace, N, as_delay=as_delay)
 
         return L
@@ -292,7 +283,7 @@ class Simulator:
 
         dm0 = np.tensordot(state, state, axes=0)
 
-        H0, dimensions0 = total_hamiltonian(np.array([]), self.ntype, self.I, self.S, B, self.gyro, D, E)
+        H0, dimensions0 = total_hamiltonian(BathArray(0), self.I, self.S, B, D, E=E, gyro_e=self.gyro)
 
         dms = compute_dm(dm0, dimensions0, H0, self.S, timespace, pulse_sequence,
                          as_delay=as_delay)
@@ -300,13 +291,13 @@ class Simulator:
         dms = ma.masked_array(dms, mask=(dms == 0), fill_value=0j, dtype=np.complex128)
 
         if check:
-            dms_c = decorated_density_matrix(self.clusters, self.bath, self.ntype,
+            dms_c = decorated_density_matrix(self.clusters, self.bath,
                                              dm0, self.I, self.S, B, D, E,
                                              timespace, pulse_sequence, gyro_e=self.gyro,
                                              as_delay=as_delay, zeroth_cluster=dms)
 
         else:
-            dms_c = cluster_dm_direct_approach(self.clusters, self.bath, self.ntype,
+            dms_c = cluster_dm_direct_approach(self.clusters, self.bath,
                                                dm0, self.I, self.S, B, self.gyro, D, E,
                                                timespace, pulse_sequence, as_delay=as_delay)
         dms *= dms_c
@@ -404,13 +395,12 @@ class Simulator:
                 for fs in fixstates:
                     bath_state[fs] = fixstates[fs]
 
-            H0, d0 = mf_hamiltonian(np.array([]), self.ntype, self.I, self.S, B,
-                                    self.gyro, D, E, self.bath, bath_state)
+            H0, d0 = mf_hamiltonian(BathArray(0), self.I, self.S, B, self.bath, bath_state, D, E, self.gyro)
 
             dmzero = compute_dm(dm0, d0, H0, self.S, timespace, pulse_sequence, as_delay=as_delay)
             dmzero = ma.array(dmzero, mask=(dmzero == 0), fill_value=0j, dtype=np.complex128)
             # avdm0 += dmzero
-            dms = mean_field_density_matrix(self.clusters, self.bath, self.ntype,
+            dms = mean_field_density_matrix(self.clusters, self.bath,
                                             dm0, self.I, self.S, B, D, E,
                                             timespace, pulse_sequence, self.bath, bath_state,
                                             as_delay=as_delay, zeroth_cluster=dmzero) * dmzero
@@ -529,7 +519,7 @@ class Simulator:
                 mask = self.bath['N'] == n
                 bath_state[mask] = rgen.integers(snumber, size=np.count_nonzero(mask)) - s
 
-            corr = mean_field_noise_correlation(self.clusters, self.bath, self.ntype,
+            corr = mean_field_noise_correlation(self.clusters, self.bath,
                                                 dm0, self.I, self.S, B, D, E, timespace,
                                                 self.bath, bath_state, gyro_e=self.gyro)
 
@@ -572,34 +562,11 @@ class Simulator:
 
         dm0 = np.tensordot(state, state, axes=0)
 
-        corr = decorated_noise_correlation(self.clusters, self.bath, self.ntype,
+        corr = decorated_noise_correlation(self.clusters, self.bath,
                                            dm0, self.I, self.S, B, D, E,
                                            timespace,
                                            gyro_e=self.gyro)
         return corr
-
-
-class SpinType:
-    """
-    Class which contains properties of each spin type in the bath
-
-    Parameters
-    ----------
-    @param isotope: str
-        Name of the bath spin
-    @param s: float
-        Total spin
-    @param gyro:
-        Gyromagnetic ratio in rad/(ms * G)
-    @param q:
-        Quadrupole moment in millibarn (for s > 1/2)
-    """
-
-    def __init__(self, isotope, s=0, gyro=0, q=0):
-        self.isotope = isotope
-        self.s = s
-        self.gyro = gyro
-        self.q = q
 
 
 # Just additional alias for backwards compatibility

@@ -2,6 +2,7 @@ import numpy as np
 import numpy.ma as ma
 import scipy.linalg
 
+from .bath.array import BathArray
 from .cluster_expansion import cluster_expansion_decorator
 from .density_matrix import compute_dm, full_dm, generate_dm0
 from .hamiltonian import mf_hamiltonian, expand
@@ -47,8 +48,7 @@ def compute_mf_dm(dm0, dimensions, states, H, S, timespace,
 
 
 @cluster_expansion_decorator
-def mean_field_density_matrix(nspin, ntype,
-                              dm0, I, S, B, D, E,
+def mean_field_density_matrix(nspin, dm0, I, S, B, D, E,
                               timespace, pulse_sequence, allspins, bath_state,
                               gyro_e=-17608.597050,
                               as_delay=False, zeroth_cluster=None):
@@ -102,12 +102,12 @@ def mean_field_density_matrix(nspin, ntype,
     states = bath_state[others_mask]
 
     if zeroth_cluster is None:
-        H, dimensions = mf_hamiltonian(np.array([]), ntype, I, S, B, gyro_e, D, E, others, others_state)
+        H, dimensions = mf_hamiltonian(BathArray(0), I, S, B, others, others_state, D, E, gyro_e)
         zeroth_cluster = compute_dm(dm0, dimensions, H, S, timespace, pulse_sequence,
                                     as_delay=as_delay)
         zeroth_cluster = ma.masked_array(zeroth_cluster, mask=(zeroth_cluster == 0))
 
-    H, dimensions = mf_hamiltonian(nspin, ntype, I, S, B, gyro_e, D, E, others, others_state)
+    H, dimensions = mf_hamiltonian(nspin, I, S, B, others, others_state, D, E, gyro_e)
     dms = compute_mf_dm(dm0, dimensions, states, H, S, timespace,
                         pulse_sequence, as_delay=as_delay) / zeroth_cluster
     return dms

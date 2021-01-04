@@ -2,11 +2,10 @@ import numpy as np
 import numpy.ma as ma
 import scipy.linalg
 
+from .bath.array import BathArray
 from .cluster_expansion import cluster_expansion_decorator
 from .hamiltonian import total_hamiltonian, expand, eta_hamiltonian
-
 hbar = 1.05457172  # When everything else in rad, kHz, ms, G, A
-
 
 def propagator_dm(timespace, H, pulse_sequence, S, dimensions):
     """
@@ -168,7 +167,7 @@ def generate_dm0(dm0, dimensions, states):
     return dmtotal0
 
 
-def cluster_dm_direct_approach(subclusters, nspin, ntype,
+def cluster_dm_direct_approach(subclusters, nspin,
                                dm0, I, S, B, gyro_e, D, E,
                                timespace, pulse_sequence, as_delay=False):
     """
@@ -210,7 +209,7 @@ def cluster_dm_direct_approach(subclusters, nspin, ntype,
     norders = len(orders)
 
     # Data for zero cluster
-    H, dimensions = total_hamiltonian(np.array([]), ntype, I, S, B, gyro_e, D, E)
+    H, dimensions = total_hamiltonian(BathArray(0), I, S, B, D, E=E, gyro_e=gyro_e)
     dms_zero = compute_dm(dm0, dimensions, H, S, timespace, pulse_sequence,
                           as_delay=as_delay)
     dms_zero = ma.masked_array(dms_zero, mask=(dms_zero == 0))
@@ -220,7 +219,7 @@ def cluster_dm_direct_approach(subclusters, nspin, ntype,
     if norders == 1 and subclusters[orders[0]].shape[0] == 1:
         verticles = subclusters[orders[0]][0]
 
-        H, dimensions = total_hamiltonian(nspin[verticles], ntype, I, S, B, gyro_e, D, E)
+        H, dimensions = total_hamiltonian(nspin[verticles], I, S, B, D, E=E, gyro_e=gyro_e)
         dms = compute_dm(dm0, dimensions, H, S, timespace,
                          pulse_sequence, as_delay=as_delay) / dms_zero
 
@@ -241,7 +240,7 @@ def cluster_dm_direct_approach(subclusters, nspin, ntype,
 
             v = subclusters[order][index]
 
-            H, dimensions = total_hamiltonian(nspin[v], ntype, I, S, B, gyro_e, D, E)
+            H, dimensions = total_hamiltonian(nspin[v], I, S, B, D, E=E, gyro_e=gyro_e)
             dms_v = (compute_dm(dm0, dimensions, H, S, timespace, pulse_sequence,
                                 as_delay=as_delay) / dms_zero)
 
@@ -264,8 +263,7 @@ def cluster_dm_direct_approach(subclusters, nspin, ntype,
 
 
 @cluster_expansion_decorator
-def decorated_density_matrix(nspin, ntype,
-                             dm0, I, S, B, D, E,
+def decorated_density_matrix(nspin, dm0, I, S, B, D, E,
                              timespace, pulse_sequence,
                              gyro_e=-17608.597050,
                              as_delay=False, zeroth_cluster=None,
@@ -323,14 +321,14 @@ def decorated_density_matrix(nspin, ntype,
         states = None
 
     if zeroth_cluster is None:
-        H, dimensions = total_hamiltonian(np.array([]), ntype, I, S, B, gyro_e, D, E)
+        H, dimensions = total_hamiltonian(BathArray(0), I, S, B, D, E=E, gyro_e=gyro_e)
         zeroth_cluster = compute_dm(dm0, dimensions, H, S, timespace, pulse_sequence,
                                     as_delay=as_delay)
         zeroth_cluster = ma.masked_array(zeroth_cluster, mask=(zeroth_cluster == 0))
 
-    H, dimensions = total_hamiltonian(nspin, ntype, I, S, B, gyro_e, D, E)
+    H, dimensions = total_hamiltonian(nspin, I, S, B, D, E=E, gyro_e=gyro_e)
     if eta is not None:
-        H += eta_hamiltonian(nspin, ntype, I, S, eta)
+        H += eta_hamiltonian(nspin, I, S, eta)
     dms = compute_dm(dm0, dimensions, H, S, timespace,
                      pulse_sequence, as_delay=as_delay, states=states) / zeroth_cluster
 
