@@ -1,8 +1,10 @@
 import numpy as np
 
-from ..units import MHZ_TO_RADKHZ, HBAR, ELECTRON_GYRO
-from .read_cube import Cube
 from .array import BathArray
+from .read_cube import Cube
+from ..units import MHZ_TO_RADKHZ, HBAR, ELECTRON_GYRO
+
+
 # hbar mu0 /4pi I have no idea about units, from mengs code
 # UPDATE: derived, it checks out
 # HBAR = 1.054571729
@@ -10,7 +12,7 @@ from .array import BathArray
 # MHZ_TO_RADKHZ = 2 * np.pi * 1000
 
 
-def read_xyz(nspin, r_bath: float = None, center: np.array = None, skiprows: int = 1):
+def read_xyz(nspin, r_bath: float = None, center: np.array = None, skiprows: int = 2, spin_types=None):
     """
     read positions of atoms within r_bath
     @param nspin: ndarray or str
@@ -28,15 +30,24 @@ def read_xyz(nspin, r_bath: float = None, center: np.array = None, skiprows: int
 
     if center is None:
         center = [0, 0, 0]
-    if isinstance(nspin, (np.ndarray, BathArray)):
+    if isinstance(nspin, BathArray):
+        atoms = nspin
+        if spin_types is not None:
+            try:
+                atoms.add_type(**spin_types)
+            except TypeError:
+                atoms.add_type(*spin_types)
+
+    elif isinstance(nspin, np.ndarray):
         dataset = nspin
+        atoms = BathArray(array=dataset, spin_types=spin_types)
     else:
         dt_read = np.dtype([('N', np.unicode_, 16), ('xyz', np.float64, (3,))])
         dataset = np.loadtxt(nspin, dtype=dt_read, skiprows=skiprows)
+        atoms = BathArray(array=dataset, spin_types=spin_types)
     if r_bath is not None:
-        mask = np.linalg.norm(dataset['xyz'] - np.asarray(center), axis=-1) < r_bath
-        dataset = dataset[mask]
-    atoms = BathArray(array=dataset)
+        mask = np.linalg.norm(atoms['xyz'] - np.asarray(center), axis=-1) < r_bath
+        atoms = atoms[mask]
 
     return atoms
 
@@ -117,12 +128,12 @@ def gen_hyperfine(atoms: np.ndarray, ntype: dict, center: np.ndarray = None,
         for a in atoms[where]:
             a['A'] = cube.intergate(a['xyz'] - center, ntype[a['N']].gyro, gyro_e)
 
-
     print('Number of overall Nuclear spins is {}'.format(atoms.shape[0]))
     return atoms
 
 
-def read_external(coord_f: str, hf_f: str = None, cont_f: str = None, skiprows: int = 1, erbath=None,
+def read_external(coord_f: str, hf_f: str = None, cont_f: str = None,
+                  skiprows: int = 1, erbath=None,
                   center=None) -> np.ndarray:
     """
     Function to read inserts from GIPAW. Does not renormalize the data by the spin

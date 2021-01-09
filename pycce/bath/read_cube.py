@@ -14,7 +14,7 @@ chemical_symbols = [
     # 2
     'Li', 'Be', 'B', 'C', 'N', 'O', 'F', 'Ne',
     # 3
-    'Na', 'Mg', 'Al', 'Si', 'P', 'S', 'Cl', 'Ar',
+    'Na', 'Mg', 'Al', 'Si', 'P', 'spin_matrix', 'Cl', 'Ar',
     # 4
     'K', 'Ca', 'Sc', 'Ti', 'V', 'Cr', 'Mn', 'Fe', 'Co', 'Ni', 'Cu', 'Zn',
     'Ga', 'Ge', 'As', 'Se', 'Br', 'Kr',

@@ -1,14 +1,16 @@
 import numpy as np
 import numpy.ma as ma
 
-from .bath.read_bath import read_xyz, read_external, gen_hyperfine
-from .bath.array import SpinType, SpinDict, BathArray
-from .coherence_function import decorated_coherence_function
-from .correlation_function import mean_field_noise_correlation, decorated_noise_correlation
-from .density_matrix import decorated_density_matrix, cluster_dm_direct_approach, compute_dm
+from .bath.array import BathArray, SpinDict
+from .bath.read_bath import read_xyz, read_external
+from .bath.read_cube import Cube
+from .calculators.coherence_function import decorated_coherence_function
+from .calculators.correlation_function import mean_field_noise_correlation, decorated_noise_correlation
+from .calculators.density_matrix import decorated_density_matrix, cluster_dm_direct_approach, compute_dm
+from .calculators.mean_field_dm import mean_field_density_matrix
 from .find_clusters import make_graph, connected_components, find_subclusters
-from .hamiltonian import generate_spinmatrices, QSpinMatrix, total_hamiltonian, mf_hamiltonian
-from .mean_field_dm import mean_field_density_matrix
+from .hamiltonian import total_hamiltonian, mf_hamiltonian
+from .sm import _smc
 
 
 class Simulator:
@@ -38,27 +40,25 @@ class Simulator:
     """
 
     def __init__(self, spin=1., position=None, alpha=None, beta=None, gyro=-17608.597050,
-                 spin_types=None, bath_spins=None, r_bath=None, bath_kw={},
-                 r_dipole=None, order=None):
+                 bath=None, r_bath=None, types=None,
+                 r_dipole=None, order=None, **bath_kw):
 
         if position is None:
             position = np.zeros(3)
 
         self.position = np.asarray(position, dtype=np.float64)
-
-        self.ntype = SpinDict()
-
-        if spin_types is not None:
-            self.add_spintype(*spin_types)
-        else:
-            self.I = None
-            self.S = None
-
         self.spin = spin
+        self.bath_types = SpinDict()
+
+        if types is not None:
+            try:
+                self.bath_types.add_type(**types)
+            except TypeError:
+                self.bath_types.add_type(*types)
 
         if alpha is None:
             alpha = np.zeros(int(round(2 * spin + 1)), dtype=np.complex128)
-            alpha[1] = 1
+            alpha[0] = 1
 
         if beta is None:
             beta = np.zeros(int(round(2 * spin + 1)), dtype=np.complex128)
@@ -66,14 +66,13 @@ class Simulator:
 
         self._alpha = np.asarray(alpha)
         self._beta = np.asarray(beta)
-        self.S = QSpinMatrix(self.spin, self.alpha, self.beta)
 
         self.gyro = gyro
 
         self.r_bath = r_bath
-        self.bath = BathArray(0)
-        if bath_spins is not None and r_bath > 0:
-            self.read_bath(bath_spins, r_bath, **bath_kw)
+        self._bath = BathArray(0)
+        if bath is not None and r_bath > 0:
+            self.read_bath(bath, r_bath, **bath_kw)
 
         self.r_dipole = r_dipole
 
@@ -90,7 +89,6 @@ class Simulator:
     @alpha.setter
     def alpha(self, alpha_state):
         self._alpha = np.asarray(alpha_state)
-        self.S = QSpinMatrix(self.spin, self.alpha, self.beta)
 
     @property
     def beta(self):
@@ -99,26 +97,20 @@ class Simulator:
     @beta.setter
     def beta(self, beta_state):
         self._beta = np.asarray(beta_state)
-        self.S = QSpinMatrix(self.spin, self.alpha, self.beta)
 
-    def add_spintype(self, *spin_types):
-        """
-        Add types of spin in the spin bath
-        @param spin_types: tuple(s) or SpinType(s)
-            arbitrary number of tuples, with each of them initializing SpinType object:
-            SpinType(isotope, s=0, gyro=0, q=0)
-            where isotope (str) is the name of the bath spin, s (float) is the total spin,
-            gyro (float) is the gyromagnetic ratio in rad/(ms*G),
-            q is spin quadrupole moment in millibarn (for s > 1/2)
-            OR
-            instances of SpinTypes
-        @return: dict
-            dict of the SpinType instances
-        """
-        self.ntype.add_spin_type(*spin_types)
-        self.I = generate_spinmatrices(self.ntype)
+    @property
+    def bath(self):
+        return self._bath
 
-        return self.ntype
+    @bath.setter
+    def bath(self, bath_array):
+        try:
+            self._bath = bath_array.view(BathArray)
+        except AttributeError:
+            print('Bath array should be ndarray or a subclass')
+            raise
+
+        self.bath_types = self.bath.types
 
     def read_bath(self, nspin, r_bath, *,
                   skiprows=1,
@@ -126,6 +118,8 @@ class Simulator:
                   hf_positions=None,
                   hf_dipole=None,
                   hf_contact=None,
+                  hyperfine=None,
+                  types=None,
                   error_range=0.2,
                   ext_r_bath=None):
         """
@@ -145,6 +139,8 @@ class Simulator:
             name of the file with dipolar tensors of bath spins, similar to GIPAW output
         @param hf_contact: str, optional
             name of the file with contact terms from GIPAW output
+        @param hyperfine: func, or Cube instance, optional
+            How  to generate
         @param error_range: float, optional
             maximum distance between positions in nspin and external bath to consider two positions the same
             (default 0.2)
@@ -154,9 +150,17 @@ class Simulator:
             ndarray of atoms with dtype([('N', np.unicode_, 16), ('xyz', np.float64, (3,)), ('A', np.float64, (3, 3))])
             where N is the name of the isotope, xyz are coordinates (in A), A are HF tensors (in rad * KHz)
         """
-        self.bath = None
+        self._bath = None
 
-        atoms = read_xyz(nspin, r_bath=r_bath, center=self.position, skiprows=skiprows)
+        bath = read_xyz(nspin, r_bath=r_bath, center=self.position, skiprows=skiprows)
+        if types is not None:
+            try:
+                bath.add_type(**types)
+            except TypeError:
+                bath.add_type(*types)
+
+        if self.bath_types.keys():
+            bath.types.update(self.bath_types)
 
         if external_bath is not None and ext_r_bath is not None:
             where = np.linalg.norm(external_bath['xyz'] - self.position, axis=1) <= ext_r_bath
@@ -166,13 +170,18 @@ class Simulator:
             external_bath = read_external(hf_positions, hf_dipole, hf_contact,
                                           center=self.position, erbath=ext_r_bath)
 
-        self.bath = gen_hyperfine(atoms, self.ntype,
-                                  center=self.position,
-                                  gyro_e=self.gyro,
-                                  error_range=error_range,
-                                  external_atoms=external_bath)
+        if hyperfine == 'pd' or (hyperfine is None and np.all(bath['A'] == 0)):
+            bath.from_point_dipole(self.position, gyro_e=self.gyro)
+        elif isinstance(hyperfine, Cube):
+            bath.from_cube(hyperfine, gyro_e=self.gyro)
+        elif hyperfine:
+            bath.from_function(hyperfine, gyro_e=self.gyro)
 
-        return self.bath
+        if external_bath is not None:
+            bath.update(external_bath, error_range=error_range, ignore_isotopes=True,
+                        inplace=True)
+
+        self.bath = bath
 
     def generate_graph(self, r_dipole, r_inner=0.):
         """
@@ -219,8 +228,7 @@ class Simulator:
         n_components, labels = connected_components(csgraph=self.graph, directed=False,
                                                     return_labels=True)
 
-        clusters = find_subclusters(
-            order, self.graph, labels, n_components, strong=strong)
+        clusters = find_subclusters(order, self.graph, labels, n_components, strong=strong)
 
         self.clusters = clusters
 
@@ -241,15 +249,26 @@ class Simulator:
         @return: 1D-ndarray
             Coherence function computed at the time points in timespace
         """
-        L = decorated_coherence_function(self.clusters, self.bath, self.I, self.S, B,
-                                         timespace, N, as_delay=as_delay)
+        sm = _smc[self.spin]
 
-        return L
+        projections_alpha = np.array([self.alpha.conj() @ sm.x @ self.alpha,
+                                      self.alpha.conj() @ sm.y @ self.alpha,
+                                      self.alpha.conj() @ sm.z @ self.alpha],
+                                     dtype=np.complex128)
+
+        projections_beta = np.array([self.beta.conj() @ sm.x @ self.beta,
+                                     self.beta.conj() @ sm.y @ self.beta,
+                                     self.beta.conj() @ sm.z @ self.beta],
+                                    dtype=np.complex128)
+
+        coherence = decorated_coherence_function(self.clusters, self.bath, projections_alpha, projections_beta, B,
+                                                 timespace, N, as_delay=as_delay)
+        return coherence
 
     def compute_dmatrix(self, timespace: np.ndarray, B: np.ndarray,
-                        D: float, E: float = 0, pulse_sequence: list = None,
+                        D: float = 0, E: float = 0, pulse_sequence: list = None,
                         as_delay: bool = False, state: np.ndarray = None,
-                        check: bool = True) -> np.ndarray:
+                        check: bool = True, bath_states: np.ndarray = None) -> np.ndarray:
         """
         Compute density matrix of the central spin using generalized CCE
         @param timespace: 1D-ndarray
@@ -283,29 +302,33 @@ class Simulator:
 
         dm0 = np.tensordot(state, state, axes=0)
 
-        H0, dimensions0 = total_hamiltonian(BathArray(0), self.I, self.S, B, D, E=E, gyro_e=self.gyro)
+        H0, dimensions0 = total_hamiltonian(BathArray(0), self.spin, B, D, E=E, gyro_e=self.gyro)
 
-        dms = compute_dm(dm0, dimensions0, H0, self.S, timespace, pulse_sequence,
+        dms = compute_dm(dm0, dimensions0, H0, self.alpha, self.beta, timespace, pulse_sequence,
                          as_delay=as_delay)
 
         dms = ma.masked_array(dms, mask=(dms == 0), fill_value=0j, dtype=np.complex128)
 
         if check:
             dms_c = decorated_density_matrix(self.clusters, self.bath,
-                                             dm0, self.I, self.S, B, D, E,
+                                             dm0, self.alpha, self.beta, B, D, E,
                                              timespace, pulse_sequence, gyro_e=self.gyro,
-                                             as_delay=as_delay, zeroth_cluster=dms)
+                                             as_delay=as_delay, zeroth_cluster=dms,
+                                             bath_state=bath_states)
 
         else:
             dms_c = cluster_dm_direct_approach(self.clusters, self.bath,
-                                               dm0, self.I, self.S, B, self.gyro, D, E,
+                                               dm0, self.alpha, self.beta, self.gyro, D, E,
                                                timespace, pulse_sequence, as_delay=as_delay)
+
         dms *= dms_c
 
         return dms
 
-    def compute_mf_dm(self, timespace, B, D, E=0, pulse_sequence=None, as_delay=False, state=None,
-                      nbstates=100, seed=None, masked=True, normalized=None, parallel=False,
+    def compute_mf_dm(self, timespace, B, D=0, E=0,
+                      pulse_sequence=None, as_delay=False, state=None,
+                      nbstates=100, seed=None, masked=True,
+                      normalized=None, parallel=False,
                       fixstates=None):
         """
         Compute density matrix of the central spin using generalized CCE with Monte-Carlo bath state sampling
@@ -345,7 +368,9 @@ class Simulator:
             value - fixed Sz projection of the mixed state of nuclear spin
         @return: dms
         """
+
         if parallel:
+
             try:
                 from mpi4py import MPI
             except ImportError:
@@ -385,8 +410,8 @@ class Simulator:
         for _ in range(nbstates):
 
             bath_state = np.empty(self.bath.shape, dtype=np.float64)
-            for n in self.ntype:
-                s = self.ntype[n].s
+            for n in self.bath.types:
+                s = self.bath.types[n].s
                 snumber = int(round(2 * s + 1))
                 mask = self.bath['N'] == n
                 bath_state[mask] = rgen.integers(snumber, size=np.count_nonzero(mask)) - s
@@ -394,15 +419,15 @@ class Simulator:
             if fixstates is not None:
                 for fs in fixstates:
                     bath_state[fs] = fixstates[fs]
+            H0, d0 = mf_hamiltonian(BathArray(0), B, self.spin, self.bath, bath_state, D, E, self.gyro)
 
-            H0, d0 = mf_hamiltonian(BathArray(0), self.I, self.S, B, self.bath, bath_state, D, E, self.gyro)
-
-            dmzero = compute_dm(dm0, d0, H0, self.S, timespace, pulse_sequence, as_delay=as_delay)
+            dmzero = compute_dm(dm0, d0, H0, self.alpha, self.beta,
+                                timespace, pulse_sequence, as_delay=as_delay)
             dmzero = ma.array(dmzero, mask=(dmzero == 0), fill_value=0j, dtype=np.complex128)
             # avdm0 += dmzero
             dms = mean_field_density_matrix(self.clusters, self.bath,
-                                            dm0, self.I, self.S, B, D, E,
-                                            timespace, pulse_sequence, self.bath, bath_state,
+                                            dm0, self.alpha, self.beta, B, D, E,
+                                            timespace, pulse_sequence, bath_state,
                                             as_delay=as_delay, zeroth_cluster=dmzero) * dmzero
             if masked:
                 dms = dms.filled()
@@ -451,7 +476,7 @@ class Simulator:
         else:
             return
 
-    def mean_field_corr(self, timespace, B, D, E=0, state=None,
+    def mean_field_corr(self, timespace, B, D=0, E=0, state=None,
                         nbstates=100, seed=None, parallel=False):
         """
         EXPERIMENTAL Compute noise auto correlation function
@@ -519,9 +544,8 @@ class Simulator:
                 mask = self.bath['N'] == n
                 bath_state[mask] = rgen.integers(snumber, size=np.count_nonzero(mask)) - s
 
-            corr = mean_field_noise_correlation(self.clusters, self.bath,
-                                                dm0, self.I, self.S, B, D, E, timespace,
-                                                self.bath, bath_state, gyro_e=self.gyro)
+            corr = mean_field_noise_correlation(self.clusters, self.bath, dm0, B, D, E, timespace, bath_state,
+                                                gyro_e=self.gyro)
 
             averaged_corr += corr
 
@@ -534,12 +558,12 @@ class Simulator:
 
         if rank == 0:
             root_corr /= root_divider
-
+            _smc.clear()
             return root_corr
         else:
             return
 
-    def compute_corr(self, timespace, B, D, E=0, state=None):
+    def compute_corr(self, timespace, B, D=0, E=0, state=None):
         """
         EXPERIMENTAL Compute noise autocorrelation function of the noise with generalized CCE
         @param timespace:  1D-ndarray
@@ -562,10 +586,8 @@ class Simulator:
 
         dm0 = np.tensordot(state, state, axes=0)
 
-        corr = decorated_noise_correlation(self.clusters, self.bath,
-                                           dm0, self.I, self.S, B, D, E,
-                                           timespace,
-                                           gyro_e=self.gyro)
+        corr = decorated_noise_correlation(self.clusters, self.bath, dm0, B, D, E, timespace, gyro_e=self.gyro)
+
         return corr
 
 

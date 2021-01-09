@@ -2,12 +2,12 @@ import numpy as np
 import numpy.ma as ma
 import operator
 
-from .cluster_expansion import cluster_expansion_decorator
+from pycce.cluster_expansion import cluster_expansion_decorator
 from .density_matrix import propagator_dm
-from .hamiltonian import expand, zeeman, projected_hyperfine, mf_hamiltonian
-from .hamiltonian import total_hamiltonian, dipole_dipole, quadrupole
+from pycce.hamiltonian import expand, zeeman, projected_hyperfine, mf_hamiltonian
+from pycce.hamiltonian import total_hamiltonian, dipole_dipole, quadrupole
 from .mean_field_dm import generate_dm0
-
+from pycce.sm import _smc
 
 def correlation_it_j0(operator_i, operator_j, dm0_expanded, U):
     """
@@ -32,7 +32,7 @@ def correlation_it_j0(operator_i, operator_j, dm0_expanded, U):
 
 
 @cluster_expansion_decorator(result_operator=operator.iadd, contribution_operator=operator.imul)
-def decorated_noise_correlation(nspin, dm0, I, S, B, D, E,
+def decorated_noise_correlation(cluster, allspin, dm0, B, D, E,
                                 timespace,
                                 gyro_e=-17608.597050):
     """
@@ -63,20 +63,21 @@ def decorated_noise_correlation(nspin, dm0, I, S, B, D, E,
     @return: ndarray
         autocorrelation function
     """
-    H, dimensions = total_hamiltonian(nspin, I, S, B, D, E=E, gyro_e=gyro_e)
+    nspin = allspin[cluster]
+    central_spin = (dm0.shape[0] - 1) / 2
 
-    U = propagator_dm(timespace, H, 0, S, dimensions)
+    H, dimensions = total_hamiltonian(nspin, central_spin, B, D, E=E, gyro_e=gyro_e)
+    U = propagator_dm(timespace, H, 0, None, None, dimensions)
     dm0_expanded = expand(dm0, len(dimensions) - 1, dimensions) / np.prod(dimensions[:-1])
-    # nnuclei = nspin.shape[0]
-    # AIs = []
+
     AIs = 0
     ntype = nspin.types
     for j, n in enumerate(nspin):
         s = ntype[n].s
 
-        ivec = np.array([expand(I[s].x, j, dimensions),
-                         expand(I[s].y, j, dimensions),
-                         expand(I[s].z, j, dimensions)],
+        ivec = np.array([expand(_smc[s].x, j, dimensions),
+                         expand(_smc[s].y, j, dimensions),
+                         expand(_smc[s].z, j, dimensions)],
                         dtype=np.complex128)
 
         atensor = n['A']
@@ -92,9 +93,7 @@ def decorated_noise_correlation(nspin, dm0, I, S, B, D, E,
 
 
 @cluster_expansion_decorator(result_operator=operator.iadd, contribution_operator=operator.imul)
-def mean_field_noise_correlation(nspin, dm0, I, S, B, D, E,
-                                 timespace, allspins, bath_state,
-                                 gyro_e=-17608.597050):
+def mean_field_noise_correlation(cluster, allspin, dm0, B, D, E, timespace, bath_state, gyro_e=-17608.597050):
     """
     Decorated function to compute noise autocorrelation function
     with gCCE and MC sampling of the bath states
@@ -107,10 +106,6 @@ def mean_field_noise_correlation(nspin, dm0, I, S, B, D, E,
         dict with NSpinType objects inside, each key - name of the isotope
     @param dm0: ndarray
         initial density matrix of the central spin
-    @param I: dict
-        dict with SpinMatrix objects inside, each key - spin
-    @param S: QSpinMatrix
-        QSpinMatrix of the central spin
     @param B: ndarray
         Magnetic field of B = np.array([Bx, By, Bz])
     @param D: float
@@ -122,22 +117,21 @@ def mean_field_noise_correlation(nspin, dm0, I, S, B, D, E,
     @param bath_state: list
         List of nuclear spin states. if len(shape) == 1, contains Sz projections of nuclear spins.
         Otherwise, contains array of initial dms of nuclear spins
-    @param allspins: ndarray
-        array of all atoms. Passed twice because one is passed to decorator, another - directly to function
     @param gyro_e: float
         gyromagnetic ratio (in rad/(msec*Gauss)) of the central spin
     @return: ndarray
         autocorrelation function
     """
-    others_mask = np.isin(allspins, nspin)
-
-    others = allspins[~others_mask]
-    others_state = bath_state[~others_mask]
+    central_spin = (dm0.shape[0] - 1) / 2
+    nspin = allspin[cluster]
+    others_mask = np.ones(allspin.shape, dtype=bool)
+    others_mask[cluster] = False
+    others = allspin[others_mask]
+    others_state = bath_state[others_mask]
 
     states = bath_state[others_mask]
-
-    H, dimensions = mf_hamiltonian(nspin, I, S, B, others, others_state, D, E, gyro_e)
-    U = propagator_dm(timespace, H, 0, S, dimensions)
+    H, dimensions = mf_hamiltonian(nspin, central_spin, B, others, others_state, D, E, gyro_e)
+    U = propagator_dm(timespace, H, 0, None, None, dimensions)
     dmtotal0 = generate_dm0(dm0, dimensions, states)
 
     AIs = 0
@@ -146,9 +140,9 @@ def mean_field_noise_correlation(nspin, dm0, I, S, B, D, E,
     for j, n in enumerate(nspin):
         s = ntype[n].s
 
-        ivec = np.array([expand(I[s].x, j, dimensions),
-                         expand(I[s].y, j, dimensions),
-                         expand(I[s].z, j, dimensions)],
+        ivec = np.array([expand(_smc[s].x, j, dimensions),
+                         expand(_smc[s].y, j, dimensions),
+                         expand(_smc[s].z, j, dimensions)],
                         dtype=np.complex128)
 
         atensor = n['A']
@@ -164,7 +158,7 @@ def mean_field_noise_correlation(nspin, dm0, I, S, B, D, E,
 
 
 @cluster_expansion_decorator(result_operator=operator.iadd, contribution_operator=operator.imul)
-def decorated_proj_noise_correlation(nspin, I, S, B, timespace):
+def decorated_proj_noise_correlation(cluster, allspin, projections_state, B, timespace):
     """
     Decorated function to compute autocorrelation function with conventional CCE
     @param subclusters: dict
@@ -185,8 +179,10 @@ def decorated_proj_noise_correlation(nspin, I, S, B, timespace):
     @return: ndarray
         autocorrelation function
     """
+    nspin = allspin[cluster]
     ntype = nspin.types
-    dimensions = [I[ntype[n].s].dim for n in nspin]
+
+    dimensions = [_smc[ntype[n].s].dim for n in nspin]
     nnuclei = nspin.shape[0]
 
     tdim = np.prod(dimensions, dtype=np.int32)
@@ -199,19 +195,19 @@ def decorated_proj_noise_correlation(nspin, I, S, B, timespace):
         s = ntype[n].s
 
         if s > 1 / 2:
-            H_quad = quadrupole(n['Q'], s, I[s])
-            H_single = zeeman(ntype[n].gyro, I[s], B) + H_quad
+            H_quad = quadrupole(n['Q'], s, _smc[s])
+            H_single = zeeman(ntype[n].gyro, _smc[s], B) + H_quad
         else:
-            H_single = zeeman(ntype[n].gyro, I[s], B)
+            H_single = zeeman(ntype[n].gyro, _smc[s], B)
 
-        H_HF = projected_hyperfine(n['A'], I[s], S.projections_alpha)
+        H_HF = projected_hyperfine(n['A'], _smc[s], projections_state)
 
         H_j = H_single + H_HF
         H += expand(H_j, j, dimensions)
 
-        ivec = np.array([expand(I[s].x, j, dimensions),
-                         expand(I[s].y, j, dimensions),
-                         expand(I[s].z, j, dimensions)],
+        ivec = np.array([expand(_smc[s].x, j, dimensions),
+                         expand(_smc[s].y, j, dimensions),
+                         expand(_smc[s].z, j, dimensions)],
                         dtype=np.complex128)
 
         ATensor = n['A']

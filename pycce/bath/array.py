@@ -1,5 +1,5 @@
 import warnings
-from collections import UserDict
+from collections import UserDict, Mapping
 
 import numpy as np
 
@@ -42,10 +42,16 @@ class BathArray(np.ndarray):
                     obj = super(BathArray, subtype).__new__(subtype, (np.asarray(a).shape[0],),
                                                             dtype=subtype._dtype_bath)
                     break
+            else:
+                raise ValueError('No shape provided')
 
         obj.types = SpinDict()
+
         if spin_types is not None:
-            obj.add_types(*spin_types)
+            try:
+                obj.add_types(**spin_types)
+            except TypeError:
+                obj.add_types(*spin_types)
 
         if array is not None:
             array = np.asarray(array)
@@ -92,6 +98,22 @@ class BathArray(np.ndarray):
         self.types = getattr(obj, 'types', SpinDict())
         # We do not need to return anything
 
+    @property
+    def isotope(self):
+        return self.types[self].isotope
+
+    @property
+    def s(self):
+        return self.types[self].s
+
+    @property
+    def gyro(self):
+        return self.types[self].gyro
+
+    @property
+    def q(self):
+        return self.types[self].q
+
     def __setitem__(self, key, val):
         # look at the units - convert the values to what they need to be (in
         # the base_unit) and then delegate to the ndarray.__setitem__
@@ -119,8 +141,8 @@ class BathArray(np.ndarray):
                             'Spin type for {} was not provided and was not found in common isotopes.'.format(n))
         return np.ndarray.__setitem__(self, key, val)
 
-    def add_type(self, *args):
-        self.types.add_spin_type(*args)
+    def add_type(self, *args, **kwargs):
+        self.types.add_type(*args, **kwargs)
 
     def update(self, ext_bath, error_range=0.2, ignore_isotopes=True, inplace=True):
         bath = combine_bath(self, ext_bath, error_range, ignore_isotopes, inplace)
@@ -134,8 +156,11 @@ class BathArray(np.ndarray):
         gyros = self.types[self].gyro
         posxpos = np.einsum('ki,kj->kij', pos, pos)
 
-        r = np.linalg.norm(pos, axis=1)
-        self['A'] = -(3 * posxpos - identity[np.newaxis, :] * r ** 2) / (r ** 5) * gyro_e * gyros * HBAR
+        r = np.linalg.norm(pos, axis=1)[:, np.newaxis, np.newaxis]
+
+        pref = (gyro_e * gyros * HBAR)[:, np.newaxis, np.newaxis]
+
+        self['A'] = -(3 * posxpos[np.newaxis, :] - identity[np.newaxis, :] * r ** 2) / (r ** 5) * pref
         return
 
     def from_cube(self, cube, gyro_e=ELECTRON_GYRO):
@@ -243,16 +268,24 @@ class SpinDict(UserDict):
     def __repr__(self):
         return f"{type(self).__name__}({self.data})"
 
-    def add_spin_type(self, *args):
-        for nuc in args:
-            if isinstance(nuc, SpinType):
-                self[nuc.isotope] = nuc
-            else:
-                self[nuc[0]] = SpinType(*nuc)
+    def add_type(self, *args, **kwargs):
+        try:
+            for nuc in args:
+                if isinstance(nuc, SpinType):
+                    self[nuc.isotope] = nuc
+                elif isinstance(nuc, Mapping):
+                    self.update(nuc)
+                else:
+                    self[nuc[0]] = SpinType(*nuc)
+        except TypeError:
+            self[args[0]] = SpinType(*args)
+
+        for nuc in kwargs:
+            self[nuc] = kwargs[nuc]
 
 
 def gen_spindict(*spin_types):
-    ntype = SpinDict
+    ntype = SpinDict()
     for nuc in spin_types:
         if isinstance(nuc, SpinType):
             ntype[nuc.isotope] = nuc
@@ -295,7 +328,7 @@ def combine_bath(total_bath, added_bath, error_range=0.2, ignore_isotopes=True, 
 common_isotopes = SpinDict()
 
 # electron spin
-common_isotopes['e'] = SpinType('1e', 1 / 2, ELECTRON_GYRO, 0)
+common_isotopes['e'] = SpinType('e', 1 / 2, ELECTRON_GYRO, 0)
 
 # H
 common_isotopes['1H'] = SpinType('1H', 1 / 2, 26.7519, 0)
@@ -347,7 +380,7 @@ common_isotopes['29Si'] = SpinType('29Si', 1 / 2, -5.3188, 0)
 # P
 common_isotopes['31P'] = SpinType('31P', 1 / 2, 10.841, 0)
 
-# S
+# spin_matrix
 common_isotopes['33S'] = SpinType('33S', 3 / 2, 2.055, -0.0678)
 
 # Cl

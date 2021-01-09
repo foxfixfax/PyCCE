@@ -1,0 +1,3 @@
+
+class InteractionsMap():
+    pass

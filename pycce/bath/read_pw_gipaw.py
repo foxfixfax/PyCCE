@@ -115,7 +115,7 @@ def read_qe(coord_f, hf_f=None, efg_f=None, s=1, pw_type=None, spin_types=None, 
             spin_names.append(typ)
             coordinates.append(coord)
 
-    spin_names = np.asarray(spin_names)
+    spin_names = np.asarray(spin_names, dtype='<U16')
     if which_isotopes is not None:
         for gipaw_name in which_isotopes:
             spin_names[spin_names == gipaw_name] = which_isotopes[gipaw_name]
