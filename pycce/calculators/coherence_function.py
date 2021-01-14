@@ -86,8 +86,10 @@ def compute_coherence(H0, H1, timespace, N, as_delay=False, states=None, dimensi
 
     else:
         dm = gen_density_matrix(states, dimensions=dimensions)
-        coherence_function = np.einsum('zli,ij,zlj->z', U0, dm, U1.conj())
-
+        # tripple einsum is slow
+        # coherence_function = np.einsum('zli,ij,zlj->z', U0, dm, U1.conj())
+        dmUdagger = np.matmul(dm, np.transpose(U1.conj(), axes=(0, 2, 1)))
+        coherence_function = np.trace(np.matmul(U0, dmUdagger), axis1=1, axis2=2)
     return coherence_function
 
 

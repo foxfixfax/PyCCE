@@ -125,7 +125,7 @@ def read_qe(coord_f, hf_f=None, efg_f=None, s=1, pw_type=None, spin_types=None, 
                       spin_types=spin_types)
     if efg_f is not None:
         pref = atoms.types[atoms].q / (2 * s * (2 * s - 1))
-        atoms['Q'] *= pref
+        atoms['Q'] *= pref[:, np.newaxis, np.newaxis]
 
     cell = None
     if coord_type == 'bohr':

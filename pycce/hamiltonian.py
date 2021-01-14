@@ -57,15 +57,15 @@ def quadrupole(quadrupole_tensor, s, spin_matrix):
         spin matrix object for n spin
     @return: ndarray of shape (2s+1, 2s+1)
     """
-    Iv = np.asarray([spin_matrix.x, spin_matrix.y, spin_matrix.z])
+    iv = np.asarray([spin_matrix.x, spin_matrix.y, spin_matrix.z])
 
-    # VIvec = np.einsum('ij,jkl->ikl', n['Q'], Iv, dtype=np.complex128)
-    # IQI = np.einsum('lij,ljk->ik', Iv, VIvec, dtype=np.complex128)
-    IQI = np.einsum('lij,lp,pjk->ik', Iv, quadrupole_tensor, Iv, dtype=np.complex128)
+    v_ivec = np.einsum('ij,jkl->ikl', quadrupole_tensor, iv, dtype=np.complex128)
+    iqi = np.einsum('lij,ljk->ik', iv, v_ivec, dtype=np.complex128)
+    # iqi = np.einsum('lij,lp,pjk->ik', iv, quadrupole_tensor, iv, dtype=np.complex128)
 
     # delI2 = np.sum(np.diag(quadrupole_tensor)) * np.eye(spin_matrix.x.shape[0]) * s * (s + 1)
 
-    H_quad = IQI  # - delI2 / 3
+    H_quad = iqi  # - delI2 / 3
 
     return H_quad
 
@@ -93,15 +93,15 @@ def dipole_dipole(coord_1, coord_2, g1, g2, ivec_1, ivec_2):
     pos = coord_1 - coord_2
     r = np.linalg.norm(pos)
 
-    PTensor = -pre * (3 * np.outer(pos, pos) -
+    p_tensor = -pre * (3 * np.outer(pos, pos) -
                       np.eye(3, dtype=np.complex128) * r ** 2) / (r ** 5)
 
-    # PIvec = np.einsum('ij,jkl->ikl', PTensor, ivec_2,
-    #                   dtype=np.complex128)  # PIvec = Ptensor @ Ivector
-    # H_DD = np.einsum('lij,ljk->ik', ivec_1, PIvec, dtype=np.complex128)
+    p_ivec = np.einsum('ij,jkl->ikl', p_tensor, ivec_2,
+                      dtype=np.complex128)  # p_ivec = Ptensor @ Ivector
+    H_DD = np.einsum('lij,ljk->ik', ivec_1, p_ivec, dtype=np.complex128)
 
     # DD = IPI = IxPxxIx + IxPxyIy + ..
-    H_DD = np.einsum('lij,lp,pjk->ik', ivec_1, PTensor, ivec_2, dtype=np.complex128)
+    # H_DD = np.einsum('lij,lp,pjk->ik', ivec_1, p_tensor, ivec_2, dtype=np.complex128)
 
     return H_DD
 
@@ -203,11 +203,11 @@ def hyperfine(hyperfine_tensor, svec, ivec):
         d is the total size of the Hilbert space. [Ix, Iy, Iz] array of the bath spin
     @return: ndarray
     """
-    # AIvec = np.einsum('ij,jkl->ikl', ATensor, ivec,
-    #                   dtype=np.complex128)  # AIvec = Atensor @ Ivector
+    aivec = np.einsum('ij,jkl->ikl', hyperfine_tensor, ivec,
+                      dtype=np.complex128)  # AIvec = Atensor @ Ivector
     # HF = SPI = SxPxxIx + SxPxyIy + ..
-    # H_HF = np.einsum('lij,ljk->ik', svec, AIvec, dtype=np.complex128)
-    H_HF = np.einsum('lij,lp,pjk->ik', svec, hyperfine_tensor, ivec, dtype=np.complex128)
+    H_HF = np.einsum('lij,ljk->ik', svec, aivec, dtype=np.complex128)
+    # H_HF = np.einsum('lij,lp,pjk->ik', svec, hyperfine_tensor, ivec, dtype=np.complex128)
     return H_HF
 
 
@@ -230,8 +230,12 @@ def self_electron(B, spin_matrix, D=0, E=0, gyro=ELECTRON_GYRO):
         H0 = D * (spin_matrix.z @ spin_matrix.z - 1 / 3 * spin_matrix.s * (spin_matrix.s + 1) * spin_matrix.eye) + \
              E * (spin_matrix.x @ spin_matrix.x - spin_matrix.y @ spin_matrix.y)
     else:
-        Svec = np.asarray([spin_matrix.x, spin_matrix.y, spin_matrix.z], dtype=np.complex128)
-        H0 = np.einsum('lij,lp,pjk->ik', Svec, D, Svec, dtype=np.complex128)
+        svec = np.asarray([spin_matrix.x, spin_matrix.y, spin_matrix.z], dtype=np.complex128)
+        dsvec = np.einsum('ij,jkl->ikl', D, svec,
+                          dtype=np.complex128)  # AIvec = Atensor @ Ivector
+        # H0 = SDS = SxDxxSx + SxDxySy + ..
+        H0 = np.einsum('lij,ljk->ik', svec, dsvec, dtype=np.complex128)
+        # H0 = np.einsum('lij,lp,pjk->ik', svec, D, svec, dtype=np.complex128)
 
     H1 = -gyro * (B[0] * spin_matrix.x + B[1] * spin_matrix.y + B[2] * spin_matrix.z)
 

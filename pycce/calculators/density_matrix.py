@@ -132,10 +132,11 @@ def full_dm(dm0, dimensions, H, alpha, beta, timespace, pulse_sequence=None):
     """
 
     U = propagator_dm(timespace, H, pulse_sequence, alpha, beta, dimensions)
+
+    dmUdagger = np.matmul(dm0, np.transpose(U.conj(), axes=(0, 2, 1)))
+    dm = np.matmul(U, dmUdagger)
     # einsum does the same as the following
-    # dmUdagger = np.matmul(dm0, np.transpose(U.conj(), axes=(0, 2, 1)))
-    # dm = np.matmul(U, dmUdagger)
-    dm = np.einsum('zli,ij,zkj->zlk', U, dm0, U.conj())
+    # dm = np.einsum('zli,ij,zkj->zlk', U, dm0, U.conj())
     return dm
 
 
