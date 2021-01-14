@@ -7,7 +7,7 @@ err_range = 0.1
 FLOAT_ERROR_RANGE = 1e-10
 
 
-class NSpinCell:
+class BathCell:
     """
     Generator of the ndarray of bath spins
     Parameters

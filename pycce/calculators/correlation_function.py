@@ -66,7 +66,7 @@ def decorated_noise_correlation(cluster, allspin, dm0, B, D, E,
     nspin = allspin[cluster]
     central_spin = (dm0.shape[0] - 1) / 2
 
-    H, dimensions = total_hamiltonian(nspin, central_spin, B, D, E=E, gyro_e=gyro_e)
+    H, dimensions = total_hamiltonian(nspin, central_spin, B, D, E=E, central_gyro=gyro_e)
     U = propagator_dm(timespace, H, 0, None, None, dimensions)
     dm0_expanded = expand(dm0, len(dimensions) - 1, dimensions) / np.prod(dimensions[:-1])
 

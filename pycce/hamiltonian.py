@@ -31,12 +31,10 @@ def expand(M, i, dim):
 def zeeman(gyro, spin_matrix, B):
     """
     Zeeman interactions of the n spin
-    @param n: np.void object with dtype _dtype_bath
-        single bath spin
-    @param ntype: dict
-        dict of SpinTypes
-    @param I: dict
-        dict of SpinMatrix objects
+    @param gyro: float
+        gyromagnetic ratio of the n spin
+    @param spin_matrix: SpinMatrix
+        spin matrix object for n spin
     @param B: array_like
         magnetic field as (Bx, By, Bz)
     @return: ndarray of shape (2s+1, 2s+1)
@@ -51,12 +49,12 @@ def zeeman(gyro, spin_matrix, B):
 def quadrupole(quadrupole_tensor, s, spin_matrix):
     """
     Quadrupole interaction of the n spin (for s>1)
-    @param n:  np.void object with dtype _dtype_bath
-        single bath spin
-    @param ntype: dict
-        dict of SpinTypes
-    @param I: dict
-        dict of SpinMatrix objects
+    @param quadrupole_tensor: np.array of shape (3,3)
+        quadrupole interaction of n spin
+    @param s: float
+        total spin of n spin
+    @param spin_matrix: SpinMatrix
+        spin matrix object for n spin
     @return: ndarray of shape (2s+1, 2s+1)
     """
     Iv = np.asarray([spin_matrix.x, spin_matrix.y, spin_matrix.z])
@@ -75,15 +73,20 @@ def quadrupole(quadrupole_tensor, s, spin_matrix):
 def dipole_dipole(coord_1, coord_2, g1, g2, ivec_1, ivec_2):
     """
     Compute dipole_dipole interactions between two bath spins
-    @param nuclei: ndarray with shape (2,)
-        two bath spins
+    @param coord_1: ndarray with shape (3,)
+        coordinates of the first spin
+    @param coord_2: ndarray with shape (3,)
+        coordinates of the second spin
+    @param g1: float
+        gyromagnetic ratio of the first spin
+    @param g2: float
+        gyromagnetic ratio of the second spin
     @param ivec_1: ndarray with shape (3, d, d)
         where d is total size of the Hilbert space. Vector of [Ix, Iy, Iz] for the first bath spin
     @param ivec_2: ndarray with shape (3, d, d)
         where d is total size of the Hilbert space. Vector of [Ix, Iy, Iz] for the second bath spin
-    @param ntype: dict
-        dict of SpinTypes
     @return: ndarray of shape (d, d)
+    dipole dipole interactions of two bath spins
     """
     pre = g1 * g2 * HBAR
 
@@ -106,8 +109,12 @@ def dipole_dipole(coord_1, coord_2, g1, g2, ivec_1, ivec_2):
 def projected_hyperfine(hyperfine_tensor, spin_matrix, projections):
     """
     Compute projected hyperfine Hamiltonian for one state of the central spin
-    @param n: np.void object with dtype _dtype_bath
-        single bath spin
+    @param hyperfine_tensor: np.array of shape (3,3)
+        hyperfine interactions of n spin
+    @param spin_matrix: SpinMatrix
+        spin matrix object for n spin
+    @param projections: np.ndarray of shape (3,)
+        projections of the central spin qubit levels [<Sx>, <Sy>, <Sz>]
     @return: ndarray of shape (d, d)
     """
 
@@ -123,13 +130,11 @@ def projected_hamiltonian(nspin, projections_alpha, projections_beta, B):
     """
     Compute projected hamiltonian on alpha and beta qubit states
     @param nspin: BathArray with shape (n,)
-        ndarray of bath spins in the given cluster with size n
-    @param ntype: dict
-        dict of SpinTypes
-    @param _smc: dict
-        dict with SpinMatrix objects inside, each key - spin
-    @param spin_matrix: QSpinMatrix
-        QSpinMatrix of the central spin
+        ndarray of bath spins
+    @param projections_alpha: np.ndarray with shape (3,)
+        projections of the central spin alpha level [<Sx>, <Sy>, <Sz>]
+    @param projections_beta: np.ndarray with shape (3,)
+        projections of the central spin beta level [<Sx>, <Sy>, <Sz>]
     @param B: ndarray with shape (3,)
         magnetic field of format (Bx, By, Bz)
     @return: H_alpha, H_beta
@@ -183,14 +188,15 @@ def projected_hamiltonian(nspin, projections_alpha, projections_beta, B):
             H_alpha += H_DD
             H_beta += H_DD
 
-    return H_alpha, H_beta
+    return H_alpha, H_beta, dimensions
 
 
 def hyperfine(hyperfine_tensor, svec, ivec):
     """
     Compute hyperfine interactions between central spin spin_matrix and bath spin I
-    @param n: np.void object with dtype _dtype_bath
-        single bath spin
+    Compute projected hyperfine Hamiltonian for one state of the central spin
+    @param hyperfine_tensor: np.array of shape (3,3)
+        hyperfine interactions of n spin
     @param svec: ndarray with shape (3, d, d)
         d is the total size of the Hilbert space. [Sx, Sy, Sz] array of the central spin
     @param ivec: ndarray with shape (3, d, d)
@@ -205,15 +211,15 @@ def hyperfine(hyperfine_tensor, svec, ivec):
     return H_HF
 
 
-def self_electron(B, spin_matrix, D, E=0, gyro_e=ELECTRON_GYRO):
+def self_electron(B, spin_matrix, D=0, E=0, gyro=ELECTRON_GYRO):
     """
     central spin Hamiltonian
     @param B: ndarray with shape (3,)
         magnetic field of format (Bx, By, Bz)
-    @param spin_matrix: QSpinMatrix
-        QSpinMatrix of the central spin
-    @param gyro_e: float
-        gyromagnetic ratio (in rad/(msec*Gauss)) of the central spin    @return:
+    @param spin_matrix: SpinMatrix
+        SpinMatrix of the central spin
+    @param gyro: float
+        gyromagnetic ratio (in rad/(msec*Gauss)) of the central spin
     @param D: float or ndarray with shape (3,3)
         D parameter in central spin ZFS OR total ZFS tensor
     @param E: float
@@ -227,30 +233,26 @@ def self_electron(B, spin_matrix, D, E=0, gyro_e=ELECTRON_GYRO):
         Svec = np.asarray([spin_matrix.x, spin_matrix.y, spin_matrix.z], dtype=np.complex128)
         H0 = np.einsum('lij,lp,pjk->ik', Svec, D, Svec, dtype=np.complex128)
 
-    H1 = -gyro_e * (B[0] * spin_matrix.x + B[1] * spin_matrix.y + B[2] * spin_matrix.z)
+    H1 = -gyro * (B[0] * spin_matrix.x + B[1] * spin_matrix.y + B[2] * spin_matrix.z)
 
     return H1 + H0
 
 
-def total_hamiltonian(nspin, central_spin, B, D, E=0, gyro_e=ELECTRON_GYRO):
+def total_hamiltonian(nspin, central_spin, B, D=0, E=0, central_gyro=ELECTRON_GYRO):
     """
     Total hamiltonian for cluster including central spin
     @param nspin: ndarray with shape (n,)
         ndarray of bath spins in the given cluster with size n
-    @param ntype: dict
-        dict of SpinTypes
-    @param I: dict
-        dict with SpinMatrix objects inside, each key - spin
-    @param spin_matrix: QSpinMatrix
-        QSpinMatrix of the central spin
+    @param central_spin: float
+        total spin of the central spin
     @param B: ndarray with shape (3,)
         magnetic field of format (Bx, By, Bz)
-    @param gyro_e: float
-        gyromagnetic ratio (in rad/(msec*Gauss)) of the central spin    @return:
     @param D: float or ndarray with shape (3,3)
         D parameter in central spin ZFS OR total ZFS tensor
     @param E: float
         E parameter in central spin ZFS
+    @param central_gyro: float
+        gyromagnetic ratio (in rad/(msec*Gauss)) of the central spin
     @return: H, dimensions
         H: ndarray with shape (prod(dimensions), prod(dimensions))
         dimensions: list of dimensions for each spin, last entry - dimensions of central spin
@@ -265,7 +267,7 @@ def total_hamiltonian(nspin, central_spin, B, D, E=0, gyro_e=ELECTRON_GYRO):
     tdim = np.prod(dimensions, dtype=np.int32)
     H = np.zeros((tdim, tdim), dtype=np.complex128)
 
-    H_electron = self_electron(B, central_spin_matrix, D, E, gyro_e)
+    H_electron = self_electron(B, central_spin_matrix, D, E, central_gyro)
     svec = np.array([expand(central_spin_matrix.x, nnuclei, dimensions),
                      expand(central_spin_matrix.y, nnuclei, dimensions),
                      expand(central_spin_matrix.z, nnuclei, dimensions)],
@@ -333,11 +335,13 @@ def mf_nucleus(n, g, gyros, spin_matrix, others, others_state):
     """
     compute mean field effect on the bath spin n from all other bath spins
     @param n: np.void object with dtype _dtype_bath
-        single bath spin
-    @param I: dict
-        dict with SpinMatrix objects inside, each key - spin
+        single bath spin n
+    @param g: float
+        gyromagnetic ratio (in rad/(msec*Gauss)) of the nuclear spin n
+    @param gyros: ndarray of shape (n_bath - n_cluster,)
+        ndarray of gyromagnetic ratios for all bath spins not included in the cluster
     @param others: ndarray of shape (n_bath - n_cluser,)
-        ndarray of all bath spins not included in the cluster
+        BathArray of all bath spins not included in the cluster
     @param others_state: ndarray of shape (n_bath - n_cluser,)
         Sz projections of the state of all others nuclear spins not included in the given cluster
     @return: ndarray
@@ -354,30 +358,26 @@ def mf_nucleus(n, g, gyros, spin_matrix, others, others_state):
     return H_mf
 
 
-def mf_hamiltonian(nspin, B, central_spin, others, others_state, D, E=0, gyro_e=ELECTRON_GYRO):
+def mf_hamiltonian(nspin, B, central_spin, others, others_state, D=0, E=0, central_gyro=ELECTRON_GYRO):
     """
     compute total Hamiltonian for the given cluster including mean field effect of all nuclei
     outside of the given cluster
     @param nspin: ndarray with shape (n,)
         ndarray of bath spins in the given cluster with size n
-    @param ntype: dict
-        dict of SpinTypes
-    @param I: dict
-        dict with SpinMatrix objects inside, each key - spin
-    @param S: QSpinMatrix
-        QSpinMatrix of the central spin
     @param B: ndarray with shape (3,)
         magnetic field of format (Bx, By, Bz)
-    @param gyro_e: float
-        gyromagnetic ratio (in rad/(msec*Gauss)) of the central spin    @return:
-    @param D: float or ndarray with shape (3,3)
-        D parameter in central spin ZFS OR total ZFS tensor
-    @param E: float
-        E parameter in central spin ZFS
+    @param central_spin: float
+        total spin of the central spin
     @param others: ndarray of shape (n_bath - n_cluser,)
         ndarray of all bath spins not included in the cluster
     @param others_state: ndarray of shape (n_bath - n_cluser,)
         Sz projections of the state of all others nuclear spins not included in the given cluster
+    @param D: float or ndarray with shape (3,3)
+        D parameter in central spin ZFS OR total ZFS tensor
+    @param E: float
+        E parameter in central spin ZFS
+    @param central_gyro: float
+        gyromagnetic ratio (in rad/(msec*Gauss)) of the central spin    @return:
     @return: H, dimensions
         H: ndarray with shape (prod(dimensions), prod(dimensions)) hamiltonian
         dimensions: list of dimensions for each spin, last entry - dimensions of central spin
@@ -390,8 +390,8 @@ def mf_hamiltonian(nspin, B, central_spin, others, others_state, D, E=0, gyro_e=
     tdim = np.prod(dimensions, dtype=np.int32)
     H = np.zeros((tdim, tdim), dtype=np.complex128)
 
-    H_electron = self_electron(B, central_spin_matrix, D, E, gyro_e) + mf_electron(central_spin_matrix, others,
-                                                                                   others_state)
+    H_electron = self_electron(B, central_spin_matrix, D, E, central_gyro) + mf_electron(central_spin_matrix, others,
+                                                                                         others_state)
 
     svec = np.array([expand(central_spin_matrix.x, nnuclei, dimensions),
                      expand(central_spin_matrix.y, nnuclei, dimensions),
@@ -447,12 +447,12 @@ def eta_hamiltonian(nspin, central_spin, alpha, beta, eta):
     alpha and beta qubit states
     @param nspin: ndarray with shape (n,)
         ndarray of bath spins in the given cluster with size n
-    @param ntype: dict
-        dict of SpinTypes
-    @param I: dict
-        dict with SpinMatrix objects inside, each key - spin
-    @param S: QSpinMatrix
-        QSpinMatrix of the central spin
+    @param central_spin: float
+        total spin of the central spin
+    @param alpha: np.ndarray with shape (2s+1,)
+        alpha state of the qubit
+    @param beta: np.ndarray with shape (2s+1,)
+        beta state of the qubit
     @param eta: value of dimensionless parameter eta (from 0 to 1)
     @return:
     """

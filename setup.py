@@ -3,7 +3,7 @@ from distutils.core import setup
 
 setup(
     name='pycce',
-    version='0.1.2a',
+    version='0.1.4',
     url='',
     license='',
     author='Nikita Onizhuk',

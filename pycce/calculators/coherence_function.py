@@ -1,8 +1,8 @@
 import numpy as np
 
-from pycce.cluster_expansion import cluster_expansion_decorator
+from pycce.cluster_expansion import cluster_expansion_decorator, cluster_expansion_direct_decorator
 from pycce.hamiltonian import projected_hamiltonian
-
+from .density_matrix import gen_density_matrix
 
 def propagators(timespace, H0, H1, N):
     """
@@ -55,21 +55,21 @@ def propagators(timespace, H0, H1, N):
     return U0, U1
 
 
-def computeL(H0, H1, timespace, N, as_delay=False):
+def compute_coherence(H0, H1, timespace, N, as_delay=False, states=None, dimensions=None):
     """
-    Function to compute cluster L in conventional CCE
+    Function to compute cluster coherence function in conventional CCE
     @param H0: ndarray
         Hamiltonian projected on alpha qubit state
     @param H1: ndarray
         Hamiltonian projected on beta qubit state
     @param timespace: ndarray
-        Time points at which to compute L
+        Time points at which to compute coherence function
     @param N: int
         number of pulses in CPMG
     @param as_delay: bool
         True if time points are delay between pulses,
         False if time points are total time
-    @return: L
+    @return: coherence_function
     """
     # if timespace was given not as delay between pulses,
     # divide to obtain the delay
@@ -78,16 +78,32 @@ def computeL(H0, H1, timespace, N, as_delay=False):
 
     U0, U1 = propagators(timespace, H0, H1, N)
 
-    # L = np.trace(np.matmul(U0, np.transpose(
+    # coherence_function = np.trace(np.matmul(U0, np.transpose(
     #     U1.conj(), axes=(0, 2, 1))), axis1=1, axis2=2) / U0.shape[1]
-    # L is computed as Tr[rho U0 U1dagger]; rho = Identity / dim
-    L = np.einsum('zij,zij->z', U0, U1.conj()) / U0.shape[1]
-    return L
+    # coherence_function is computed as Tr[rho U0 U1dagger]; rho = Identity / dim
+    if states is None:
+        coherence_function = np.einsum('zij,zij->z', U0, U1.conj()) / U0.shape[1]
+
+    else:
+        dm = gen_density_matrix(states, dimensions=dimensions)
+        coherence_function = np.einsum('zli,ij,zlj->z', U0, dm, U1.conj())
+
+    return coherence_function
 
 
 @cluster_expansion_decorator
-def decorated_coherence_function(cluster, allspin, projections_alpha, projections_beta, B, timespace, N,
-                                 as_delay=False):
+def decorated_coherence_function(*arg, **kwarg):
+    return inner_coherence_function(*arg, **kwarg)
+
+
+@cluster_expansion_direct_decorator
+def direct_coherence_function(*arg, **kwarg):
+    return inner_coherence_function(*arg, **kwarg)
+
+
+def inner_coherence_function(cluster, allspin, projections_alpha, projections_beta, B, timespace, N,
+                             as_delay=False, states=None):
+
     """
         Overarching decorated function to compute L in conventional CCE. The call of the function includes:
     @param subclusters: dict
@@ -112,6 +128,9 @@ def decorated_coherence_function(cluster, allspin, projections_alpha, projection
         L computed with conventional CCE
     """
     nspin = allspin[cluster]
-    H0, H1 = projected_hamiltonian(nspin, projections_alpha, projections_beta, B)
-    L = computeL(H0, H1, timespace, N, as_delay=as_delay)
+    if states is not None:
+        states = states[cluster]
+    H0, H1, dimensions = projected_hamiltonian(nspin, projections_alpha, projections_beta, B)
+    L = compute_coherence(H0, H1, timespace, N, as_delay=as_delay, states=states, dimensions=dimensions)
     return L
+

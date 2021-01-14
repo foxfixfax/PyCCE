@@ -132,9 +132,10 @@ def full_dm(dm0, dimensions, H, alpha, beta, timespace, pulse_sequence=None):
     """
 
     U = propagator_dm(timespace, H, pulse_sequence, alpha, beta, dimensions)
-    dmUdagger = np.matmul(dm0, np.transpose(U.conj(), axes=(0, 2, 1)))
-    dm = np.matmul(U, dmUdagger)
-
+    # einsum does the same as the following
+    # dmUdagger = np.matmul(dm0, np.transpose(U.conj(), axes=(0, 2, 1)))
+    # dm = np.matmul(U, dmUdagger)
+    dm = np.einsum('zli,ij,zkj->zlk', U, dm0, U.conj())
     return dm
 
 
@@ -151,23 +152,28 @@ def generate_dm0(dm0, dimensions, states):
     @return: dm
         initial density matrix of the cluster
     """
+    dmtotal0 = gen_density_matrix(states, dimensions[:-1])
+    dmtotal0 = np.kron(dmtotal0, dm0)
+    return dmtotal0
 
+
+def gen_density_matrix(states, dimensions=None):
     dmtotal0 = np.eye(1, dtype=np.complex128)
-    for s, d in zip(states, dimensions[:-1]):
-        dm_nucleus = np.zeros((d, d), dtype=np.complex128)
+    for i, s in enumerate(states):
         if not hasattr(s, "__len__"):
+            d = dimensions[i]
+            dm_nucleus = np.zeros((d, d), dtype=np.complex128)
             state_number = int(round((d - 1) / 2 - s))
             dm_nucleus[state_number, state_number] = 1
         else:
-            s = np.asarray(s)
             if s.shape.__len__() == 1:
+                d = dimensions[i]
+                dm_nucleus = np.zeros((d, d), dtype=np.complex128)
                 np.fill_diagonal(dm_nucleus, s)
             else:
                 dm_nucleus = s
 
         dmtotal0 = np.kron(dmtotal0, dm_nucleus)
-
-    dmtotal0 = np.kron(dmtotal0, dm0)
     return dmtotal0
 
 
@@ -232,12 +238,12 @@ def decorated_density_matrix(cluster, allspin, dm0, alpha, beta, B, D, E,
         states = None
 
     if zeroth_cluster is None:
-        H, dimensions = total_hamiltonian(BathArray(0), central_spin, B, D, E=E, gyro_e=gyro_e)
+        H, dimensions = total_hamiltonian(BathArray(0), central_spin, B, D, E=E, central_gyro=gyro_e)
         zeroth_cluster = compute_dm(dm0, dimensions, H, alpha, beta, timespace, pulse_sequence,
                                     as_delay=as_delay)
         zeroth_cluster = ma.masked_array(zeroth_cluster, mask=(zeroth_cluster == 0))
 
-    H, dimensions = total_hamiltonian(nspin, central_spin, B, D, E=E, gyro_e=gyro_e)
+    H, dimensions = total_hamiltonian(nspin, central_spin, B, D, E=E, central_gyro=gyro_e)
     if eta is not None:
         H += eta_hamiltonian(nspin, alpha, beta, eta)
     dms = compute_dm(dm0, dimensions, H, alpha, beta, timespace,
@@ -261,12 +267,12 @@ def cluster_dm_direct_approach(nspin, dm0, alpha, beta, B, D, E,
         states = None
 
     if zeroth_cluster is None:
-        H, dimensions = total_hamiltonian(BathArray(0), central_spin, B, D, E=E, gyro_e=gyro_e)
+        H, dimensions = total_hamiltonian(BathArray(0), central_spin, B, D, E=E, central_gyro=gyro_e)
         zeroth_cluster = compute_dm(dm0, dimensions, H, alpha, beta, timespace, pulse_sequence,
                                     as_delay=as_delay)
         zeroth_cluster = ma.masked_array(zeroth_cluster, mask=(zeroth_cluster == 0))
 
-    H, dimensions = total_hamiltonian(nspin, central_spin, B, D, E=E, gyro_e=gyro_e)
+    H, dimensions = total_hamiltonian(nspin, central_spin, B, D, E=E, central_gyro=gyro_e)
     if eta is not None:
         H += eta_hamiltonian(nspin, alpha, beta, eta)
     dms = compute_dm(dm0, dimensions, H, alpha, beta, timespace,

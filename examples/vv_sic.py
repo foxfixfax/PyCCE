@@ -9,7 +9,7 @@ if __name__ == '__main__':
     np.random.seed(42055)
     np.set_printoptions(suppress=True, precision=5)
 
-    sic = pycce.bath.NSpinCell(3.073, 3.073, 10.053, 90, 90, 120, 'deg')
+    sic = pycce.bath.BathCell(3.073, 3.073, 10.053, 90, 90, 120, 'deg')
     sic.zdir = [0, 0, 1]
 
     sic.add_atoms(('Si', [0.00000000, 0.00000000, 0.1880]),

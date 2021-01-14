@@ -9,7 +9,7 @@ if __name__ == '__main__':
 
     # Generate unitcell from ase
     diamond = bulk('C', 'diamond', orthorhombic=True)
-    diamond = pycce.bath.NSpinCell.from_ase_Atoms(diamond)
+    diamond = pycce.bath.BathCell.from_ase_Atoms(diamond)
     # Add types of common_isotopes
     diamond.add_isotopes(('13C', 0.011))
     # set z direction of the defect

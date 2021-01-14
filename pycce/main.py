@@ -4,7 +4,7 @@ import numpy.ma as ma
 from .bath.array import BathArray, SpinDict
 from .bath.read_bath import read_xyz, read_external
 from .bath.read_cube import Cube
-from .calculators.coherence_function import decorated_coherence_function
+from .calculators.coherence_function import decorated_coherence_function, direct_coherence_function
 from .calculators.correlation_function import mean_field_noise_correlation, decorated_noise_correlation
 from .calculators.density_matrix import decorated_density_matrix, cluster_dm_direct_approach, compute_dm
 from .calculators.mean_field_dm import mean_field_density_matrix
@@ -81,6 +81,20 @@ class Simulator:
         if r_dipole is not None and order is not None:
             assert self.bath is not None, "Bath spins were not provided to compute clusters"
             self.generate_clusters(order, r_dipole)
+
+    def __repr__(self):
+        return f"""Simulator for spin-{self.spin}.
+alpha: {self.alpha}
+beta: {self.beta}
+gyromagnetic ratio: {self.gyro} kHz * rad / G
+
+Parameters of cluster expansion:
+r_bath: {self.r_bath}
+r_dipole: {self.r_dipole}
+order: {self.order}
+
+Bath consists of {self.bath.size} spins.
+"""
 
     @property
     def alpha(self):
@@ -217,12 +231,11 @@ class Simulator:
         M is the number of clusters of given size, N is the size of the cluster. Each row contains indexes of the bath
         spins included in the given cluster
         """
-        if self.graph is None:
-            if r_dipole is not None:
-                self.r_dipole = r_dipole
-
-            assert self.r_dipole is not None, "Graph generation failed: r_dipole is not provided"
+        if r_dipole is not None:
+            self.r_dipole = r_dipole
             self.graph = self.generate_graph(r_dipole, r_inner=r_inner)
+
+        assert self.graph is not None, "Cluster generation failed: r_dipole is not provided"
 
         self.clusters = None
         n_components, labels = connected_components(csgraph=self.graph, directed=False,
@@ -234,7 +247,7 @@ class Simulator:
 
         return self.clusters
 
-    def compute_coherence(self, timespace, B, N, as_delay=False):
+    def compute_coherence(self, timespace, B, N, as_delay=False, direct=False, states=None):
         """
         Compute coherence function L with conventional CCE
         @param timespace: 1D-ndarray
@@ -260,9 +273,12 @@ class Simulator:
                                      self.beta.conj() @ sm.y @ self.beta,
                                      self.beta.conj() @ sm.z @ self.beta],
                                     dtype=np.complex128)
-
-        coherence = decorated_coherence_function(self.clusters, self.bath, projections_alpha, projections_beta, B,
-                                                 timespace, N, as_delay=as_delay)
+        if direct:
+            coherence = direct_coherence_function(self.clusters, self.bath, projections_alpha, projections_beta, B,
+                                                  timespace, N, as_delay=as_delay, states=states)
+        else:
+            coherence = decorated_coherence_function(self.clusters, self.bath, projections_alpha, projections_beta, B,
+                                                     timespace, N, as_delay=as_delay, states=states)
         return coherence
 
     def compute_dmatrix(self, timespace: np.ndarray, B: np.ndarray,
@@ -302,7 +318,7 @@ class Simulator:
 
         dm0 = np.tensordot(state, state, axes=0)
 
-        H0, dimensions0 = total_hamiltonian(BathArray(0), self.spin, B, D, E=E, gyro_e=self.gyro)
+        H0, dimensions0 = total_hamiltonian(BathArray(0), self.spin, B, D, E=E, central_gyro=self.gyro)
 
         dms = compute_dm(dm0, dimensions0, H0, self.alpha, self.beta, timespace, pulse_sequence,
                          as_delay=as_delay)
