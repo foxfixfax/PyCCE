@@ -1,7 +1,9 @@
-import numpy as np
-from .array import BathArray
 import sys
 from string import digits
+
+import numpy as np
+
+from .array import BathArray
 
 err_range = 0.1
 FLOAT_ERROR_RANGE = 1e-10
@@ -264,7 +266,11 @@ class BathCell:
         return self.cell @ np.asarray(coord)
 
     @classmethod
-    def from_ase_Atoms(cls, atoms_object):
+    def from_ase_Atoms(cls, *agr, **kwarg):
+        return cls.from_ase(*agr, **kwarg)
+
+    @classmethod
+    def from_ase(cls, atoms_object):
         """
         generate NSpinCell object from ase Atoms object
         @param atoms_object: Atoms

@@ -1,5 +1,5 @@
 import numpy as np
-
+from numba import jit
 from .sm import _smc
 from .units import HBAR, ELECTRON_GYRO
 
@@ -19,16 +19,47 @@ def expand(M, i, dim):
     @return: ndarray
         Expanded matrix
     """
-    dbefore = np.prod(dim[:i], dtype=np.int32)
-    dafter = np.prod(dim[i + 1:], dtype=np.int32)
+    dbefore = np.prod(dim[:i])
+    dafter = np.prod(dim[i + 1:])
 
     M_expanded = np.kron(np.kron(np.eye(dbefore, dtype=np.complex128), M),
                          np.eye(dafter, dtype=np.complex128))
 
     return M_expanded
 
+from numba import complex128, int32
 
-def zeeman(gyro, spin_matrix, B):
+@jit(complex128[:,::1](complex128[:, ::1], int32, int32[:]), nopython=True)
+def expand_jit(M, i, dim):
+    """
+    Expand matrix M from it's own dimensions to the total Hilbert space
+    @param M: ndarray
+        Inital matrix
+    @param i: int
+        Index of the spin in dim
+    @param dim: list
+        list of dimensions of all spins present in the cluster
+    @return: ndarray
+        Expanded matrix
+    """
+    dbefore = np.prod(dim[:i])
+    dafter = np.prod(dim[i + 1:])
+
+    M_expanded = np.kron(np.kron(np.eye(dbefore, dtype=np.complex128), M),
+                         np.eye(dafter, dtype=np.complex128))
+    return M_expanded
+
+
+def generate_dimensions(nspin, central_spin=None):
+    ntype = nspin.types
+    dimensions = [_smc[ntype[n['N']].s].dim for n in nspin]
+    if central_spin is not None:
+        dimensions += [_smc[central_spin].dim]
+    dimensions = np.asarray(dimensions, dtype=np.int32)
+    return dimensions
+
+
+def zeeman(gyro, s, B):
     """
     Zeeman interactions of the n spin
     @param gyro: float
@@ -39,6 +70,7 @@ def zeeman(gyro, spin_matrix, B):
         magnetic field as (Bx, By, Bz)
     @return: ndarray of shape (2s+1, 2s+1)
     """
+    spin_matrix = _smc[s]
     BI = B[0] * spin_matrix.x + B[1] * spin_matrix.y + B[2] * spin_matrix.z
 
     H_zeeman = - gyro * BI
@@ -46,7 +78,7 @@ def zeeman(gyro, spin_matrix, B):
     return H_zeeman
 
 
-def quadrupole(quadrupole_tensor, s, spin_matrix):
+def quadrupole(quadrupole_tensor, s):
     """
     Quadrupole interaction of the n spin (for s>1)
     @param quadrupole_tensor: np.array of shape (3,3)
@@ -57,8 +89,10 @@ def quadrupole(quadrupole_tensor, s, spin_matrix):
         spin matrix object for n spin
     @return: ndarray of shape (2s+1, 2s+1)
     """
+    spin_matrix = _smc[s]
     iv = np.asarray([spin_matrix.x, spin_matrix.y, spin_matrix.z])
-
+    # v_ivec = np.einsum('lp,lij->ijp', quadrupole_tensor, iv);
+    # iqi = np.einsum('ijp,pjk->ik', v_ivec, iv)
     v_ivec = np.einsum('ij,jkl->ikl', quadrupole_tensor, iv, dtype=np.complex128)
     iqi = np.einsum('lij,ljk->ik', iv, v_ivec, dtype=np.complex128)
     # iqi = np.einsum('lij,lp,pjk->ik', iv, quadrupole_tensor, iv, dtype=np.complex128)
@@ -94,10 +128,10 @@ def dipole_dipole(coord_1, coord_2, g1, g2, ivec_1, ivec_2):
     r = np.linalg.norm(pos)
 
     p_tensor = -pre * (3 * np.outer(pos, pos) -
-                      np.eye(3, dtype=np.complex128) * r ** 2) / (r ** 5)
+                       np.eye(3, dtype=np.complex128) * r ** 2) / (r ** 5)
 
     p_ivec = np.einsum('ij,jkl->ikl', p_tensor, ivec_2,
-                      dtype=np.complex128)  # p_ivec = Ptensor @ Ivector
+                       dtype=np.complex128)  # p_ivec = Ptensor @ Ivector
     H_DD = np.einsum('lij,ljk->ik', ivec_1, p_ivec, dtype=np.complex128)
 
     # DD = IPI = IxPxxIx + IxPxyIy + ..
@@ -106,7 +140,7 @@ def dipole_dipole(coord_1, coord_2, g1, g2, ivec_1, ivec_2):
     return H_DD
 
 
-def projected_hyperfine(hyperfine_tensor, spin_matrix, projections):
+def projected_hyperfine(hyperfine_tensor, s, projections):
     """
     Compute projected hyperfine Hamiltonian for one state of the central spin
     @param hyperfine_tensor: np.array of shape (3,3)
@@ -117,6 +151,7 @@ def projected_hyperfine(hyperfine_tensor, spin_matrix, projections):
         projections of the central spin qubit levels [<Sx>, <Sy>, <Sz>]
     @return: ndarray of shape (d, d)
     """
+    spin_matrix = _smc[s]
 
     A_projected = projections @ hyperfine_tensor  # spin_matrix.get_projection(state)
     H_Hyperfine = (A_projected[0] * spin_matrix.x +
@@ -140,7 +175,7 @@ def projected_hamiltonian(nspin, projections_alpha, projections_beta, B):
     @return: H_alpha, H_beta
     """
     ntype = nspin.types
-    dimensions = [_smc[ntype[n['N']].s].dim for n in nspin]
+    dimensions = generate_dimensions(nspin, central_spin=None)
     nnuclei = nspin.shape[0]
 
     tdim = np.prod(dimensions, dtype=np.int32)
@@ -154,13 +189,13 @@ def projected_hamiltonian(nspin, projections_alpha, projections_beta, B):
         s = ntype[n].s
 
         if s > 1 / 2:
-            H_quad = quadrupole(n['Q'], s, _smc[s])
-            H_single = zeeman(ntype[n].gyro, _smc[s], B) + H_quad
+            H_quad = quadrupole(n['Q'], s)
+            H_single = zeeman(ntype[n].gyro, s, B) + H_quad
         else:
-            H_single = zeeman(ntype[n].gyro, _smc[s], B)
+            H_single = zeeman(ntype[n].gyro, s, B)
 
-        H_HF_alpha = projected_hyperfine(n['A'], _smc[s], projections_alpha)
-        H_HF_beta = projected_hyperfine(n['A'], _smc[s], projections_beta)
+        H_HF_alpha = projected_hyperfine(n['A'], s, projections_alpha)
+        H_HF_beta = projected_hyperfine(n['A'], s, projections_beta)
 
         H_j_alpha = H_single + H_HF_alpha
         H_j_beta = H_single + H_HF_beta
@@ -203,15 +238,14 @@ def hyperfine(hyperfine_tensor, svec, ivec):
         d is the total size of the Hilbert space. [Ix, Iy, Iz] array of the bath spin
     @return: ndarray
     """
-    aivec = np.einsum('ij,jkl->ikl', hyperfine_tensor, ivec,
-                      dtype=np.complex128)  # AIvec = Atensor @ Ivector
+    aivec = np.einsum('ij,jkl->ikl', hyperfine_tensor, ivec)  # AIvec = Atensor @ Ivector
     # HF = SPI = SxPxxIx + SxPxyIy + ..
-    H_HF = np.einsum('lij,ljk->ik', svec, aivec, dtype=np.complex128)
+    H_HF = np.einsum('lij,ljk->ik', svec, aivec)
     # H_HF = np.einsum('lij,lp,pjk->ik', svec, hyperfine_tensor, ivec, dtype=np.complex128)
     return H_HF
 
 
-def self_electron(B, spin_matrix, D=0, E=0, gyro=ELECTRON_GYRO):
+def self_electron(B, s, D=0, E=0, gyro=ELECTRON_GYRO):
     """
     central spin Hamiltonian
     @param B: ndarray with shape (3,)
@@ -226,6 +260,7 @@ def self_electron(B, spin_matrix, D=0, E=0, gyro=ELECTRON_GYRO):
         E parameter in central spin ZFS
     @return: ndarray
     """
+    spin_matrix = _smc[s]
     if isinstance(D, (np.floating, float, int)):
         H0 = D * (spin_matrix.z @ spin_matrix.z - 1 / 3 * spin_matrix.s * (spin_matrix.s + 1) * spin_matrix.eye) + \
              E * (spin_matrix.x @ spin_matrix.x - spin_matrix.y @ spin_matrix.y)
@@ -265,13 +300,15 @@ def total_hamiltonian(nspin, central_spin, B, D=0, E=0, central_gyro=ELECTRON_GY
     central_spin_matrix = _smc[central_spin]
 
     ntype = nspin.types
-    dimensions = [_smc[ntype[n].s].dim for n in nspin] + [central_spin_matrix.dim]
+    dimensions = generate_dimensions(nspin, central_spin=central_spin)
+
+
     nnuclei = nspin.shape[0]
 
     tdim = np.prod(dimensions, dtype=np.int32)
     H = np.zeros((tdim, tdim), dtype=np.complex128)
 
-    H_electron = self_electron(B, central_spin_matrix, D, E, central_gyro)
+    H_electron = self_electron(B, central_spin, D, E, central_gyro)
     svec = np.array([expand(central_spin_matrix.x, nnuclei, dimensions),
                      expand(central_spin_matrix.y, nnuclei, dimensions),
                      expand(central_spin_matrix.z, nnuclei, dimensions)],
@@ -288,10 +325,10 @@ def total_hamiltonian(nspin, central_spin, B, D=0, E=0, central_gyro=ELECTRON_GY
                          expand(_smc[s].z, j, dimensions)],
                         dtype=np.complex128)
         if s > 1 / 2:
-            H_quad = quadrupole(n['Q'], s, _smc[s])
-            H_single = zeeman(ntype[n].gyro, _smc[s], B) + H_quad
+            H_quad = quadrupole(n['Q'], s)
+            H_single = zeeman(ntype[n].gyro, s, B) + H_quad
         else:
-            H_single = zeeman(ntype[n].gyro, _smc[s], B)
+            H_single = zeeman(ntype[n].gyro,s, B)
 
         H_HF = hyperfine(n['A'], svec, ivec)
 
@@ -314,7 +351,7 @@ def total_hamiltonian(nspin, central_spin, B, D=0, E=0, central_gyro=ELECTRON_GY
     return H, dimensions
 
 
-def mf_electron(spin_matrix, others, others_state):
+def mf_electron(s, others, others_state):
     """
     compute mean field effect for all bath spins not included in the cluster
     on central spin
@@ -326,6 +363,7 @@ def mf_electron(spin_matrix, others, others_state):
         Sz projections of the state of all others nuclear spins not included in the given cluster
     @return: ndarray
     """
+    spin_matrix = _smc[s]
     # xfield = np.sum(others['A'][:, 2, 0] * others_state)
     # yfield = np.sum(others['A'][:, 2, 1] * others_state)
     zfield = np.sum(others['A'][:, 2, 2] * others_state)
@@ -335,7 +373,7 @@ def mf_electron(spin_matrix, others, others_state):
     return H_mf
 
 
-def mf_nucleus(n, g, gyros, spin_matrix, others, others_state):
+def mf_nucleus(n, g, gyros, s, others, others_state):
     """
     compute mean field effect on the bath spin n from all other bath spins
     @param n: np.void object with dtype _dtype_bath
@@ -350,6 +388,8 @@ def mf_nucleus(n, g, gyros, spin_matrix, others, others_state):
         Sz projections of the state of all others nuclear spins not included in the given cluster
     @return: ndarray
     """
+    spin_matrix = _smc[s]
+
     pre = g * gyros * HBAR
 
     pos = n['xyz'] - others['xyz']
@@ -388,13 +428,14 @@ def mf_hamiltonian(nspin, B, central_spin, others, others_state, D=0, E=0, centr
     """
     ntype = nspin.types
     central_spin_matrix = _smc[central_spin]
-    dimensions = [_smc[ntype[n].s].dim for n in nspin] + [central_spin_matrix.dim]
+    dimensions = generate_dimensions(nspin, central_spin=central_spin)
+
     nnuclei = nspin.shape[0]
 
     tdim = np.prod(dimensions, dtype=np.int32)
     H = np.zeros((tdim, tdim), dtype=np.complex128)
 
-    H_electron = self_electron(B, central_spin_matrix, D, E, central_gyro) + mf_electron(central_spin_matrix, others,
+    H_electron = self_electron(B, central_spin, D, E, central_gyro) + mf_electron(central_spin, others,
                                                                                          others_state)
 
     svec = np.array([expand(central_spin_matrix.x, nnuclei, dimensions),
@@ -414,12 +455,12 @@ def mf_hamiltonian(nspin, B, central_spin, others, others_state, D=0, E=0, centr
                         dtype=np.complex128)
 
         H_mf_nucleus = mf_nucleus(n, ntype[n].gyro, ntype[others].gyro,
-                                  _smc[s], others, others_state)
+                                  s, others, others_state)
 
-        H_zeeman = zeeman(ntype[n].gyro, _smc[s], B)
+        H_zeeman = zeeman(ntype[n].gyro, s, B)
 
         if s > 1 / 2:
-            H_quad = quadrupole(n['Q'], s, _smc[s])
+            H_quad = quadrupole(n['Q'], s)
             H_single = H_zeeman + H_quad + H_mf_nucleus
         else:
             H_single = H_zeeman + H_mf_nucleus
@@ -460,10 +501,9 @@ def eta_hamiltonian(nspin, central_spin, alpha, beta, eta):
     @param eta: value of dimensionless parameter eta (from 0 to 1)
     @return:
     """
-    central_spin_matrix = _smc[central_spin]
     ntype = nspin.types
     nnuclei = nspin.shape[0]
-    dimensions = [_smc[ntype[n['N']].s].dim for n in nspin] + [central_spin_matrix.dim]
+    dimensions = generate_dimensions(nspin, central_spin=central_spin)
 
     AIzi = 0
     for j in range(nnuclei):

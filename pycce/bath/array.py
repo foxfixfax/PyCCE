@@ -173,6 +173,13 @@ class BathArray(np.ndarray):
             a['A'] = func(a['xyz'], self.type[a].gyro, gyro_e)
         return
 
+    def dist(self, pos=None):
+        if pos is None:
+            pos = np.zeros(3)
+        else:
+            pos = np.asarray(pos)
+
+        return np.linalg.norm(self['xyz'] - pos, axis=-1)
 
 class SpinType:
     """
