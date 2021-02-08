@@ -51,7 +51,7 @@ class Cube:
             # first two lines are comments
             self.comments = next(content).strip() + "\n" + next(content).strip()
 
-            # total number of atoms | xyz of the cube origin
+            # total number of bath | xyz of the cube origin
             tot = next(content).split()
             natoms = int(tot[0])
 
@@ -88,10 +88,10 @@ class Cube:
         else:
             self.data = np.array(data).reshape(np.abs(self.size)) / (BOHR_TO_ANGSTROM ** 3)
 
-        # check if diagonal
+        # direct if diagonal
         # (see https://stackoverflow.com/questions/43884189/check-if-a-large-matrix-is-diagonal-matrix-in-python)
         if np.any(self.voxel.reshape(-1)[:-1].reshape(2, 4)[:, 1:]):
-            warnings.warn('Voxel might be non-orthogonal. Correctness of the results is not guaranteed')
+            warnings.warn('Voxel might be non-orthogonal. Correctness of the results is not tested')
 
         na = np.newaxis
         a = np.arange(self.size[0])[:, na] * self.voxel[0][na, :]

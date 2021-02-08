@@ -5,6 +5,7 @@ import numpy as np
 
 from ..units import HBAR, ELECTRON_GYRO
 
+HANDLED_FUNCTIONS = {}
 
 class BathArray(np.ndarray):
     _dtype_bath = np.dtype([('N', np.unicode_, 16),
@@ -15,7 +16,7 @@ class BathArray(np.ndarray):
     def __new__(subtype, shape=None, array=None,
                 spin_names=None, hyperfines=None, quadrupoles=None,
                 ca=None, sn=None, hf=None, q=None,
-                spin_types=None):
+                types=None):
         # Create the ndarray instance of our type, given the usual
         # ndarray input arguments. This will call the standard
         # ndarray constructor, but return an object of our type.
@@ -47,11 +48,11 @@ class BathArray(np.ndarray):
 
         obj.types = SpinDict()
 
-        if spin_types is not None:
+        if types is not None:
             try:
-                obj.add_types(**spin_types)
+                obj.add_type(**types)
             except TypeError:
-                obj.add_types(*spin_types)
+                obj.add_type(*types)
 
         if array is not None:
             array = np.asarray(array)
@@ -95,9 +96,31 @@ class BathArray(np.ndarray):
         # method sees all creation of default objects - with the
         # BathArray.__new__ constructor, but also with
         # arr.view(BathArray).
+
         self.types = getattr(obj, 'types', SpinDict())
         # We do not need to return anything
 
+
+    def __array_function__(self, func, types, args, kwargs):
+        if func not in HANDLED_FUNCTIONS:
+            if not all(issubclass(t, np.ndarray) for t in types):
+                # Defer to any non-subclasses that implement __array_function__
+                return NotImplemented
+            # Use NumPy's private implementation without __array_function__
+            # dispatching
+            return func._implementation(*args, **kwargs)
+        # Note: this allows subclasses that don't override
+        # __array_function__ to handle MyArray objects
+        if not all(issubclass(t, BathArray) for t in types):
+            return NotImplemented
+
+        return HANDLED_FUNCTIONS[func](*args, **kwargs)
+
+    def __getitem__(self, item):
+        try:
+            return np.ndarray.__getitem__(self, item)
+        except ValueError:
+            return self[self['N'] == item]
     @property
     def isotope(self):
         return self.types[self].isotope
@@ -115,8 +138,6 @@ class BathArray(np.ndarray):
         return self.types[self].q
 
     def __setitem__(self, key, val):
-        # look at the units - convert the values to what they need to be (in
-        # the base_unit) and then delegate to the ndarray.__setitem__
         if isinstance(val, (np.str_, str)):
             if val not in self.types.keys():
                 try:
@@ -181,6 +202,32 @@ class BathArray(np.ndarray):
 
         return np.linalg.norm(self['xyz'] - pos, axis=-1)
 
+#
+def implements(numpy_function):
+    """Register an __array_function__ implementation for BathArray objects."""
+
+    def decorator(func):
+        HANDLED_FUNCTIONS[numpy_function] = func
+        return func
+
+    return decorator
+
+
+@implements(np.concatenate)
+def concatenate(arrays, axis=0, out=None):
+    new_array = np.concatenate([x.view(np.ndarray) for x in arrays], axis=axis, out=out)
+    new_array = new_array.view(BathArray)
+    types = SpinDict()
+    for x in arrays:
+        types += x.types
+    new_array.types = types
+    return new_array
+
+# @implements(np.broadcast_to)
+# def broadcast_to(array, shape):
+#     ...  # implementation of broadcast_to for MyArray objects
+
+
 class SpinType:
     """
     Class which contains properties of each spin type in the bath
@@ -202,6 +249,12 @@ class SpinType:
         self.s = s
         self.gyro = gyro
         self.q = q
+
+    def __eq__(self, obj):
+        if not isinstance(obj, SpinType):
+            return False
+        checks = (self.isotope == obj.isotope) & (self.s == obj.s) & (self.gyro == obj.gyro) & (self.q == obj.q)
+        return checks
 
     def __repr__(self):
         return f'({self.isotope}, {self.s}, {self.gyro}, {self.q})'
@@ -272,6 +325,23 @@ class SpinDict(UserDict):
         else:
             return super().__getitem__(key)
 
+    # adding two objects
+    def __add__(self, obj):
+        new_obj = SpinDict()
+        keys_1 = list(self.keys())
+        keys_2 = list(obj.keys())
+
+        for k in {*keys_1, *keys_2}:
+
+            if (k in keys_1) and (k in keys_2):
+                assert obj[k] == self[k], f'Error, type {k} has different properties in provided types'
+                new_obj[k] = self[k]
+            elif k in keys_1:
+                new_obj[k] = self[k]
+            else:
+                new_obj[k] = obj[k]
+        return new_obj
+
     def __repr__(self):
         return f"{type(self).__name__}({self.data})"
 
@@ -326,7 +396,10 @@ def combine_bath(total_bath, added_bath, error_range=0.2, ignore_isotopes=True, 
         total_bath = total_bath.copy()
 
     indexes, ext_indexes = same_bath_indexes(total_bath, added_bath, error_range, ignore_isotopes)
-    total_bath[indexes] = added_bath[ext_indexes]
+    for n in added_bath.dtype.names:
+        if ignore_isotopes and n == 'N':
+            continue
+        total_bath[n][indexes] = added_bath[n][ext_indexes]
 
     return total_bath
 

@@ -1,6 +1,6 @@
 import numpy as np
 
-from pycce.cluster_expansion import cluster_expansion_decorator, cluster_expansion_direct_decorator
+from pycce.cluster_expansion import cluster_expansion_decorator
 from pycce.hamiltonian import projected_hamiltonian
 from .density_matrix import gen_density_matrix
 
@@ -10,7 +10,7 @@ def propagators(timespace, H0, H1, N):
     @param timespace: ndarray
         Time delay values at which to compute propagators
     @param H0: ndarray
-        Hamiltonian projected on alpha qubit state
+        Hamiltonian projected on state qubit state
     @param H1: ndarray
         Hamiltonian projected on beta qubit state
     @param N: int
@@ -59,7 +59,7 @@ def compute_coherence(H0, H1, timespace, N, as_delay=False, states=None, dimensi
     """
     Function to compute cluster coherence function in conventional CCE
     @param H0: ndarray
-        Hamiltonian projected on alpha qubit state
+        Hamiltonian projected on state qubit state
     @param H1: ndarray
         Hamiltonian projected on beta qubit state
     @param timespace: ndarray
@@ -93,17 +93,17 @@ def compute_coherence(H0, H1, timespace, N, as_delay=False, states=None, dimensi
     return coherence_function
 
 
+# @cluster_expansion_decorator
+# def decorated_coherence_function(*arg, **kwarg):
+#     return inner_coherence_function(*arg, **kwarg)
+#
+#
+# @cluster_expansion_direct_decorator
+# def direct_coherence_function(*arg, **kwarg):
+#     return inner_coherence_function(*arg, **kwarg)
+
 @cluster_expansion_decorator
-def decorated_coherence_function(*arg, **kwarg):
-    return inner_coherence_function(*arg, **kwarg)
-
-
-@cluster_expansion_direct_decorator
-def direct_coherence_function(*arg, **kwarg):
-    return inner_coherence_function(*arg, **kwarg)
-
-
-def inner_coherence_function(cluster, allspin, projections_alpha, projections_beta, B, timespace, N,
+def decorated_coherence_function(cluster, allspin, projections_alpha, projections_beta, B, timespace, N,
                              as_delay=False, states=None):
 
     """
@@ -112,9 +112,9 @@ def inner_coherence_function(cluster, allspin, projections_alpha, projections_be
         dict of subclusters included in different CCE order
         of structure {int order: np.array([[i,j],[i,j]])}
     @param allnspin: ndarray
-        array of all atoms
+        array of all bath
     @param projections_alpha: ndarray
-        ndarray containing projections of alpha state [<Sx>, <Sy>, <Sz>]
+        ndarray containing projections of state state [<Sx>, <Sy>, <Sz>]
     @param projections_beta: ndarray
         ndarray containing projections of beta state [<Sx>, <Sy>, <Sz>]
     @param B: ndarray

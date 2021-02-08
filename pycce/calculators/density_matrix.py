@@ -3,7 +3,7 @@ import numpy.ma as ma
 import scipy.linalg
 
 from pycce.bath.array import BathArray
-from pycce.cluster_expansion import cluster_expansion_decorator, cluster_expansion_direct_decorator
+from pycce.cluster_expansion import cluster_expansion_decorator
 from pycce.hamiltonian import total_hamiltonian, expand, eta_hamiltonian
 
 hbar = 1.05457172  # When everything else in rad, kHz, ms, G, A
@@ -190,7 +190,7 @@ def decorated_density_matrix(cluster, allspin, dm0, alpha, beta, B, D, E,
         dict of subclusters included in different CCE order
         of structure {int order: np.array([[i,j],[i,j]])}
     @param allnspin: ndarray
-        array of all atoms
+        array of all bath
     @param ntype: dict
         dict with NSpinType objects inside, each key - name of the isotope
     @param dm0: ndarray
@@ -223,7 +223,7 @@ def decorated_density_matrix(cluster, allspin, dm0, alpha, beta, B, D, E,
         List of nuclear spin states. if len(shape) == 1, contains Sz projections of nuclear spins.
         Otherwise, contains array of initial dms of nuclear spins
     @param allspins: ndarray
-        array of all atoms. Passed twice because one is passed to decorator, another - directly to function
+        array of all bath. Passed twice because one is passed to decorator, another - directly to function
     @param eta: float
         value of eta (see eta_hamiltonian)
     @return: dms
@@ -234,35 +234,6 @@ def decorated_density_matrix(cluster, allspin, dm0, alpha, beta, B, D, E,
     if bath_state is not None:
         others_mask = np.ones(allspin.shape, dtype=bool)
         others_mask[cluster] = False
-        states = bath_state[others_mask]
-    else:
-        states = None
-
-    if zeroth_cluster is None:
-        H, dimensions = total_hamiltonian(BathArray(0), central_spin, B, D, E=E, central_gyro=gyro_e)
-        zeroth_cluster = compute_dm(dm0, dimensions, H, alpha, beta, timespace, pulse_sequence,
-                                    as_delay=as_delay)
-        zeroth_cluster = ma.masked_array(zeroth_cluster, mask=(zeroth_cluster == 0))
-
-    H, dimensions = total_hamiltonian(nspin, central_spin, B, D, E=E, central_gyro=gyro_e)
-    if eta is not None:
-        H += eta_hamiltonian(nspin, alpha, beta, eta)
-    dms = compute_dm(dm0, dimensions, H, alpha, beta, timespace,
-                     pulse_sequence, as_delay=as_delay, states=states) / zeroth_cluster
-
-    return dms
-
-
-@cluster_expansion_direct_decorator
-def cluster_dm_direct_approach(nspin, dm0, alpha, beta, B, D, E,
-                               timespace, pulse_sequence,
-                               gyro_e=-17608.597050,
-                               as_delay=False, zeroth_cluster=None,
-                               bath_state=None, allspins=None,
-                               eta=None):
-    central_spin = (alpha.size - 1) / 2
-    if allspins is not None and bath_state is not None:
-        others_mask = np.isin(allspins, nspin)
         states = bath_state[others_mask]
     else:
         states = None

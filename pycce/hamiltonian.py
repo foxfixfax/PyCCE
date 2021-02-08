@@ -1,5 +1,5 @@
 import numpy as np
-from numba import jit
+
 from .sm import _smc
 from .units import HBAR, ELECTRON_GYRO
 
@@ -27,28 +27,6 @@ def expand(M, i, dim):
 
     return M_expanded
 
-from numba import complex128, int32
-
-@jit(complex128[:,::1](complex128[:, ::1], int32, int32[:]), nopython=True)
-def expand_jit(M, i, dim):
-    """
-    Expand matrix M from it's own dimensions to the total Hilbert space
-    @param M: ndarray
-        Inital matrix
-    @param i: int
-        Index of the spin in dim
-    @param dim: list
-        list of dimensions of all spins present in the cluster
-    @return: ndarray
-        Expanded matrix
-    """
-    dbefore = np.prod(dim[:i])
-    dafter = np.prod(dim[i + 1:])
-
-    M_expanded = np.kron(np.kron(np.eye(dbefore, dtype=np.complex128), M),
-                         np.eye(dafter, dtype=np.complex128))
-    return M_expanded
-
 
 def generate_dimensions(nspin, central_spin=None):
     ntype = nspin.types
@@ -57,6 +35,17 @@ def generate_dimensions(nspin, central_spin=None):
         dimensions += [_smc[central_spin].dim]
     dimensions = np.asarray(dimensions, dtype=np.int32)
     return dimensions
+
+
+def generate_projections(state):
+    spin = (state.size - 1) / 2
+    sm = _smc[spin]
+
+    projections = np.array([state.conj() @ sm.x @ state,
+                            state.conj() @ sm.y @ state,
+                            state.conj() @ sm.z @ state],
+                           dtype=np.complex128)
+    return projections
 
 
 def zeeman(gyro, s, B):
@@ -163,11 +152,11 @@ def projected_hyperfine(hyperfine_tensor, s, projections):
 
 def projected_hamiltonian(nspin, projections_alpha, projections_beta, B):
     """
-    Compute projected hamiltonian on alpha and beta qubit states
+    Compute projected hamiltonian on state and beta qubit states
     @param nspin: BathArray with shape (n,)
         ndarray of bath spins
     @param projections_alpha: np.ndarray with shape (3,)
-        projections of the central spin alpha level [<Sx>, <Sy>, <Sz>]
+        projections of the central spin state level [<Sx>, <Sy>, <Sz>]
     @param projections_beta: np.ndarray with shape (3,)
         projections of the central spin beta level [<Sx>, <Sy>, <Sz>]
     @param B: ndarray with shape (3,)
@@ -302,7 +291,6 @@ def total_hamiltonian(nspin, central_spin, B, D=0, E=0, central_gyro=ELECTRON_GY
     ntype = nspin.types
     dimensions = generate_dimensions(nspin, central_spin=central_spin)
 
-
     nnuclei = nspin.shape[0]
 
     tdim = np.prod(dimensions, dtype=np.int32)
@@ -328,7 +316,7 @@ def total_hamiltonian(nspin, central_spin, B, D=0, E=0, central_gyro=ELECTRON_GY
             H_quad = quadrupole(n['Q'], s)
             H_single = zeeman(ntype[n].gyro, s, B) + H_quad
         else:
-            H_single = zeeman(ntype[n].gyro,s, B)
+            H_single = zeeman(ntype[n].gyro, s, B)
 
         H_HF = hyperfine(n['A'], svec, ivec)
 
@@ -396,7 +384,7 @@ def mf_nucleus(n, g, gyros, s, others, others_state):
     r = np.linalg.norm(pos, axis=1)
     cos_theta = pos[:, 2] / r
 
-    zfield = np.sum(pre / r ** 3 * (1 - cos_theta ** 2) * others_state)
+    zfield = np.sum(pre / r ** 3 * (1 - 3 * cos_theta ** 2) * others_state)
     H_mf = zfield * spin_matrix.z
 
     return H_mf
@@ -436,7 +424,7 @@ def mf_hamiltonian(nspin, B, central_spin, others, others_state, D=0, E=0, centr
     H = np.zeros((tdim, tdim), dtype=np.complex128)
 
     H_electron = self_electron(B, central_spin, D, E, central_gyro) + mf_electron(central_spin, others,
-                                                                                         others_state)
+                                                                                  others_state)
 
     svec = np.array([expand(central_spin_matrix.x, nnuclei, dimensions),
                      expand(central_spin_matrix.y, nnuclei, dimensions),
@@ -489,13 +477,13 @@ def mf_hamiltonian(nspin, B, central_spin, others, others_state, D=0, E=0, centr
 def eta_hamiltonian(nspin, central_spin, alpha, beta, eta):
     """
     EXPERIMENTAL. Compute hamiltonian with eta-term - gradually turn off or turn on the secular interactions for
-    alpha and beta qubit states
+    state and beta qubit states
     @param nspin: ndarray with shape (n,)
         ndarray of bath spins in the given cluster with size n
     @param central_spin: float
         total spin of the central spin
     @param alpha: np.ndarray with shape (2s+1,)
-        alpha state of the qubit
+        state state of the qubit
     @param beta: np.ndarray with shape (2s+1,)
         beta state of the qubit
     @param eta: value of dimensionless parameter eta (from 0 to 1)

@@ -1,15 +1,48 @@
+from collections import MutableMapping
+from itertools import combinations
+
 import numpy as np
 import scipy.sparse
 import scipy.sparse.csgraph
-import time
-from itertools import combinations
 from scipy.sparse import csr_matrix
 
 
-def make_graph(atoms, r_dipole, r_inner=0, max_size=5000):
+class Clusters(MutableMapping):
+    """
+    NOT IMPLEMENTED YET Specific Class for storing the clusters objects
+    """
+
+    def __init__(self, ):
+        self._data = {}
+
+    def __getitem__(self, key):
+        return self._data[key]
+
+    def __delitem__(self, key):
+        del self._data[key]
+
+    def __setitem__(self, key, value):
+        self._data[key] = value
+
+    def __iter__(self):
+        return iter(self._data)
+
+    def __len__(self):
+        return len(self._data)
+
+    def __repr__(self):
+        return f"{type(self).__name__}(" + " ".join(str(x) for x in self.keys()) + ")"
+
+    def keys(self):
+        return self._data.keys()
+
+
+def make_graph(bath, r_dipole, r_inner=0, ignore=None, max_size=5000):
     """
     Make a connectivity matrix for bath spins
-    @param atoms: ndarray
+    @param max_size: int
+        maximum size of the bath before less optimal (but less memory intensive) approach is used
+    @param bath: ndarray
     ndarray of bath spins (should contain 'xyz' in dtype)
     @param r_dipole: float
         maximum connectivity distance
@@ -18,18 +51,23 @@ def make_graph(atoms, r_dipole, r_inner=0, max_size=5000):
     @return: csr_matrix
         connectivity matrix
     """
-    if atoms.size < max_size:
-        dist_matrix = np.linalg.norm(atoms['xyz'][:, np.newaxis, :] - atoms['xyz'][np.newaxis, :, :], axis=-1)
+    if bath.size < max_size:
+        dist_matrix = np.linalg.norm(bath['xyz'][:, np.newaxis, :] - bath['xyz'][np.newaxis, :, :], axis=-1)
         atoms_within = np.logical_and(dist_matrix < r_dipole, dist_matrix > r_inner)
+
     else:
-        atoms_within = np.zeros((atoms.size, atoms.size), dtype=bool)
-        for i, a in enumerate(atoms):
-            dist = np.linalg.norm(atoms['xyz'][i:] - a['xyz'], axis=-1)
+        atoms_within = np.zeros((bath.size, bath.size), dtype=bool)
+        for i, a in enumerate(bath):
+            dist = np.linalg.norm(bath['xyz'][i:] - a['xyz'], axis=-1)
             atoms_within[i, i:] = (dist < r_dipole) & (dist > r_inner)
-    counter = np.count_nonzero(atoms_within)
-    try:
-        print('Average number of neighbours is {:.1f}'.format(counter / atoms.shape[0]))
-    except ZeroDivisionError:
+    if ignore is not None:
+        if isinstance(ignore, (str, np.str)):
+            atoms_within = atoms_within & (bath['N'] != ignore)[np.newaxis, :]
+        else:
+            for n in ignore:
+                atoms_within = atoms_within & (bath['N'] != n)[np.newaxis, :]
+
+    if bath.shape[0] == 0:
         print('No spins, no neighbours.')
 
     # Generate sparse matrix contain connectivity
@@ -67,7 +105,7 @@ def find_subclusters(maximum_order, graph, labels, n_components, strong=False):
     clusters = {}
     for k in range(1, maximum_order + 1):
         clusters[k] = []
-    print('Number of disjointed clusters is {}'.format(n_components))
+    # print('Number of disjointed clusters is {}'.format(n_components))
     for component in range(n_components):
         vert_pos = (labels == component)
         vertices = np.nonzero(vert_pos)[0]
@@ -108,9 +146,9 @@ def find_subclusters(maximum_order, graph, labels, n_components, strong=False):
                     # List of cluster of size 4
                     ltriplets = []
 
-                    # For ith triplet check i+1:N pairs, if one of them contains
+                    # For ith triplet direct i+1:N pairs, if one of them contains
                     # one and only one element of jth pair, they form a cluster of 4
-                    # There is no need to check the last one, as it would be included
+                    # There is no need to direct the last one, as it would be included
                     # into quartet already if it were to be a part of one
                     for i in range(subclusters[order - 1].shape[0] - 1):
 
@@ -195,6 +233,32 @@ def find_subclusters(maximum_order, graph, labels, n_components, strong=False):
             clusters.pop(o)
 
     return clusters
+
+
+def generate_clusters(bath, r_dipole, order, r_inner=0, ignore=None):
+    graph = make_graph(bath, r_dipole, r_inner=r_inner, ignore=ignore, max_size=5000)
+    n_components, labels = connected_components(csgraph=graph, directed=False,
+                                                return_labels=True)
+
+    clusters = find_subclusters(order, graph, labels, n_components, strong=False)
+
+    return clusters
+
+
+def combine_clusters(cs1, cs2):
+    keys_1 = list(cs1.keys())
+    keys_2 = list(cs2.keys())
+    keys = {*keys_1, *keys_2}
+    cs_combined = {}
+    for k in keys:
+        if k in keys_1 and k in keys_2:
+            indexes = np.concatenate((cs1[k], cs2[k]))
+            cs_combined[k] = np.unique(np.sort(indexes, axis=1), axis=0)
+        elif k in keys_1:
+            cs_combined[k] = cs1[k]
+        elif k in keys_2:
+            cs_combined[k] = cs2[k]
+    return cs_combined
 
 
 def expand_clusters(sc):

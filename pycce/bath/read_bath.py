@@ -14,7 +14,7 @@ from ..units import MHZ_TO_RADKHZ, HBAR, ELECTRON_GYRO
 
 def read_xyz(nspin, r_bath: float = None, center: np.array = None, skiprows: int = 2, spin_types=None):
     """
-    read positions of atoms within r_bath
+    read positions of bath within r_bath
     @param nspin: ndarray or str
         either np.ndarray with dtype [('N', np.unicode_, 16), ('xyz', np.float64, (3,))], which
         contains isotope type and position or name of the file in which they are stored
@@ -25,7 +25,7 @@ def read_xyz(nspin, r_bath: float = None, center: np.array = None, skiprows: int
     @param skiprows:
         used when nspin is filename. Number of rows to skip in the file
     @return: ndarray
-        array with positions and names of the atoms with dtype [('N', np.unicode_, 16), ('xyz', np.float64, (3,))]
+        array with positions and names of the bath with dtype [('N', np.unicode_, 16), ('xyz', np.float64, (3,))]
     """
 
     if center is None:
@@ -40,11 +40,11 @@ def read_xyz(nspin, r_bath: float = None, center: np.array = None, skiprows: int
 
     elif isinstance(nspin, np.ndarray):
         dataset = nspin
-        atoms = BathArray(array=dataset, spin_types=spin_types)
+        atoms = BathArray(array=dataset, types=spin_types)
     else:
         dt_read = np.dtype([('N', np.unicode_, 16), ('xyz', np.float64, (3,))])
         dataset = np.loadtxt(nspin, dtype=dt_read, skiprows=skiprows)
-        atoms = BathArray(array=dataset, spin_types=spin_types)
+        atoms = BathArray(array=dataset, types=spin_types)
     if r_bath is not None:
         mask = np.linalg.norm(atoms['xyz'] - np.asarray(center), axis=-1) < r_bath
         atoms = atoms[mask]
@@ -56,25 +56,25 @@ def gen_hyperfine(atoms: np.ndarray, ntype: dict, center: np.ndarray = None,
                   gyro_e: float = ELECTRON_GYRO, external_atoms: np.ndarray = None,
                   error_range: float = 0.2, cube: Cube = None) -> np.ndarray:
     """
-    Generate hyperfine values for array of atoms
+    Generate hyperfine values for array of bath
 
     @param atoms: ndarray with shape (natoms,)
         dtype should include [('N', np.unicode_, 16), ('xyz', np.float64, (3,))] containing the
         coordinates (xyz) of the nuclear isotope and it's type (N)
     @param ntype: dict
-        contains instances of SpinType class with nuclear types, present in the atoms array
+        contains instances of SpinType class with nuclear types, present in the bath array
     @param center: ndarray with shape (3,)
         position of central spin
     @param gyro_e: float
         gyromagnetic ratio of the qubit spin (rad/kHz/G)
     @param external_atoms: ndarray
-        contains atoms with predefined hyperfine values and EFG
+        contains bath with predefined hyperfine values and EFG
     @param error_range: float
-        error range within which the coordinates of atoms in external_atoms are considered the same
+        error range within which the coordinates of bath in external_atoms are considered the same
         as in the atoms_inside array
     @param cube:
     @return: BathArray
-        array of atoms with dtype [('N', np.unicode_, 16),
+        array of bath with dtype [('N', np.unicode_, 16),
                                    ('xyz', np.float64, (3,)),
                                    ('A', np.float64, (3, 3))]
         contains isotope type N, coordinates xyz, hyperfine tensor A
@@ -121,7 +121,7 @@ def gen_hyperfine(atoms: np.ndarray, ntype: dict, center: np.ndarray = None,
             # delI2 = np.sum(np.diag(n['Q'])) * np.eye(I[s].x.shape[0]) * s * (s + 1)
 
         newcounter = ext_indexes.size
-        print('Number of atoms with external HF: {}'.format(newcounter))
+        print('Number of bath with external HF: {}'.format(newcounter))
 
     if cube is not None:
         where = np.ones(atoms.shape, dtype=bool) if external_atoms is None else ~criteria
@@ -140,7 +140,7 @@ def read_external(coord_f: str, hf_f: str = None, cont_f: str = None,
     Exists for backwards compatibility with Meng Code. To be removed in the release version
 
     @param coord_f: str
-        name of the file containing coord of atoms with external hyperfine
+        name of the file containing coord of bath with external hyperfine
     @param hf_f: str
         external dipolar-dipolar
     @param cont_f: str
@@ -152,14 +152,13 @@ def read_external(coord_f: str, hf_f: str = None, cont_f: str = None,
     @param center: ndarray with shape (3,)
         position of the central spin
     @return: ndarray
-        ndarray with atoms
+        ndarray with bath
     """
     dt_read = np.dtype([('N', np.unicode_, 16), ('xyz', np.float64, (3,))])
     dataset = np.loadtxt(coord_f, dtype=dt_read, skiprows=skiprows)
 
     dt_out = np.dtype([('N', np.unicode_, 16),
                        ('xyz', np.float64, (3,)),
-                       ('contact', np.float64),
                        ('A', np.float64, (3, 3))])
 
     atoms = np.zeros(dataset.shape, dtype=dt_out)
@@ -187,7 +186,7 @@ def read_external(coord_f: str, hf_f: str = None, cont_f: str = None,
 
             for a in atoms:
                 cl = next(contact)
-                a['contact'] = np.float64(cl.split()[-1]) * MHZ_TO_RADKHZ
+                a['A'] += np.eye(3) * np.float64(cl.split()[-1]) * MHZ_TO_RADKHZ
 
     if erbath is not None and center is not None:
         atoms = atoms[np.linalg.norm(atoms['xyz'] - center, axis=-1) < erbath]

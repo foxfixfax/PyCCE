@@ -33,7 +33,7 @@ def find_line(file, keyw):
 
 def read_qe(coord_f, hf_f=None, efg_f=None, s=1, pw_type=None, spin_types=None, which_isotopes=None,
             center=None, rotation_matrix=None, rm_style='col'):
-    """from quantum espresso output of pw and gipaw read atoms
+    """from quantum espresso output of pw and gipaw read bath
        into np.ndarray of dtype [('N', np.unicode_, 16), ('xyz', np.float64, (3,)), ('contact', np.float64), \
        ('A', np.float64, (3, 3))])
        :param coord_f: pw input or output file. if doesn't have proper extension, pw_type should indicate the type
@@ -122,7 +122,7 @@ def read_qe(coord_f, hf_f=None, efg_f=None, s=1, pw_type=None, spin_types=None, 
 
     atoms = BathArray(array=coordinates, spin_names=spin_names,
                       hyperfines=dipolars, quadrupoles=gradients,
-                      spin_types=spin_types)
+                      types=spin_types)
     if efg_f is not None:
         pref = atoms.types[atoms].q / (2 * s * (2 * s - 1))
         atoms['Q'] *= pref[:, np.newaxis, np.newaxis]
@@ -186,7 +186,7 @@ def read_qe(coord_f, hf_f=None, efg_f=None, s=1, pw_type=None, spin_types=None, 
 def transform(atoms, center=None, cell=None, rotation_matrix=None, style='col', inplace=True):
     """
 
-    @param atoms: BathArray of atoms to be rotated
+    @param atoms: BathArray of bath to be rotated
     @param center:
     @param cell:
     @param rotation_matrix:
@@ -195,7 +195,7 @@ def transform(atoms, center=None, cell=None, rotation_matrix=None, style='col', 
     @return:
     """
     """
-    :param atoms: array of nuclei for which the transformation will be applied. Coordinates should be stored in cell
+    :param bath: array of nuclei for which the transformation will be applied. Coordinates should be stored in cell
     coordinates,
     :param center: position of center in cell coordinates
     :param cell: cell vectors in cartesian coordinates

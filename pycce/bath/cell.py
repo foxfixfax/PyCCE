@@ -21,19 +21,19 @@ class BathCell:
         @param c: float
             c parameter of the primitive cell
         @param alpha: float
-            alpha angle of the primitive cell
+            state angle of the primitive cell
         @param beta: float
             beta angle of the primitive cell
         @param gamma: float
             gamma angle of the primitive cell
         @param units: str
-            units of the alpha, beta, gamma angles ['rad', 'deg']
+            units of the state, beta, gamma angles ['rad', 'deg']
 
     """
     _conv = {'rad': 1, 'deg': 2 * np.pi / 360}
     _coord_types = ['angstrom', 'cell']
 
-    def __init__(self, a=1, b=1, c=1,
+    def __init__(self, a=1, b=None, c=None,
                  alpha=None, beta=None, gamma=None,
                  units='rad'):
 
@@ -55,8 +55,11 @@ class BathCell:
             gamma = np.pi / 2
         else:
             gamma = gamma * self._conv[units]
-
-        # self.alpha, self.beta, self.gamma = alpha, beta, gamma
+        if b is None:
+            b = a
+        if c is None:
+            c = a
+        # self.state, self.beta, self.gamma = state, beta, gamma
         # self.a, self.b, self.c = a, b, c
 
         inbr = (1 + 2 * np.cos(alpha) * np.cos(beta) * np.cos(gamma) -
@@ -134,7 +137,7 @@ class BathCell:
 
     def add_atoms(self, *args, type='cell'):
         """
-        add coordinates of atoms to the primitive cell
+        add coordinates of bath to the primitive cell
         @param args: list
             list of tuples, each containing the type of atom (str),
             and the xyz coordinates (float, float, float):
@@ -188,9 +191,9 @@ class BathCell:
             approximate linear size of the supercell. The generated supercell will have
             minimal distance betweel edges larger than this parameter
         @param add: list
-            which atoms to add in the defect (see pyCCE.bath.defect for details)
+            which bath to add in the defect (see pyCCE.bath.defect for details)
         @param remove: list
-            which atoms to remove in the defect (see pyCCE.bath.defect for details)
+            which bath to remove in the defect (see pyCCE.bath.defect for details)
         @return: ndarray
         """
         axb = np.cross(self.cell[:, 0], self.cell[:, 1])
@@ -249,7 +252,7 @@ class BathCell:
                 atoms.append(subatoms)
 
         atoms = np.concatenate(atoms)
-        # atoms = atoms[np.linalg.norm(atoms['xyz'], axis=1) <= size]
+        # bath = bath[np.linalg.norm(bath['xyz'], axis=1) <= size]
 
         defective_atoms = defect(self.cell, atoms, add=add, remove=remove)
         bath = BathArray(array=defective_atoms)
@@ -299,13 +302,13 @@ def defect(cell, atoms, add=None, remove=None):
     @param cell: ndarray with shape (3, 3)
         coordinates of the elementary cell
     @param atoms: ndarray
-        atoms in the supercell
+        bath in the supercell
     @param add: list
         list of tuples containing common_isotopes to add as a defect. Each tuple contains name of the new isotope
         and its coordinates in the cell basis:
         (isotope_name, x_cell, y_cell, z_cell)
     @param remove:
-        list of tuples containing atoms to remove in the defect. Each tuple contains name of the atom to remove
+        list of tuples containing bath to remove in the defect. Each tuple contains name of the atom to remove
         and its coordinates in the cell basis:
         (atom_name, x_cell, y_cell, z_cell)
     @return: ndarray
@@ -333,14 +336,14 @@ def defect(cell, atoms, add=None, remove=None):
 
             position = cell @ position_cc
             # print(name, position)
-            # print(np.core.defchararray.find(atoms['N'], name) != -1)
+            # print(np.core.defchararray.find(bath['N'], name) != -1)
             offsets = np.linalg.norm((atoms['xyz'] - position), axis=1)
             # print(offsets <= err_range)
             where += np.logical_and(np.core.defchararray.find(atoms['N'], name) != -1,
                                     offsets <= err_range)
     if np.count_nonzero(where):
-        print('I see {} removals'.format(np.count_nonzero(where)))
-        print('Removing: \n', atoms[where])
+        # print('I see {} removals'.format(np.count_nonzero(where)))
+        # print('Removing: \n', bath[where])
 
         defective_atoms = defective_atoms[~where]
 
@@ -352,7 +355,7 @@ def defect(cell, atoms, add=None, remove=None):
 
         newentry = np.array((name, position), dtype=dt)
 
-        print('Adding: \n', newentry)
+        # print('Adding: \n', newentry)
         defective_atoms = np.append(defective_atoms, newentry)
 
     elif add is not None:
@@ -368,7 +371,7 @@ def defect(cell, atoms, add=None, remove=None):
 
             newlist.append(newentry)
 
-        print('Adding: \n', np.asarray(newlist))
+        # print('Adding: \n', np.asarray(newlist))
 
         defective_atoms = np.append(defective_atoms, newlist)
 

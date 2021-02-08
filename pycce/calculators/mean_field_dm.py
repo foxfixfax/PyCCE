@@ -57,7 +57,7 @@ def mean_field_density_matrix(cluster, allspin, dm0, alpha, beta, B, D, E,
         dict of subclusters included in different CCE order
         of structure {int order: np.array([[i,j],[i,j]])}
     @param allnspin: ndarray
-        array of all atoms
+        array of all bath
     @param ntype: dict
         dict with NSpinType objects inside, each key - name of the isotope
     @param dm0: ndarray
@@ -79,7 +79,7 @@ def mean_field_density_matrix(cluster, allspin, dm0, alpha, beta, B, D, E,
         each tuple contains two entries: first: axis the rotation is about; second: angle of rotation.
         E.g. for Hahn-Echo [('x', np.pi/2)]. For now only pulses with same delay are supported
     @param allspins: ndarray
-        array of all atoms. Passed twice because one is passed to decorator, another - directly to function
+        array of all bath spins.
     @param bath_state: list
         List of nuclear spin states, contains Sz projections of nuclear spins.
     @param gyro_e: float
