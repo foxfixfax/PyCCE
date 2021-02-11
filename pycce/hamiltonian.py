@@ -85,7 +85,9 @@ def quadrupole(quadrupole_tensor, s):
     v_ivec = np.einsum('ij,jkl->ikl', quadrupole_tensor, iv, dtype=np.complex128)
     iqi = np.einsum('lij,ljk->ik', iv, v_ivec, dtype=np.complex128)
     # iqi = np.einsum('lij,lp,pjk->ik', iv, quadrupole_tensor, iv, dtype=np.complex128)
-
+    diag = np.sum(np.diag(quadrupole_tensor))
+    if diag > 0:
+        iqi -= diag * np.eye(spin_matrix.x.shape[0]) * s * (s + 1) / 3
     # delI2 = np.sum(np.diag(quadrupole_tensor)) * np.eye(spin_matrix.x.shape[0]) * s * (s + 1)
 
     H_quad = iqi  # - delI2 / 3
