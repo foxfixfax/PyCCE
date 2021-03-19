@@ -183,7 +183,8 @@ def decorated_density_matrix(cluster, allspin, dm0, alpha, beta, B, D, E,
                              timespace, pulse_sequence,
                              gyro_e=-17608.597050,
                              as_delay=False, zeroth_cluster=None,
-                             bath_state=None, eta=None):
+                             bath_state=None, eta=None,
+                             imap=None, map_error=None):
     """
     Decorated function to compute electron density matrix with gCCE (without mean field)
     @param subclusters: dict
@@ -230,6 +231,10 @@ def decorated_density_matrix(cluster, allspin, dm0, alpha, beta, B, D, E,
         array of central spin dm for each time point
     """
     nspin = allspin[cluster]
+
+    if imap is not None:
+        imap = imap.subspace(cluster)
+
     central_spin = (alpha.size - 1) / 2
     if bath_state is not None:
         others_mask = np.ones(allspin.shape, dtype=bool)
@@ -244,9 +249,11 @@ def decorated_density_matrix(cluster, allspin, dm0, alpha, beta, B, D, E,
                                     as_delay=as_delay)
         zeroth_cluster = ma.masked_array(zeroth_cluster, mask=(zeroth_cluster == 0))
 
-    H, dimensions = total_hamiltonian(nspin, central_spin, B, D, E=E, central_gyro=gyro_e)
+    H, dimensions = total_hamiltonian(nspin, central_spin, B, D, E=E,
+                                      central_gyro=gyro_e, imap=imap, map_error=map_error)
     if eta is not None:
         H += eta_hamiltonian(nspin, alpha, beta, eta)
+
     dms = compute_dm(dm0, dimensions, H, alpha, beta, timespace,
                      pulse_sequence, as_delay=as_delay, states=states) / zeroth_cluster
 

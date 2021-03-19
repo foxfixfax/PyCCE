@@ -194,14 +194,12 @@ def optimized_approach(function, subclusters, allspin, *arg, parallel=False,
             result = contribution_operator(result, 0)
 
         root_result = np.zeros(result_shape, dtype=np.complex128)
-        comm.Reduce(result, root_result, mpiop[result_operator.__name__], root=0)
+        comm.Allreduce(result, root_result, mpiop[result_operator.__name__])
 
     else:
         root_result = result
-    if rank == 0:
-        return root_result
-    else:
-        return
+
+    return root_result
 
 
 def direct_approach(function, subclusters, allspin, *arg, parallel=False,

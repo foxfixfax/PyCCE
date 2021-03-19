@@ -6,8 +6,7 @@ from pycce.hamiltonian import expand, zeeman, projected_hyperfine, mf_hamiltonia
 from pycce.hamiltonian import total_hamiltonian, dipole_dipole, quadrupole, generate_dimensions
 from pycce.sm import _smc
 
-from .density_matrix import propagator_dm
-from .mean_field_dm import generate_dm0
+from .density_matrix import propagator_dm, generate_dm0
 
 
 def correlation_it_j0(operator_i, operator_j, dm0_expanded, U):

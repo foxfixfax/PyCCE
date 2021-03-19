@@ -19,8 +19,8 @@ def expand(M, i, dim):
     @return: ndarray
         Expanded matrix
     """
-    dbefore = np.prod(dim[:i])
-    dafter = np.prod(dim[i + 1:])
+    dbefore = np.asarray(dim[:i]).prod()
+    dafter = np.asarray(dim[i + 1:]).prod()
 
     M_expanded = np.kron(np.kron(np.eye(dbefore, dtype=np.complex128), M),
                          np.eye(dafter, dtype=np.complex128))
@@ -53,8 +53,8 @@ def zeeman(gyro, s, B):
     Zeeman interactions of the n spin
     @param gyro: float
         gyromagnetic ratio of the n spin
-    @param spin_matrix: SpinMatrix
-        spin matrix object for n spin
+    @param s: float
+        total spin of n spin
     @param B: array_like
         magnetic field as (Bx, By, Bz)
     @return: ndarray of shape (2s+1, 2s+1)
@@ -80,20 +80,48 @@ def quadrupole(quadrupole_tensor, s):
     """
     spin_matrix = _smc[s]
     iv = np.asarray([spin_matrix.x, spin_matrix.y, spin_matrix.z])
+
     # v_ivec = np.einsum('lp,lij->ijp', quadrupole_tensor, iv);
     # iqi = np.einsum('ijp,pjk->ik', v_ivec, iv)
+    # iqi = np.einsum('lij,lp,pjk->ik', iv, quadrupole_tensor, iv, dtype=np.complex128)
+
     v_ivec = np.einsum('ij,jkl->ikl', quadrupole_tensor, iv, dtype=np.complex128)
     iqi = np.einsum('lij,ljk->ik', iv, v_ivec, dtype=np.complex128)
-    # iqi = np.einsum('lij,lp,pjk->ik', iv, quadrupole_tensor, iv, dtype=np.complex128)
     diag = np.sum(np.diag(quadrupole_tensor))
     if diag > 0:
         iqi -= diag * np.eye(spin_matrix.x.shape[0]) * s * (s + 1) / 3
+
     # delI2 = np.sum(np.diag(quadrupole_tensor)) * np.eye(spin_matrix.x.shape[0]) * s * (s + 1)
 
     H_quad = iqi  # - delI2 / 3
 
     return H_quad
 
+
+def single(s, gyro, B, qtensor):
+    """
+    Single spin interactions
+    @param s: float
+        total spin of n spin
+    @param gyro: float
+        gyromagnetic ratio of the n spin
+    @param B: array_like
+        magnetic field as (Bx, By, Bz)
+    @param qtensor: np.array of shape (3,3)
+        quadrupole interaction of n spin
+    @param s: float
+        total spin of n spin
+    @param spin_matrix: SpinMatrix
+        spin matrix object for n spin
+    @return: ndarray of shape (2s+1, 2s+1)
+    """
+    if s > 1 / 2:
+        hquad = quadrupole(qtensor, s)
+        hsingle = zeeman(gyro, s, B) + hquad
+    else:
+        hsingle = zeeman(gyro, s, B)
+
+    return hsingle
 
 def dipole_dipole(coord_1, coord_2, g1, g2, ivec_1, ivec_2):
     """
@@ -131,13 +159,65 @@ def dipole_dipole(coord_1, coord_2, g1, g2, ivec_1, ivec_2):
     return H_DD
 
 
+def bath_interactions(nspin, ivectors, imap=None, raise_error=False):
+    """
+    Compute interactions between bath spins
+    @param nspin: BathArray
+        array of bath spins
+    @param ivectors: array-like
+        array of expanded spin vectors
+    @param imap: InteractionMap
+        optional. dictionary-like object containing tensors for all bath spin pairs
+    @param raise_error: bool
+        optional. If true and imap is not None, raises error when cannot find pair of nuclear spins in imap. Default
+        False
+    @return: ndarray of shape (d, d)
+    bath interactions of bath spins in the cluster
+    """
+    nnuclei = nspin.shape[0]
+    ntype = nspin.types
+
+    dd = 0
+    if imap is None:
+        for i in range(nnuclei):
+            for j in range(i + 1, nnuclei):
+                n1 = nspin[i]
+                n2 = nspin[j]
+
+                ivec_1 = ivectors[i]
+                ivec_2 = ivectors[j]
+
+                dd += dipole_dipole(n1['xyz'], n2['xyz'], ntype[n1].gyro, ntype[n2].gyro, ivec_1, ivec_2)
+    else:
+        for i in range(nnuclei):
+            for j in range(i + 1, nnuclei):
+                n1 = nspin[i]
+                n2 = nspin[j]
+
+                ivec_1 = ivectors[i]
+                ivec_2 = ivectors[j]
+
+                try:
+                    tensor = imap[i, j]
+                    tensor_ivec = np.einsum('ij,jkl->ikl', tensor, ivec_2,
+                                       dtype=np.complex128)  # p_ivec = Ptensor @ Ivector
+                    dd += np.einsum('lij,ljk->ik', ivec_1, tensor_ivec, dtype=np.complex128)
+                except KeyError:
+                    if raise_error:
+                        raise KeyError("InteractionMap doesn't contain all spin pairs."
+                                       " You might try setting raise_error=False instead")
+                    else:
+                        dd += dipole_dipole(n1['xyz'], n2['xyz'], ntype[n1].gyro, ntype[n2].gyro, ivec_1, ivec_2)
+    return dd
+
+
 def projected_hyperfine(hyperfine_tensor, s, projections):
     """
     Compute projected hyperfine Hamiltonian for one state of the central spin
     @param hyperfine_tensor: np.array of shape (3,3)
         hyperfine interactions of n spin
-    @param spin_matrix: SpinMatrix
-        spin matrix object for n spin
+    @param s: float
+        total spin of n spin
     @param projections: np.ndarray of shape (3,)
         projections of the central spin qubit levels [<Sx>, <Sy>, <Sz>]
     @return: ndarray of shape (d, d)
@@ -152,7 +232,7 @@ def projected_hyperfine(hyperfine_tensor, s, projections):
     return H_Hyperfine
 
 
-def projected_hamiltonian(nspin, projections_alpha, projections_beta, B):
+def projected_hamiltonian(nspin, projections_alpha, projections_beta, B, imap=None, map_error=False):
     """
     Compute projected hamiltonian on state and beta qubit states
     @param nspin: BathArray with shape (n,)
@@ -163,11 +243,15 @@ def projected_hamiltonian(nspin, projections_alpha, projections_beta, B):
         projections of the central spin beta level [<Sx>, <Sy>, <Sz>]
     @param B: ndarray with shape (3,)
         magnetic field of format (Bx, By, Bz)
+    @param imap: InteractionMap
+        optional. dictionary-like object containing tensors for all bath spin pairs
+    @param map_error: bool
+        optional. If true and imap is not None, raises error when cannot find pair of nuclear spins in imap. Default
+        False
     @return: H_alpha, H_beta
     """
     ntype = nspin.types
     dimensions = generate_dimensions(nspin, central_spin=None)
-    nnuclei = nspin.shape[0]
 
     tdim = np.prod(dimensions, dtype=np.int32)
 
@@ -179,11 +263,7 @@ def projected_hamiltonian(nspin, projections_alpha, projections_beta, B):
     for j, n in enumerate(nspin):
         s = ntype[n].s
 
-        if s > 1 / 2:
-            H_quad = quadrupole(n['Q'], s)
-            H_single = zeeman(ntype[n].gyro, s, B) + H_quad
-        else:
-            H_single = zeeman(ntype[n].gyro, s, B)
+        H_single = single(s, ntype[n].gyro, B, n['Q'])
 
         H_HF_alpha = projected_hyperfine(n['A'], s, projections_alpha)
         H_HF_beta = projected_hyperfine(n['A'], s, projections_beta)
@@ -201,18 +281,10 @@ def projected_hamiltonian(nspin, projections_alpha, projections_beta, B):
 
         ivectors.append(ivec)
 
-    for i in range(nnuclei):
-        for j in range(i + 1, nnuclei):
-            n1 = nspin[i]
-            n2 = nspin[j]
+    H_DD = bath_interactions(nspin, ivectors, imap=imap, raise_error=map_error)
 
-            ivec_1 = ivectors[i]
-            ivec_2 = ivectors[j]
-
-            H_DD = dipole_dipole(n1['xyz'], n2['xyz'], ntype[n1].gyro, ntype[n2].gyro, ivec_1, ivec_2)
-
-            H_alpha += H_DD
-            H_beta += H_DD
+    H_alpha += H_DD
+    H_beta += H_DD
 
     return H_alpha, H_beta, dimensions
 
@@ -244,7 +316,7 @@ def self_electron(B, s, D=0, E=0, gyro=ELECTRON_GYRO):
     @param spin_matrix: SpinMatrix
         SpinMatrix of the central spin
     @param gyro: float
-        gyromagnetic ratio (in rad/(msec*Gauss)) of the central spin
+        gyromagnetic ratio (in rad/(ms*Gauss)) of the central spin
     @param D: float or ndarray with shape (3,3)
         D parameter in central spin ZFS OR total ZFS tensor
     @param E: float
@@ -268,7 +340,8 @@ def self_electron(B, s, D=0, E=0, gyro=ELECTRON_GYRO):
     return H1 + H0
 
 
-def total_hamiltonian(nspin, central_spin, B, D=0, E=0, central_gyro=ELECTRON_GYRO):
+def total_hamiltonian(nspin, central_spin, B, D=0, E=0, central_gyro=ELECTRON_GYRO,
+                      imap=None, map_error=None):
     """
     Total hamiltonian for cluster including central spin
     @param nspin: ndarray with shape (n,)
@@ -282,7 +355,12 @@ def total_hamiltonian(nspin, central_spin, B, D=0, E=0, central_gyro=ELECTRON_GY
     @param E: float
         E parameter in central spin ZFS
     @param central_gyro: float
-        gyromagnetic ratio (in rad/(msec*Gauss)) of the central spin
+        gyromagnetic ratio (in rad/(ms*Gauss)) of the central spin
+    @param imap: InteractionMap
+        optional. dictionary-like object containing tensors for all bath spin pairs
+    @param map_error: bool
+        optional. If true and imap is not None, raises error when cannot find pair of nuclear spins in imap. Default
+        False
     @return: H, dimensions
         H: ndarray with shape (prod(dimensions), prod(dimensions))
         dimensions: list of dimensions for each spin, last entry - dimensions of central spin
@@ -299,6 +377,7 @@ def total_hamiltonian(nspin, central_spin, B, D=0, E=0, central_gyro=ELECTRON_GY
     H = np.zeros((tdim, tdim), dtype=np.complex128)
 
     H_electron = self_electron(B, central_spin, D, E, central_gyro)
+
     svec = np.array([expand(central_spin_matrix.x, nnuclei, dimensions),
                      expand(central_spin_matrix.y, nnuclei, dimensions),
                      expand(central_spin_matrix.z, nnuclei, dimensions)],
@@ -314,29 +393,17 @@ def total_hamiltonian(nspin, central_spin, B, D=0, E=0, central_gyro=ELECTRON_GY
                          expand(_smc[s].y, j, dimensions),
                          expand(_smc[s].z, j, dimensions)],
                         dtype=np.complex128)
-        if s > 1 / 2:
-            H_quad = quadrupole(n['Q'], s)
-            H_single = zeeman(ntype[n].gyro, s, B) + H_quad
-        else:
-            H_single = zeeman(ntype[n].gyro, s, B)
 
+        H_single = single(s, ntype[n].gyro, B, n['Q'])
         H_HF = hyperfine(n['A'], svec, ivec)
 
         H += expand(H_single, j, dimensions) + H_HF
 
         ivectors.append(ivec)
 
-    for i in range(nnuclei):
-        for j in range(i + 1, nnuclei):
-            n1 = nspin[i]
-            n2 = nspin[j]
+    H_DD = bath_interactions(nspin, ivectors, imap=imap, raise_error=map_error)
 
-            ivec_1 = ivectors[i]
-            ivec_2 = ivectors[j]
-
-            H_DD = dipole_dipole(n1['xyz'], n2['xyz'], ntype[n1].gyro, ntype[n2].gyro, ivec_1, ivec_2)
-
-            H += H_DD
+    H += H_DD
 
     return H, dimensions
 
@@ -362,7 +429,7 @@ def mf_electron(s, others, others_state):
 
     return H_mf
 
-
+#TODO include imap to mean field stuff
 def mf_nucleus(n, g, gyros, s, others, others_state):
     """
     compute mean field effect on the bath spin n from all other bath spins
@@ -392,7 +459,8 @@ def mf_nucleus(n, g, gyros, s, others, others_state):
     return H_mf
 
 
-def mf_hamiltonian(nspin, B, central_spin, others, others_state, D=0, E=0, central_gyro=ELECTRON_GYRO):
+def mf_hamiltonian(nspin, B, central_spin, others, others_state, D=0, E=0, central_gyro=ELECTRON_GYRO,
+                   imap=None, map_error=False):
     """
     compute total Hamiltonian for the given cluster including mean field effect of all nuclei
     outside of the given cluster
@@ -411,7 +479,12 @@ def mf_hamiltonian(nspin, B, central_spin, others, others_state, D=0, E=0, centr
     @param E: float
         E parameter in central spin ZFS
     @param central_gyro: float
-        gyromagnetic ratio (in rad/(msec*Gauss)) of the central spin    @return:
+        gyromagnetic ratio (in rad/(msec*Gauss)) of the central spin
+    @param imap: InteractionMap
+        optional. dictionary-like object containing tensors for all bath spin pairs
+    @param map_error: bool
+        optional. If true and imap is not None, raises error when cannot find pair of nuclear spins in imap. Default
+        False
     @return: H, dimensions
         H: ndarray with shape (prod(dimensions), prod(dimensions)) hamiltonian
         dimensions: list of dimensions for each spin, last entry - dimensions of central spin
@@ -461,17 +534,8 @@ def mf_hamiltonian(nspin, B, central_spin, others, others_state, D=0, E=0, centr
 
         ivectors.append(ivec)
 
-    for i in range(nnuclei):
-        for j in range(i + 1, nnuclei):
-            n1 = nspin[i]
-            n2 = nspin[j]
-
-            ivec_1 = ivectors[i]
-            ivec_2 = ivectors[j]
-
-            H_DD = dipole_dipole(n1['xyz'], n2['xyz'], ntype[n1].gyro, ntype[n2].gyro, ivec_1, ivec_2)
-
-            H += H_DD
+    H_DD = bath_interactions(nspin, ivectors, imap=imap, raise_error=map_error)
+    H += H_DD
 
     return H, dimensions
 

@@ -1,8 +1,8 @@
 import numpy as np
 import warnings
 
-from ..units import MHZ_TO_RADKHZ, HARTREE_TO_MHZ, M_TO_BOHR, BOHR_TO_ANGSTROM
-from .array import BathArray
+from pycce.units import MHZ_TO_RADKHZ, HARTREE_TO_MHZ, M_TO_BOHR, BOHR_TO_ANGSTROM
+from pycce.bath.array import BathArray
 FLOAT_ERROR_RANGE = 1e-6
 BARN_TO_BOHR2 = M_TO_BOHR ** 2 * 1E-28
 EFG_CONVERSION = BARN_TO_BOHR2 * HARTREE_TO_MHZ * MHZ_TO_RADKHZ  # units to convert EFG
@@ -31,7 +31,7 @@ def find_line(file, keyw):
     return lin
 
 
-def read_qe(coord_f, hyperfine=None, efg=None, s=1, pw_type=None, spin_types=None, which_isotopes=None,
+def read_qe(coord_f, hyperfine=None, efg=None, s=1, pw_type=None, types=None, isotopes=None,
             center=None, rotation_matrix=None, rm_style='col'):
     """
     @param coord_f: str
@@ -44,9 +44,9 @@ def read_qe(coord_f, hyperfine=None, efg=None, s=1, pw_type=None, spin_types=Non
         spin of the central spin. Default 1
     @param pw_type: str
         type of the coord_f. if not listed, will be inferred from extension of coord_f
-    @param spin_types: SpinDict
+    @param types: SpinDict
         optional. SpinDict containing SpinTypes of isotopes
-    @param which_isotopes: dict
+    @param isotopes: dict
         optional if no efg. dictionary with entries: "element" : "isotope", where "element" is the name of the element
         in PW/GIPAW output, "isotope" is the name of the isotope
     @param center: ndarray of shape (3,)
@@ -132,13 +132,13 @@ def read_qe(coord_f, hyperfine=None, efg=None, s=1, pw_type=None, spin_types=Non
             coordinates.append(coord)
 
     spin_names = np.asarray(spin_names, dtype='<U16')
-    if which_isotopes is not None:
-        for gipaw_name in which_isotopes:
-            spin_names[spin_names == gipaw_name] = which_isotopes[gipaw_name]
+    if isotopes is not None:
+        for gipaw_name in isotopes:
+            spin_names[spin_names == gipaw_name] = isotopes[gipaw_name]
 
-    atoms = BathArray(array=coordinates, spin_names=spin_names,
+    atoms = BathArray(array=coordinates, names=spin_names,
                       hyperfines=dipolars, quadrupoles=gradients,
-                      types=spin_types)
+                      types=types)
     if efg is not None:
         pref = atoms.types[atoms].q / (2 * s * (2 * s - 1))
         atoms['Q'] *= pref[:, np.newaxis, np.newaxis]

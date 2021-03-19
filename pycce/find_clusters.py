@@ -235,12 +235,16 @@ def find_subclusters(maximum_order, graph, labels, n_components, strong=False):
     return clusters
 
 
-def generate_clusters(bath, r_dipole, order, r_inner=0, ignore=None):
+def generate_clusters(bath, r_dipole, order, r_inner=0, ignore=None, strong=False):
     graph = make_graph(bath, r_dipole, r_inner=r_inner, ignore=ignore, max_size=5000)
-    n_components, labels = connected_components(csgraph=graph, directed=False,
-                                                return_labels=True)
-
-    clusters = find_subclusters(order, graph, labels, n_components, strong=False)
+    n_components, labels = connected_components(csgraph=graph, directed=False, return_labels=True)
+    clusters = find_subclusters(order, graph, labels, n_components, strong=strong)
+    if ignore is not None and order > 0:
+        if isinstance(ignore, (str, np.str)):
+            clusters[1] = clusters[1][bath[clusters[1]]['N'] != ignore].reshape(-1, 1)
+        else:
+            for n in ignore:
+                clusters[1] = clusters[1][bath[clusters[1]]['N'] != n].reshape(-1, 1)
 
     return clusters
 

@@ -4,60 +4,21 @@ from pycce.bath.array import BathArray
 from pycce.cluster_expansion import cluster_expansion_decorator
 from pycce.hamiltonian import mf_hamiltonian
 
-from .density_matrix import compute_dm, full_dm, generate_dm0
-
-hbar = 1.05457172  # When everything else in rad, kHz, ms, G, A
-
-
-def compute_mf_dm(dm0, dimensions, states, H, alpha, beta, timespace,
-                  pulse_sequence=None, as_delay=False):
-    """
-    @param dm0: ndarray
-        Initial density matrix of the central spin
-    @param dimensions: array_like
-        A list of spins dimensions. Last entry - electron spin dimensions
-    @param states: array_like
-    @param H: ndarray
-        Cluster Hamiltonian
-    @param S: QSpinMatrix
-        QSpinMatrix of the central spin
-    @param timespace: ndarray
-        Time delay values at which to compute density matrix
-    @param pulse_sequence: list
-    pulse_sequence should have format of list with tuples,
-       each tuple contains two entries:
-       first: axis the rotation is about;
-       second: angle of rotation. E.g. for Hahn-Echo [('x', np.pi/2)]
-    @param as_delay: bool
-    @return: ndarray
-        array of the density matrices of the central spin for the given cluster
-    """
-    if not as_delay and pulse_sequence:
-        N = len(pulse_sequence)
-        timespace = timespace / (2 * N)
-
-    dmtotal0 = generate_dm0(dm0, dimensions, states)
-    dm = full_dm(dmtotal0, dimensions, H, alpha, beta, timespace, pulse_sequence=pulse_sequence)
-
-    initial_shape = dm.shape
-    dm.shape = (initial_shape[0], *dimensions, *dimensions)
-    for d in range(len(dimensions) + 1, 2, -1):  # The last one is el spin
-        dm = np.trace(dm, axis1=1, axis2=d)
-    return dm
-
+from .density_matrix import compute_dm
 
 @cluster_expansion_decorator
 def mean_field_density_matrix(cluster, allspin, dm0, alpha, beta, B, D, E,
                               timespace, pulse_sequence, bath_state,
                               gyro_e=-17608.597050,
-                              as_delay=False, zeroth_cluster=None):
+                              as_delay=False, zeroth_cluster=None,
+                              imap=None, map_error=None):
     """
     Decorated function to compute electron density matrix with gCCE with Monte-Carlo sampling of bath states
     @param subclusters: dict
         dict of subclusters included in different CCE order
         of structure {int order: np.array([[i,j],[i,j]])}
-    @param allnspin: ndarray
-        array of all bath
+    @param allspin: BathArray
+        array of all bath spins
     @param ntype: dict
         dict with NSpinType objects inside, each key - name of the isotope
     @param dm0: ndarray
@@ -78,8 +39,6 @@ def mean_field_density_matrix(cluster, allspin, dm0, alpha, beta, B, D, E,
         pulse_sequence should have format of list with tuples,
         each tuple contains two entries: first: axis the rotation is about; second: angle of rotation.
         E.g. for Hahn-Echo [('x', np.pi/2)]. For now only pulses with same delay are supported
-    @param allspins: ndarray
-        array of all bath spins.
     @param bath_state: list
         List of nuclear spin states, contains Sz projections of nuclear spins.
     @param gyro_e: float
@@ -96,6 +55,9 @@ def mean_field_density_matrix(cluster, allspin, dm0, alpha, beta, B, D, E,
     nspin = allspin[cluster]
     central_spin = (alpha.size - 1) / 2
 
+    if imap is not None:
+        imap = imap.subspace(cluster)
+
     others_mask = np.ones(allspin.shape, dtype=bool)
     others_mask[cluster] = False
     others = allspin[others_mask]
@@ -109,7 +71,9 @@ def mean_field_density_matrix(cluster, allspin, dm0, alpha, beta, B, D, E,
                                     as_delay=as_delay)
         zeroth_cluster = ma.masked_array(zeroth_cluster, mask=(zeroth_cluster == 0))
 
-    H, dimensions = mf_hamiltonian(nspin, B, central_spin, others, others_state, D, E, gyro_e)
-    dms = compute_mf_dm(dm0, dimensions, states, H, alpha, beta, timespace,
-                        pulse_sequence, as_delay=as_delay) / zeroth_cluster
+    H, dimensions = mf_hamiltonian(nspin, B, central_spin, others, others_state, D, E, gyro_e,
+                                   imap=imap, map_error=map_error)
+
+    dms = compute_dm(dm0, dimensions, H, alpha, beta, timespace,
+                     pulse_sequence, states=states, as_delay=as_delay) / zeroth_cluster
     return dms

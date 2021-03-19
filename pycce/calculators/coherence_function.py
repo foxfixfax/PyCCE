@@ -104,7 +104,7 @@ def compute_coherence(H0, H1, timespace, N, as_delay=False, states=None, dimensi
 
 @cluster_expansion_decorator
 def decorated_coherence_function(cluster, allspin, projections_alpha, projections_beta, B, timespace, N,
-                             as_delay=False, states=None):
+                             as_delay=False, states=None, imap=None, map_error=None):
 
     """
         Overarching decorated function to compute L in conventional CCE. The call of the function includes:
@@ -130,9 +130,15 @@ def decorated_coherence_function(cluster, allspin, projections_alpha, projection
         L computed with conventional CCE
     """
     nspin = allspin[cluster]
+
     if states is not None:
         states = states[cluster]
-    H0, H1, dimensions = projected_hamiltonian(nspin, projections_alpha, projections_beta, B)
+
+    if imap is not None:
+        imap = imap.subspace(cluster)
+
+    H0, H1, dimensions = projected_hamiltonian(nspin, projections_alpha, projections_beta, B,
+                                               imap=imap, map_error=map_error)
     L = compute_coherence(H0, H1, timespace, N, as_delay=as_delay, states=states, dimensions=dimensions)
     return L
 

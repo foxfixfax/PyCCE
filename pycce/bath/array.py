@@ -14,7 +14,7 @@ class BathArray(np.ndarray):
                             ('Q', np.float64, (3, 3))])
 
     def __new__(subtype, shape=None, array=None,
-                spin_names=None, hyperfines=None, quadrupoles=None,
+                names=None, hyperfines=None, quadrupoles=None,
                 ca=None, sn=None, hf=None, q=None,
                 types=None):
         # Create the ndarray instance of our type, given the usual
@@ -25,8 +25,8 @@ class BathArray(np.ndarray):
         if array is None and ca is not None:
             array = ca
 
-        if spin_names is None and sn is not None:
-            spin_names = sn
+        if names is None and sn is not None:
+            names = sn
 
         if hyperfines is None and hf is not None:
             hyperfines = hf
@@ -62,8 +62,8 @@ class BathArray(np.ndarray):
             else:
                 obj['xyz'] = array.reshape(-1, 3)
 
-        if spin_names is not None:
-            obj['N'] = np.asarray(spin_names).reshape(-1)
+        if names is not None:
+            obj['N'] = np.asarray(names).reshape(-1)
         if hyperfines is not None:
             obj['A'] = np.asarray(hyperfines).reshape(-1, 3, 3)
         if quadrupoles is not None:
@@ -99,7 +99,6 @@ class BathArray(np.ndarray):
 
         self.types = getattr(obj, 'types', SpinDict())
         # We do not need to return anything
-
 
     def __array_function__(self, func, types, args, kwargs):
         if func not in HANDLED_FUNCTIONS:
@@ -201,6 +200,7 @@ class BathArray(np.ndarray):
             pos = np.asarray(pos)
 
         return np.linalg.norm(self['xyz'] - pos, axis=-1)
+
 
 #
 def implements(numpy_function):

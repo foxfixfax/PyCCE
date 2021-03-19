@@ -1,8 +1,8 @@
 import numpy as np
 
-from .array import BathArray
-from .read_cube import Cube
-from ..units import MHZ_TO_RADKHZ, HBAR, ELECTRON_GYRO
+from pycce.bath.array import BathArray
+from pycce.bath.read_cube import Cube
+from pycce.units import MHZ_TO_RADKHZ, HBAR, ELECTRON_GYRO
 
 
 # hbar mu0 /4pi I have no idea about units, from mengs code
@@ -12,7 +12,7 @@ from ..units import MHZ_TO_RADKHZ, HBAR, ELECTRON_GYRO
 # MHZ_TO_RADKHZ = 2 * np.pi * 1000
 
 
-def read_xyz(nspin, r_bath: float = None, center: np.array = None, skiprows: int = 2, spin_types=None):
+def read_xyz(nspin, skiprows: int = 2, spin_types=None):
     """
     read positions of bath within r_bath
     @param nspin: ndarray or str
@@ -28,10 +28,8 @@ def read_xyz(nspin, r_bath: float = None, center: np.array = None, skiprows: int
         array with positions and names of the bath with dtype [('N', np.unicode_, 16), ('xyz', np.float64, (3,))]
     """
 
-    if center is None:
-        center = [0, 0, 0]
     if isinstance(nspin, BathArray):
-        atoms = nspin
+        atoms = nspin.copy()
         if spin_types is not None:
             try:
                 atoms.add_type(**spin_types)
@@ -45,9 +43,6 @@ def read_xyz(nspin, r_bath: float = None, center: np.array = None, skiprows: int
         dt_read = np.dtype([('N', np.unicode_, 16), ('xyz', np.float64, (3,))])
         dataset = np.loadtxt(nspin, dtype=dt_read, skiprows=skiprows)
         atoms = BathArray(array=dataset, types=spin_types)
-    if r_bath is not None:
-        mask = np.linalg.norm(atoms['xyz'] - np.asarray(center), axis=-1) < r_bath
-        atoms = atoms[mask]
 
     return atoms
 

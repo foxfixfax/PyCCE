@@ -2,18 +2,19 @@ import numpy as np
 import numpy.ma as ma
 
 from .bath.array import BathArray, SpinDict
-from .bath.read_bath import read_xyz, read_external
+from pycce.io.xyz import read_xyz, read_external
 from .bath.read_cube import Cube
 from .calculators.coherence_function import decorated_coherence_function
 from .calculators.correlation_function import mean_field_noise_correlation, decorated_noise_correlation, \
     projected_noise_correlation
 from .calculators.density_matrix import decorated_density_matrix, compute_dm
 from .calculators.mean_field_dm import mean_field_density_matrix
-from .find_clusters import make_graph, connected_components, find_subclusters
+from .find_clusters import generate_clusters
 from .hamiltonian import total_hamiltonian, mf_hamiltonian, generate_projections
 from .sm import _smc
 
 
+# TODO unit conversion
 class Simulator:
     """
     The main class for CCE calculations
@@ -72,13 +73,13 @@ class Simulator:
 
         self.r_bath = r_bath
         self._bath = BathArray(0)
+        self.imap = None
         if bath is not None:
             self.read_bath(bath, r_bath, **bath_kw)
 
         self.r_dipole = r_dipole
 
         self.order = order
-        self.graph = None
         self.clusters = None
         if r_dipole is not None and order is not None:
             assert self.bath is not None, "Bath spins were not provided to compute clusters"
@@ -125,8 +126,8 @@ Bath consists of {self.bath.size} spins.
         except AttributeError:
             print('Bath array should be ndarray or a subclass')
             raise
-
         self.bath_types = self.bath.types
+        self.imap = None
 
     def read_bath(self, nspin, r_bath=None,
                   skiprows=1,
@@ -137,9 +138,13 @@ Bath consists of {self.bath.size} spins.
                   hyperfine=None,
                   types=None,
                   error_range=0.2,
-                  ext_r_bath=None):
+                  ext_r_bath=None,
+                  imap=None):
         """
-        Read spin bath
+        Read spin bath into self.bath
+
+        @param types: SpinDict or input to create one
+            SpinTypes of the bath spins. See SpinDict
         @param nspin: ndarray or str
             Either ndarray with dtype([('N', np.unicode_, 16), ('xyz', np.float64, (3,))]) containing names
             of bath spins (same ones as stored in self.ntype) and positions of the spins in angstroms;
@@ -162,18 +167,19 @@ Bath consists of {self.bath.size} spins.
             (default 0.2)
         @param ext_r_bath: float, optional
             maximum distance from the central spins of the bath spins for which to use the DFT positions
-        @return: bath
-            ndarray of bath with dtype([('N', np.unicode_, 16), ('xyz', np.float64, (3,)), ('A', np.float64, (3, 3))])
-            where N is the name of the isotope, xyz are coordinates (in A), A are HF tensors (in rad * KHz)
+        @param imap: InteractionMap
+            instance of InteractionMap class, containing interaction tensors for bath spins.
+        @return: None
         """
         self._bath = None
 
-        bath = read_xyz(nspin, r_bath=r_bath, center=self.position, skiprows=skiprows)
-        if types is not None:
-            try:
-                bath.add_type(**types)
-            except TypeError:
-                bath.add_type(*types)
+        bath = read_xyz(nspin, skiprows=skiprows, spin_types=types)
+
+        if r_bath is not None:
+            mask = np.linalg.norm(bath['xyz'] - np.asarray(self.position), axis=-1) < r_bath
+            bath = bath[mask]
+            if imap is not None:
+                imap = imap.subspace(mask)
 
         if self.bath_types.keys():
             bath.types.update(self.bath_types)
@@ -188,6 +194,7 @@ Bath consists of {self.bath.size} spins.
 
         if hyperfine == 'pd' or (hyperfine is None and np.all(bath['A'] == 0)):
             bath.from_point_dipole(self.position, gyro_e=self.gyro)
+
         elif isinstance(hyperfine, Cube):
             bath.from_cube(hyperfine, gyro_e=self.gyro)
         elif hyperfine:
@@ -198,52 +205,33 @@ Bath consists of {self.bath.size} spins.
                         inplace=True)
 
         self.bath = bath
+        self.imap = imap
 
-    def generate_graph(self, r_dipole, r_inner=0.):
+        return self.bath
+
+    def generate_clusters(self, order, r_dipole, r_inner=0, strong=False, ignore=None):
         """
-        Generate the connectivity matrix for the given bath
+        Generate clusters used in CCE calculations.
+        @param order: int
+            maximum size of the cluster
         @param r_dipole: float
             maximum connectivity distance
         @param r_inner: float
             minimum connectivity distance
-        @return: csr_matrix
-            sparse connectivity matrix in csr format (see scipy.sparse.csr_matrix for details).
-        """
-        self.graph = None
-        self.r_dipole = r_dipole
-        self.graph = make_graph(self.bath, r_dipole, r_inner=r_inner)
-
-        return self.graph
-
-    def generate_clusters(self, order, r_dipole=None, r_inner=0, strong=False):
-        """
-        Generate clusters used in CCE calculations. First generates connectivity matrix
-        if was not generated previously
-        @param order: int
-            maximum size of the cluster
-        @param r_dipole: float
-            maximum connectivity distance (used if graph was not generated before)
-        @param r_inner: float
-            minimum connectivity distance (used if graph was not generated before)
         @param strong: bool
             True -  generate only clusters with "strong" connectivity (all nodes should be interconnected)
             default False
+        @param ignore: list or str
+            optional. If not None, includes the names of bath spins which are ignored in the cluster generation
+
         @return: dict
         dict with keys corresponding to size of the cluster, and value corresponds to ndarray of shape (M, N),
         M is the number of clusters of given size, N is the size of the cluster. Each row contains indexes of the bath
         spins included in the given cluster
         """
-        if r_dipole is not None:
-            self.r_dipole = r_dipole
-            self.graph = self.generate_graph(r_dipole, r_inner=r_inner)
-
-        assert self.graph is not None, "Cluster generation failed: r_dipole is not provided"
-
+        self.r_dipole = r_dipole
         self.clusters = None
-        n_components, labels = connected_components(csgraph=self.graph, directed=False,
-                                                    return_labels=True)
-
-        clusters = find_subclusters(order, self.graph, labels, n_components, strong=strong)
+        clusters = generate_clusters(self.bath, r_dipole, order, r_inner=r_inner, strong=strong, ignore=ignore)
 
         self.clusters = clusters
 
@@ -251,7 +239,7 @@ Bath consists of {self.bath.size} spins.
 
     def compute_coherence(self, timespace, B, N, as_delay=False, direct=False, states=None, parallel=False):
         """
-        Compute coherence function L with conventional CCE. For additional kwargs see
+        Compute coherence function L with conventional CCE.
         @param timespace: 1D-ndarray
             time points at which compute coherence function L
         @param B: ndarray
@@ -266,6 +254,9 @@ Bath consists of {self.bath.size} spins.
         @param direct: bool
             True if use direct approach (requires way more memory but might be more numerically stable).
             False if use memory efficient approach. Default False
+        @param states: array_like
+            List of nuclear spin states. if len(shape) == 1, contains Sz projections of nuclear spins.
+            Otherwise, contains array of initial dms of nuclear spins
         @param parallel: bool
             True if parallelize calculation of cluster contributions over different mpi threads.
             Default False
@@ -274,16 +265,15 @@ Bath consists of {self.bath.size} spins.
         projections_alpha = generate_projections(self.alpha)
         projections_beta = generate_projections(self.beta)
 
-
         coherence = decorated_coherence_function(self.clusters, self.bath, projections_alpha, projections_beta, B,
                                                  timespace, N, as_delay=as_delay, states=states, parallel=parallel,
-                                                 direct=direct)
+                                                 direct=direct, imap=self.imap)
         return coherence
 
     def compute_dmatrix(self, timespace: np.ndarray, B: np.ndarray,
                         D: float = 0, E: float = 0, pulse_sequence: list = None,
                         as_delay: bool = False, state: np.ndarray = None,
-                        direct: bool = True, bath_states: np.ndarray = None) -> np.ndarray:
+                        direct: bool = True, bath_states: np.ndarray = None, parallel=False) -> np.ndarray:
         """
         Compute density matrix of the central spin using generalized CCE
         @param timespace: 1D-ndarray
@@ -328,8 +318,8 @@ Bath consists of {self.bath.size} spins.
                                          dm0, self.alpha, self.beta, B, D, E,
                                          timespace, pulse_sequence, gyro_e=self.gyro,
                                          as_delay=as_delay, zeroth_cluster=dms,
-                                         bath_state=bath_states, direct=direct)
-
+                                         bath_state=bath_states, direct=direct,
+                                         parallel=parallel, imap=self.imap)
         dms *= dms_c
 
         return dms
@@ -437,7 +427,8 @@ Bath consists of {self.bath.size} spins.
                                             dm0, self.alpha, self.beta, B, D, E,
                                             timespace, pulse_sequence, bath_state,
                                             as_delay=as_delay, zeroth_cluster=dmzero,
-                                            direct=direct, parallel=parallel) * dmzero
+                                            direct=direct, parallel=parallel,
+                                            imap=self.imap) * dmzero
             if masked:
                 dms = dms.filled()
                 proper = np.all(np.abs(dms) <= 1, axis=(1, 2))
@@ -547,8 +538,8 @@ Bath consists of {self.bath.size} spins.
         for _ in range(nbstates):
 
             bath_state = np.empty(self.bath.shape, dtype=np.float64)
-            for n in self.ntype:
-                s = self.ntype[n].s
+            for n in self.bath.types:
+                s = self.bath.types[n].s
                 snumber = int(round(2 * s + 1))
                 mask = self.bath['N'] == n
                 bath_state[mask] = rgen.integers(snumber, size=np.count_nonzero(mask)) - s
@@ -630,6 +621,10 @@ Bath consists of {self.bath.size} spins.
                                            parallel=parallel, direct=direct)
 
         return corr
+
+    def compute(self, type, *arg, **kwarg):
+
+        return
 
 
 # Just additional alias for backwards compatibility
