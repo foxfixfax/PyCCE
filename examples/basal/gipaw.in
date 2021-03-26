@@ -1,0 +1,10 @@
+&INPUTGIPAW
+job = 'hyperfine'
+tmp_dir = './'
+spline_ps = .true.
+verbosity = 'high'
+hfi_output_unit = 'MHz'
+hfi_nuclear_g_factor(1) = 1.4048219201549068
+hfi_nuclear_g_factor(2) = -1.1105725907681585
+core_relax_method = 1
+/

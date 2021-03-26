@@ -96,7 +96,6 @@ class BathArray(np.ndarray):
         # method sees all creation of default objects - with the
         # BathArray.__new__ constructor, but also with
         # arr.view(BathArray).
-
         self.types = getattr(obj, 'types', SpinDict())
         # We do not need to return anything
 
@@ -120,6 +119,7 @@ class BathArray(np.ndarray):
             return np.ndarray.__getitem__(self, item)
         except ValueError:
             return self[self['N'] == item]
+
     @property
     def isotope(self):
         return self.types[self].isotope
@@ -135,6 +135,34 @@ class BathArray(np.ndarray):
     @property
     def q(self):
         return self.types[self].q
+
+    @property
+    def x(self):
+        return self['xyz'][:, 0]
+
+    @property
+    def y(self):
+        return self['xyz'][:, 1]
+
+    @property
+    def z(self):
+        return self['xyz'][:, 2]
+
+    @property
+    def N(self):
+        return self['N']
+
+    @property
+    def xyz(self):
+        return self['xyz']
+
+    @property
+    def A(self):
+        return self['A']
+
+    @property
+    def Q(self):
+        return self['Q']
 
     def __setitem__(self, key, val):
         if isinstance(val, (np.str_, str)):
@@ -173,12 +201,11 @@ class BathArray(np.ndarray):
         identity = np.eye(3, dtype=np.float64)
         pos = self['xyz'] - position
 
-        gyros = self.types[self].gyro
         posxpos = np.einsum('ki,kj->kij', pos, pos)
 
         r = np.linalg.norm(pos, axis=1)[:, np.newaxis, np.newaxis]
 
-        pref = (gyro_e * gyros * HBAR)[:, np.newaxis, np.newaxis]
+        pref = (gyro_e * self.gyro * HBAR)[:, np.newaxis, np.newaxis]
 
         self['A'] = -(3 * posxpos[np.newaxis, :] - identity[np.newaxis, :] * r ** 2) / (r ** 5) * pref
         return
@@ -188,9 +215,12 @@ class BathArray(np.ndarray):
         self['A'] = cube.integrate(self['xyz'], gyros, gyro_e)
         return
 
-    def from_func(self, func, gyro_e=ELECTRON_GYRO):
-        for a in self:
-            a['A'] = func(a['xyz'], self.type[a].gyro, gyro_e)
+    def from_func(self, func, gyro_e=ELECTRON_GYRO, vectorized=False):
+        if vectorized:
+            self['A'] = func(self['xyz'], self.gyro, gyro_e)
+        else:
+            for a in self:
+                a['A'] = func(a['xyz'], self.types[a].gyro, gyro_e)
         return
 
     def dist(self, pos=None):
@@ -227,6 +257,38 @@ def concatenate(arrays, axis=0, out=None):
 # def broadcast_to(array, shape):
 #     ...  # implementation of broadcast_to for MyArray objects
 
+
+def same_bath_indexes(barray_1, barray_2, error_range=0.2, ignore_isotopes=True):
+    # counter_ext = 0
+    dist_matrix = np.linalg.norm(barray_1['xyz'][:, np.newaxis, :] - barray_2['xyz'][np.newaxis, :, :], axis=-1)
+    if ignore_isotopes:
+        tb_names = np.core.defchararray.strip(barray_1['N'], '1234567890')
+        ab_names = np.core.defchararray.strip(barray_2['N'], '1234567890')
+        same_names = tb_names[:, np.newaxis] == ab_names[np.newaxis, :]
+    else:
+        same_names = barray_1['N'][:, np.newaxis] == barray_2['N'][np.newaxis, :]
+
+    criteria = np.logical_and(dist_matrix < error_range, same_names)
+    indexes, ext_indexes = np.nonzero(criteria)
+
+    # Check for uniqueness. If several follow the criteria, use the first one appearing.
+    _, uind = np.unique(indexes, return_index=True)
+    indexes = indexes[uind]
+    ext_indexes = ext_indexes[uind]
+    return indexes, ext_indexes
+
+
+def combine_bath(total_bath, added_bath, error_range=0.2, ignore_isotopes=True, inplace=True):
+    if not inplace:
+        total_bath = total_bath.copy()
+
+    indexes, ext_indexes = same_bath_indexes(total_bath, added_bath, error_range, ignore_isotopes)
+    for n in added_bath.dtype.names:
+        if ignore_isotopes and n == 'N':
+            continue
+        total_bath[n][indexes] = added_bath[n][ext_indexes]
+
+    return total_bath
 
 class SpinType:
     """
@@ -346,6 +408,13 @@ class SpinDict(UserDict):
         return f"{type(self).__name__}({self.data})"
 
     def add_type(self, *args, **kwargs):
+        """
+        Add new types of the spins
+        @param args:
+            any numbers of agruments which could be
+        @param kwargs:
+        @return:
+        """
         try:
             for nuc in args:
                 if isinstance(nuc, SpinType):
@@ -370,38 +439,6 @@ def gen_spindict(*spin_types):
             ntype[nuc[0]] = SpinType(*nuc)
     return ntype
 
-
-def same_bath_indexes(barray_1, barray_2, error_range=0.2, ignore_isotopes=True):
-    # counter_ext = 0
-    dist_matrix = np.linalg.norm(barray_1['xyz'][:, np.newaxis, :] - barray_2['xyz'][np.newaxis, :, :], axis=-1)
-    if ignore_isotopes:
-        tb_names = np.core.defchararray.strip(barray_1['N'], '1234567890')
-        ab_names = np.core.defchararray.strip(barray_2['N'], '1234567890')
-        same_names = tb_names[:, np.newaxis] == ab_names[np.newaxis, :]
-    else:
-        same_names = barray_1['N'][:, np.newaxis] == barray_2['N'][np.newaxis, :]
-
-    criteria = np.logical_and(dist_matrix < error_range, same_names)
-    indexes, ext_indexes = np.nonzero(criteria)
-
-    # Check for uniqueness. If several follow the criteria, use the first one appearing.
-    _, uind = np.unique(indexes, return_index=True)
-    indexes = indexes[uind]
-    ext_indexes = ext_indexes[uind]
-    return indexes, ext_indexes
-
-
-def combine_bath(total_bath, added_bath, error_range=0.2, ignore_isotopes=True, inplace=True):
-    if not inplace:
-        total_bath = total_bath.copy()
-
-    indexes, ext_indexes = same_bath_indexes(total_bath, added_bath, error_range, ignore_isotopes)
-    for n in added_bath.dtype.names:
-        if ignore_isotopes and n == 'N':
-            continue
-        total_bath[n][indexes] = added_bath[n][ext_indexes]
-
-    return total_bath
 
 
 # Dictionary of the common isotopes. Placed in this file to avoid circular dependency

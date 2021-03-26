@@ -26,7 +26,7 @@ class BathCell:
             beta angle of the primitive cell
         @param gamma: float
             gamma angle of the primitive cell
-        @param units: str
+        @param angle: str
             units of the state, beta, gamma angles ['rad', 'deg']
 
     """
@@ -35,51 +35,53 @@ class BathCell:
 
     def __init__(self, a=1, b=None, c=None,
                  alpha=None, beta=None, gamma=None,
-                 units='rad'):
+                 angle='rad', cell=None):
 
-        if units not in self._conv:
-            raise KeyError('Only units available are: ' +
+        if angle not in self._conv:
+            raise KeyError('Only angle available are: ' +
                            ', '.join(self._conv.keys()))
 
         if alpha is None:
             alpha = np.pi / 2
         else:
-            alpha = alpha * self._conv[units]
+            alpha = alpha * self._conv[angle]
 
         if beta is None:
             beta = np.pi / 2
         else:
-            beta = beta * self._conv[units]
+            beta = beta * self._conv[angle]
 
         if gamma is None:
             gamma = np.pi / 2
         else:
-            gamma = gamma * self._conv[units]
+            gamma = gamma * self._conv[angle]
         if b is None:
             b = a
         if c is None:
             c = a
         # self.state, self.beta, self.gamma = state, beta, gamma
         # self.a, self.b, self.c = a, b, c
+        if cell is not None:
+            self.cell = np.asarray(cell)
+        else:
+            inbr = (1 + 2 * np.cos(alpha) * np.cos(beta) * np.cos(gamma) -
+                    np.cos(alpha) ** 2 - np.cos(beta) ** 2 - np.cos(gamma) ** 2)
 
-        inbr = (1 + 2 * np.cos(alpha) * np.cos(beta) * np.cos(gamma) -
-                np.cos(alpha) ** 2 - np.cos(beta) ** 2 - np.cos(gamma) ** 2)
+            volume = a * b * c * inbr ** (1 / 2)
 
-        self.volume = a * b * c * inbr ** (1 / 2)
+            self.cell = np.zeros((3, 3))
+            self.cell[0, 0] = a
+            self.cell[0, 1] = b * np.cos(gamma)
+            self.cell[1, 1] = b * np.sin(gamma)
+            self.cell[0, 2] = c * np.cos(beta)
+            self.cell[1, 2] = c * (np.cos(alpha) - np.cos(beta) *
+                                   np.cos(gamma)) / np.sin(gamma)
+            # cell is 3x3 matrix with entries:
+            # cell = [a_x b_x c_x]
+            #        [a_y b_y c_y]
+            #        [a_z b_z c_z]
 
-        self.cell = np.zeros((3, 3))
-        self.cell[0, 0] = a
-        self.cell[0, 1] = b * np.cos(gamma)
-        self.cell[1, 1] = b * np.sin(gamma)
-        self.cell[0, 2] = c * np.cos(beta)
-        self.cell[1, 2] = c * (np.cos(alpha) - np.cos(beta) *
-                               np.cos(gamma)) / np.sin(gamma)
-        # cell is 3x3 matrix with entries:
-        # cell = [a_x b_x c_x]
-        #        [a_y b_y c_y]
-        #        [a_z b_z c_z]
-
-        self.cell[2, 2] = self.volume / a / b / np.sin(gamma)
+            self.cell[2, 2] = volume / a / b / np.sin(gamma)
 
         if np.linalg.cond(self.cell) < 1 / sys.float_info.epsilon:
             zdr = np.linalg.inv(self.cell) @ np.array([0, 0, 1])
@@ -95,8 +97,7 @@ class BathCell:
     @property
     def zdir(self):
         """
-        zdirection of the cell (in cell coordinates)
-        @return:
+        z-direction of the cell (in cell coordinates)
         """
         return self._zdir
 
@@ -135,11 +136,18 @@ class BathCell:
         # in other words, columns of M are coordinates of the new
         # basis in the old basis.
 
+    def set_zdir(self, direction, type='cell'):
+        if type == 'cell':
+            direction = np.asarray(direction)
+        elif type == 'angstrom':
+            direction = np.linalg.inv(self.cell) @ np.asarray(direction)
+        self.zdir = direction
+
     def add_atoms(self, *args, type='cell'):
         """
         add coordinates of bath to the primitive cell
-        @param args: list
-            list of tuples, each containing the type of atom (str),
+        @param args: tuples
+            tuples, each containing the type of atom N (str),
             and the xyz coordinates (float, float, float):
             (N, x, y, z)
         @param type: str
@@ -184,7 +192,7 @@ class BathCell:
                 self.isotopes[atom_name] = {isotope_name: tup[1]}
         return self.isotopes
 
-    def gen_supercell(self, size, add=None, remove=None):
+    def gen_supercell(self, size, add=None, remove=None, seed=None):
         """
         generate supercell with nuclear spins
         @param size: float
@@ -194,8 +202,12 @@ class BathCell:
             which bath to add in the defect (see pyCCE.bath.defect for details)
         @param remove: list
             which bath to remove in the defect (see pyCCE.bath.defect for details)
+        @param seed: int
+            seed for RNG
         @return: ndarray
         """
+        rgen = np.random.default_rng(seed)
+
         axb = np.cross(self.cell[:, 0], self.cell[:, 1])
         bxc = np.cross(self.cell[:, 1], self.cell[:, 2])
         cxa = np.cross(self.cell[:, 2], self.cell[:, 0])
@@ -225,8 +237,9 @@ class BathCell:
             for i in self.isotopes[a]:
                 conc = self.isotopes[a][i]
                 nisotopes = int(round(natoms * conc))
-                seedsites = np.sort(np.random.choice(atom_seedsites[~mask],
-                                                     nisotopes, replace=False))
+                seedsites = rgen.choice(atom_seedsites[~mask],
+                                        nisotopes, replace=False,
+                                        shuffle=False)
 
                 mask += np.isin(atom_seedsites, seedsites)
                 bcn = bnumber * cnumber * nsites
@@ -267,10 +280,6 @@ class BathCell:
 
         """
         return self.cell @ np.asarray(coord)
-
-    @classmethod
-    def from_ase_Atoms(cls, *agr, **kwarg):
-        return cls.from_ase(*agr, **kwarg)
 
     @classmethod
     def from_ase(cls, atoms_object):

@@ -5,7 +5,7 @@ from pycce.cluster_expansion import cluster_expansion_decorator
 from pycce.hamiltonian import expand, zeeman, projected_hyperfine, mf_hamiltonian
 from pycce.hamiltonian import total_hamiltonian, dipole_dipole, quadrupole, generate_dimensions
 from pycce.sm import _smc
-
+from pycce.units import ELECTRON_GYRO
 from .density_matrix import propagator_dm, generate_dm0
 
 
@@ -37,7 +37,7 @@ def correlation_it_j0(operator_i, operator_j, dm0_expanded, U):
                              addition_operator=np.sum)
 def decorated_noise_correlation(cluster, allspin, dm0, B, D, E,
                                 timespace,
-                                gyro_e=-17608.597050):
+                                gyro_e=ELECTRON_GYRO):
     """
     EXPERIMENTAL Decorated function to compute noise correlation with gCCE (without mean field)
     @param subclusters: dict
@@ -100,7 +100,7 @@ def decorated_noise_correlation(cluster, allspin, dm0, B, D, E,
                              removal_operator=operator.isub,
                              addition_operator=np.sum)
 def mean_field_noise_correlation(cluster, allspin, dm0, B, D, E,
-                                           timespace, bath_state, gyro_e=-17608.597050):
+                                           timespace, bath_state, gyro_e=ELECTRON_GYRO):
     """
     Decorated function to compute noise autocorrelation function
     with gCCE and MC sampling of the bath states

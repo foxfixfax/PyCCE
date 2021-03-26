@@ -1,5 +1,6 @@
 import numpy as np
 import numpy.ma as ma
+import warnings
 
 from .bath.array import BathArray, SpinDict
 from pycce.io.xyz import read_xyz, read_external
@@ -10,7 +11,7 @@ from .calculators.correlation_function import mean_field_noise_correlation, deco
 from .calculators.density_matrix import decorated_density_matrix, compute_dm
 from .calculators.mean_field_dm import mean_field_density_matrix
 from .find_clusters import generate_clusters
-from .hamiltonian import total_hamiltonian, mf_hamiltonian, generate_projections
+from .hamiltonian import total_hamiltonian, mf_hamiltonian, generate_projections, self_electron
 from .sm import _smc
 
 
@@ -87,7 +88,7 @@ class Simulator:
 
     def __repr__(self):
         return f"""Simulator for spin-{self.spin}.
-state: {self.alpha}
+alpha: {self.alpha}
 beta: {self.beta}
 gyromagnetic ratio: {self.gyro} kHz * rad / G
 
@@ -96,8 +97,7 @@ r_bath: {self.r_bath}
 r_dipole: {self.r_dipole}
 order: {self.order}
 
-Bath consists of {self.bath.size} spins.
-"""
+Bath consists of {self.bath.size} spins."""
 
     @property
     def alpha(self):
@@ -129,6 +129,12 @@ Bath consists of {self.bath.size} spins.
         self.bath_types = self.bath.types
         self.imap = None
 
+    def eigenstates(self, magnetic_field, D=0, E=0, alpha=0, beta=1):
+        hamilton, d = total_hamiltonian(BathArray(0), self.spin, magnetic_field, D, E=E, central_gyro=self.gyro)
+        en, eiv = np.linalg.eigh(hamilton)
+        self.alpha = eiv[:, alpha]
+        self.beta = eiv[:, beta]
+
     def read_bath(self, nspin, r_bath=None,
                   skiprows=1,
                   external_bath=None,
@@ -143,13 +149,13 @@ Bath consists of {self.bath.size} spins.
         """
         Read spin bath into self.bath
 
-        @param types: SpinDict or input to create one
-            SpinTypes of the bath spins. See SpinDict
         @param nspin: ndarray or str
-            Either ndarray with dtype([('N', np.unicode_, 16), ('xyz', np.float64, (3,))]) containing names
+            Either:
+            - Instance of BathArray class;
+            - ndarray with dtype([('N', np.unicode_, 16), ('xyz', np.float64, (3,))]) containing names
             of bath spins (same ones as stored in self.ntype) and positions of the spins in angstroms;
-            or the name of the text file containing 4 cols: name of the bath spin and xyz coordinates in A
-        @param r_bath: cutoff size of the nuclear bath
+            - the name of the xyz text file containing 4 cols: name of the bath spin and xyz coordinates in A
+        @param r_bath: cutoff size of the spin bath
         @param skiprows: int, optional
             if nspin is name of the file, number of rows to skip in reading the file (default 1)
         @param external_bath: ndarray, optional
@@ -160,8 +166,15 @@ Bath consists of {self.bath.size} spins.
             name of the file with dipolar tensors of bath spins, similar to GIPAW output
         @param hf_contact: str, optional
             name of the file with contact terms from GIPAW output
-        @param hyperfine: func, or Cube instance, optional
-            How  to generate
+        @param hyperfine: str, func, or Cube instance, optional
+            How  to generate hyperfine couplings. If (None and all A in provided bath are 0) or (hyperfines = 'pd'),
+            use point dipole approximation. Otherwise can be an instance of Cube object, or callable with signature:
+            func(coord, gyro, gyro_e), where coord is array of the bath spin coordinate, gyro is the gyromagnetic ratio
+            of bath spin, gyro_e is the gyromagnetic ratio of the central bath spin.
+
+        @param types: SpinDict or input to create one
+            Contains either SpinTypes of the bath spins or tuples which will initialize those.
+            See SpinDict for details
         @param error_range: float, optional
             maximum distance between positions in nspin and external bath to consider two positions the same
             (default 0.2)
@@ -211,7 +224,7 @@ Bath consists of {self.bath.size} spins.
 
     def generate_clusters(self, order, r_dipole, r_inner=0, strong=False, ignore=None):
         """
-        Generate clusters used in CCE calculations.
+        Generate set clusters used in CCE calculations.
         @param order: int
             maximum size of the cluster
         @param r_dipole: float
@@ -237,15 +250,16 @@ Bath consists of {self.bath.size} spins.
 
         return self.clusters
 
-    def compute_coherence(self, timespace, B, N, as_delay=False, direct=False, states=None, parallel=False):
+    def cce_coherence(self, timespace, magnetic_field, N, as_delay=False, direct=False, states=None,
+                      parallel=False):
         """
         Compute coherence function L with conventional CCE.
         @param timespace: 1D-ndarray
             time points at which compute coherence function L
-        @param B: ndarray
+        @param magnetic_field: ndarray
             magnetic field as (Bx, By, Bz)
         @param N: int
-            number of pulses of CPMG sequence
+            number of pulses in CPMG sequence
         @param as_delay: bool
             True if time points correspond to delay between pulses
             False if time points correspond to the total time of the experiment
@@ -265,20 +279,20 @@ Bath consists of {self.bath.size} spins.
         projections_alpha = generate_projections(self.alpha)
         projections_beta = generate_projections(self.beta)
 
-        coherence = decorated_coherence_function(self.clusters, self.bath, projections_alpha, projections_beta, B,
-                                                 timespace, N, as_delay=as_delay, states=states, parallel=parallel,
-                                                 direct=direct, imap=self.imap)
+        coherence = decorated_coherence_function(self.clusters, self.bath, projections_alpha, projections_beta,
+                                                 magnetic_field, timespace, N, as_delay=as_delay, states=states,
+                                                 parallel=parallel, direct=direct, imap=self.imap)
         return coherence
 
-    def compute_dmatrix(self, timespace: np.ndarray, B: np.ndarray,
-                        D: float = 0, E: float = 0, pulse_sequence: list = None,
-                        as_delay: bool = False, state: np.ndarray = None,
-                        direct: bool = True, bath_states: np.ndarray = None, parallel=False) -> np.ndarray:
+    def generalized_cce_dm(self, timespace: np.ndarray, magnetic_field: np.ndarray,
+                           D: float = 0, E: float = 0, pulse_sequence: list = None,
+                           as_delay: bool = False, state: np.ndarray = None, N: int = None,
+                           direct: bool = False, bath_states: np.ndarray = None, parallel=False) -> np.ndarray:
         """
         Compute density matrix of the central spin using generalized CCE
         @param timespace: 1D-ndarray
             time points at which compute density matrix
-        @param B: ndarray
+        @param magnetic_field: ndarray
             magnetic field as (Bx, By, Bz)
         @param D: float or ndarray with shape (3,3)
             D (longitudinal splitting) parameter of central spin in ZFS tensor of central spin in rad * kHz
@@ -294,6 +308,8 @@ Bath consists of {self.bath.size} spins.
             False if time points are total time
         @param state: ndarray
             Initial state of the central spin. Defaults to sqrt(1 / 2) * (state + beta) if not set
+        @param N: int
+            number of pulses in CPMG sequence. Overrides pulse_sequence if provided
         @param direct: bool
             True if use optimized algorithm of computing cluster contributions
             (faster but might fail if too many clusters)
@@ -305,9 +321,12 @@ Bath consists of {self.bath.size} spins.
         if state is None:
             state = np.sqrt(1 / 2) * (self.alpha + self.beta)
 
+        if N is not None:
+            pulse_sequence = [('x', np.pi)] * N
+
         dm0 = np.tensordot(state, state, axes=0)
 
-        H0, dimensions0 = total_hamiltonian(BathArray(0), self.spin, B, D, E=E, central_gyro=self.gyro)
+        H0, dimensions0 = total_hamiltonian(BathArray(0), self.spin, magnetic_field, D, E=E, central_gyro=self.gyro)
 
         dms = compute_dm(dm0, dimensions0, H0, self.alpha, self.beta, timespace, pulse_sequence,
                          as_delay=as_delay)
@@ -315,7 +334,7 @@ Bath consists of {self.bath.size} spins.
         dms = ma.masked_array(dms, mask=(dms == 0), fill_value=0j, dtype=np.complex128)
 
         dms_c = decorated_density_matrix(self.clusters, self.bath,
-                                         dm0, self.alpha, self.beta, B, D, E,
+                                         dm0, self.alpha, self.beta, magnetic_field, D, E,
                                          timespace, pulse_sequence, gyro_e=self.gyro,
                                          as_delay=as_delay, zeroth_cluster=dms,
                                          bath_state=bath_states, direct=direct,
@@ -324,22 +343,24 @@ Bath consists of {self.bath.size} spins.
 
         return dms
 
-    def compute_mf_dm(self, timespace, B, D=0, E=0,
-                      pulse_sequence=None, as_delay=False, state=None,
-                      nbstates=100, seed=None, masked=True,
-                      normalized=None, parallel_states=False,
-                      fixstates=None, direct=False, parallel=False):
+    def gcce_dm(self, timespace, magnetic_field, D=0, E=0,
+                pulse_sequence=None, as_delay=False, state=None,
+                nbstates=100, seed=None, masked=True,
+                normalized=None, parallel_states=False, N: int = None,
+                fixstates=None, direct=False, parallel=False):
         """
         Compute density matrix of the central spin using generalized CCE with Monte-Carlo bath state sampling
         @param timespace: 1D-ndarray
             time points at which compute density matrix
-        @param B: ndarray
+        @param magnetic_field: ndarray
             magnetic field as (Bx, By, Bz)
         @param D: float or ndarray with shape (3,3)
             D (longitudinal splitting) parameter of central spin in ZFS tensor of central spin in rad * kHz
             OR total ZFS tensor
         @param E: float
             E (transverse splitting) parameter of central spin in ZFS tensor of central spin in rad * kHz
+        @param N: int
+            number of pulses in CPMG sequence. Overrides pulse_sequence if provided
         @param pulse_sequence: list
             pulse_sequence should have format of list with tuples,
             each tuple contains two entries: first: axis the rotation is about; second: angle of rotation.
@@ -367,6 +388,9 @@ Bath consists of {self.bath.size} spins.
             value - fixed Sz projection of the mixed state of nuclear spin
         @return: dms
         """
+
+        if N is not None:
+            pulse_sequence = [('x', np.pi)] * N
 
         if parallel_states:
             try:
@@ -417,14 +441,14 @@ Bath consists of {self.bath.size} spins.
             if fixstates is not None:
                 for fs in fixstates:
                     bath_state[fs] = fixstates[fs]
-            H0, d0 = mf_hamiltonian(BathArray(0), B, self.spin, self.bath, bath_state, D, E, self.gyro)
+            H0, d0 = mf_hamiltonian(BathArray(0), magnetic_field, self.spin, self.bath, bath_state, D, E, self.gyro)
 
             dmzero = compute_dm(dm0, d0, H0, self.alpha, self.beta,
                                 timespace, pulse_sequence, as_delay=as_delay)
             dmzero = ma.array(dmzero, mask=(dmzero == 0), fill_value=0j, dtype=np.complex128)
             # avdm0 += dmzero
             dms = mean_field_density_matrix(self.clusters, self.bath,
-                                            dm0, self.alpha, self.beta, B, D, E,
+                                            dm0, self.alpha, self.beta, magnetic_field, D, E,
                                             timespace, pulse_sequence, bath_state,
                                             as_delay=as_delay, zeroth_cluster=dmzero,
                                             direct=direct, parallel=parallel,
@@ -476,14 +500,14 @@ Bath consists of {self.bath.size} spins.
         else:
             return
 
-    def mean_field_corr(self, timespace, B, D=0, E=0, state=None,
-                        nbstates=100, seed=None, parallel_states=False, direct=False, parallel=False):
+    def gcce_noise(self, timespace, magnetic_field, D=0, E=0, state=None,
+                   nbstates=100, seed=None, parallel_states=False, direct=False, parallel=False):
         """
         EXPERIMENTAL Compute noise auto correlation function
         using generalized CCE with Monte-Carlo bath state sampling
         @param timespace: 1D-ndarray
             time points at which compute density matrix
-        @param B: ndarray
+        @param magnetic_field: ndarray
             magnetic field as (Bx, By, Bz)
         @param D: float or ndarray with shape (3,3)
             D (longitudinal splitting) parameter of central spin in ZFS tensor of central spin in rad * kHz
@@ -544,7 +568,8 @@ Bath consists of {self.bath.size} spins.
                 mask = self.bath['N'] == n
                 bath_state[mask] = rgen.integers(snumber, size=np.count_nonzero(mask)) - s
 
-            corr = mean_field_noise_correlation(self.clusters, self.bath, dm0, B, D, E, timespace, bath_state,
+            corr = mean_field_noise_correlation(self.clusters, self.bath, dm0, magnetic_field, D, E,
+                                                timespace, bath_state,
                                                 gyro_e=self.gyro, parallel=parallel, direct=direct)
 
             averaged_corr += corr
@@ -563,12 +588,12 @@ Bath consists of {self.bath.size} spins.
         else:
             return
 
-    def compute_corr(self, timespace, B, D=0, E=0, state=None, parallel=False, direct=False):
+    def generalized_cce_noise(self, timespace, magnetic_field, D=0, E=0, state=None, parallel=False, direct=False):
         """
         EXPERIMENTAL Compute noise autocorrelation function of the noise with generalized CCE
         @param timespace:  1D-ndarray
             time points at which compute density matrix
-        @param B: ndarray
+        @param magnetic_field: ndarray
             magnetic field as (Bx, By, Bz)
         @param D: float or ndarray with shape (3,3)
             D (longitudinal splitting) parameter of central spin in ZFS tensor of central spin in rad * kHz
@@ -586,17 +611,17 @@ Bath consists of {self.bath.size} spins.
 
         dm0 = np.tensordot(state, state, axes=0)
 
-        corr = decorated_noise_correlation(self.clusters, self.bath, dm0, B, D, E, timespace, gyro_e=self.gyro,
+        corr = decorated_noise_correlation(self.clusters, self.bath, dm0, magnetic_field, D, E, timespace, gyro_e=self.gyro,
                                            parallel=parallel, direct=direct)
 
         return corr
 
-    def projected_correlation(self, timespace, B, state=None, parallel=False, direct=False):
+    def cce_noise(self, timespace, magnetic_field, state=None, parallel=False, direct=False):
         """
         EXPERIMENTAL Compute noise autocorrelation function of the noise with conventional CCE
         @param timespace:  1D-ndarray
             time points at which compute density matrix
-        @param B: ndarray
+        @param magnetic_field: ndarray
             magnetic field as (Bx, By, Bz)
         @param D: float or ndarray with shape (3,3)
             D (longitudinal splitting) parameter of central spin in ZFS tensor of central spin in rad * kHz
@@ -609,7 +634,7 @@ Bath consists of {self.bath.size} spins.
             Autocorrelation function of the noise, in (kHz*rad)^2 of shape (N, 3)
             where N is the number of time points and at each point (Ax, Ay, Az) are noise autocorrelation functions
         """
-        B = np.asarray(B)
+        magnetic_field = np.asarray(magnetic_field)
 
         if state is None:
             state = np.sqrt(1 / 2) * (self.alpha + self.beta)
@@ -617,15 +642,71 @@ Bath consists of {self.bath.size} spins.
             state = np.asarray(state)
 
         projections_state = generate_projections(state)
-        corr = projected_noise_correlation(self.clusters, self.bath, projections_state, B, timespace,
+        corr = projected_noise_correlation(self.clusters, self.bath, projections_state, magnetic_field, timespace,
                                            parallel=parallel, direct=direct)
 
         return corr
 
-    def compute(self, type, *arg, **kwarg):
+    def compute(self, *arg, quantity='coherence', method='cce', **kwarg):
+        """
+        General interface for computing properties with CCE
+        @param arg:
+            position arguments for the function to be used
+        @param quantity: str
+            which quantity to compute. Possible values:
+                'coherence' - compute coherence function
+                'dm' - compute full density matrix
+                'noise' - compute noise autocorrelation function
+        @param method: str
+            which implementation of CCE to use. Possible values:
+                'CCE' - conventional CCE, where interactions are mapped on 2 level pseudospin
+                'generalized CCE' - CCE with full diagonalization of central spin levels
+                'gCCE' - generalized CCE with random bath state sampling
 
-        return
+        @param kwarg:
+            keyword arguments for the function to be used
+        @return: np.ndarray
+            computed propery
+        """
+        func = getattr(self, self._compute_func[method.lower()][quantity.lower()])
+        result = func(*arg, **kwarg)
 
+        if (quantity == 'coherence') and (len(result.shape) != 1):
 
-# Just additional alias for backwards compatibility
-QSpin = Simulator
+            dm0 = result[0]
+            state = np.sqrt(1 / 2) * (self.alpha + self.beta)
+            dm0expected = np.tensordot(state, state, axes=0)
+
+            if not np.isclose(dm0, dm0expected).all():
+                warnings.warn('Initial qubit state is not superposition of alpha and beta states. '
+                              'The coherence might yield unexpected results')
+
+            result = self.alpha @ result.filled(0j) @ self.beta
+            result = result / result[0]
+
+        return result
+
+    _methods = {
+        'cce', 'gcce', 'generalized_cce'
+    }
+
+    _quantities = {
+        'coherence', 'dm', 'noise'
+    }
+
+    _compute_func = {
+        'cce': {
+            'coherence': 'cce_coherence',
+            'noise': 'cce_noise'
+        },
+        'generalized_cce': {
+            'coherence': 'generalized_cce_dm',
+            'dm': 'generalized_cce_dm',
+            'noise': 'generalized_cce_noise',
+        },
+        'gcce': {
+            'coherence': 'gcce_dm',
+            'dm': 'gcce_dm',
+            'noise': 'gcce_noise',
+        }
+    }

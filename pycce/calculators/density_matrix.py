@@ -237,9 +237,7 @@ def decorated_density_matrix(cluster, allspin, dm0, alpha, beta, B, D, E,
 
     central_spin = (alpha.size - 1) / 2
     if bath_state is not None:
-        others_mask = np.ones(allspin.shape, dtype=bool)
-        others_mask[cluster] = False
-        states = bath_state[others_mask]
+        states = bath_state[cluster]
     else:
         states = None
 

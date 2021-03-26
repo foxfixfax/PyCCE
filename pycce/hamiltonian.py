@@ -324,6 +324,7 @@ def self_electron(B, s, D=0, E=0, gyro=ELECTRON_GYRO):
     @return: ndarray
     """
     spin_matrix = _smc[s]
+    svec = None
     if isinstance(D, (np.floating, float, int)):
         H0 = D * (spin_matrix.z @ spin_matrix.z - 1 / 3 * spin_matrix.s * (spin_matrix.s + 1) * spin_matrix.eye) + \
              E * (spin_matrix.x @ spin_matrix.x - spin_matrix.y @ spin_matrix.y)
@@ -334,8 +335,16 @@ def self_electron(B, s, D=0, E=0, gyro=ELECTRON_GYRO):
         # H0 = SDS = SxDxxSx + SxDxySy + ..
         H0 = np.einsum('lij,ljk->ik', svec, dsvec, dtype=np.complex128)
         # H0 = np.einsum('lij,lp,pjk->ik', svec, D, svec, dtype=np.complex128)
-
-    H1 = -gyro * (B[0] * spin_matrix.x + B[1] * spin_matrix.y + B[2] * spin_matrix.z)
+    if isinstance(gyro, (np.floating, float, int)):
+        H1 = -gyro * (B[0] * spin_matrix.x + B[1] * spin_matrix.y + B[2] * spin_matrix.z)
+    else:
+        svec = svec if svec is not None else np.asarray([spin_matrix.x,
+                                                         spin_matrix.y,
+                                                         spin_matrix.z], dtype=np.complex128)
+        gsvec = np.einsum('ij,jkl->ikl', gyro, svec,
+                          dtype=np.complex128)  # AIvec = Atensor @ Ivector
+        # H0 = SDS = SxDxxSx + SxDxySy + ..
+        H1 = np.einsum('lij,ljk->ik', B, gsvec, dtype=np.complex128)
 
     return H1 + H0
 

@@ -169,7 +169,7 @@ class InteractionMap(MutableMapping):
                 obj[k] = dictionary[k]
         return obj
 
-
+    # TODO implement compressed tensors
     def compress(self):
         self.tensors = np.empty((self.indexes.shape[0] * 2, 3, 3))
         self.tensors = None
