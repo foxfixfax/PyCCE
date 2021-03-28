@@ -1,0 +1,18 @@
+#!/bin/bash
+#SBATCH --account=pi-gagalli
+#SBATCH --job-name=trial
+#SBATCH --output=thickness.out
+#SBATCH --error=thickness.err
+#SBATCH --partition=gagalli-ivyb
+#SBATCH --time=2:00:00
+#SBATCH --nodes=2
+#SBATCH --ntasks-per-node=20
+#SBATCH --qos=gagalli-debug
+
+# module load openmpi
+module load python
+conda activate pycce_env
+module load mpich/3.2
+
+export OMP_NUM_THREADS=1  
+mpirun python runner_t2.py thickness 0 2 4 6 8 10 12 14 -o 2 -s 0

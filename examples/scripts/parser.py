@@ -1,17 +1,4 @@
-import numpy as np
-import os
 import argparse
-
-
-def mkdir_p(dir):
-    '''make a directory (dir) if it doesn't exist'''
-    try:
-        os.mkdir(dir)
-
-    except FileExistsError:
-        pass
-
-    return
 
 
 def floatint(string):
@@ -20,15 +7,6 @@ def floatint(string):
         return int(vfloat)
     else:
         return vfloat
-
-
-def folname(calc_setup):
-    name = 'thickness_{thickness}_rbath_{r_bath}_rdipole_{r_dipole}_order_{order}'.format(**calc_setup)
-    return name
-
-
-calc_setup = {'r_bath': 80, 'r_dipole': 8, 'order': 2, 'thickness': 1}
-calc_param = {'B': np.array([0., 0., 500.]), 'N': 1}
 
 
 pcparser = argparse.ArgumentParser()
