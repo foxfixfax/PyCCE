@@ -96,7 +96,11 @@ class BathArray(np.ndarray):
         # method sees all creation of default objects - with the
         # BathArray.__new__ constructor, but also with
         # arr.view(BathArray).
+        if obj.dtype != self._dtype_bath:
+            self.view(np.ndarray)
+
         self.types = getattr(obj, 'types', SpinDict())
+
         # We do not need to return anything
 
     def __array_function__(self, func, types, args, kwargs):
@@ -113,12 +117,6 @@ class BathArray(np.ndarray):
             return NotImplemented
 
         return HANDLED_FUNCTIONS[func](*args, **kwargs)
-
-    def __getitem__(self, item):
-        try:
-            return np.ndarray.__getitem__(self, item)
-        except ValueError:
-            return self[self['N'] == item]
 
     @property
     def isotope(self):
@@ -164,7 +162,19 @@ class BathArray(np.ndarray):
     def Q(self):
         return self['Q']
 
+    def __getitem__(self, item):
+        # if string then return ndarray view of the field
+        if isinstance(item, (str, np.str_)):
+            try:
+                return self.view(np.ndarray).__getitem__(item)
+            except ValueError:
+                return self[self['N'] == item]
+        else:
+            return np.ndarray.__getitem__(self, item)
+
     def __setitem__(self, key, val):
+        np.ndarray.__setitem__(self, key, val)
+
         if isinstance(val, (np.str_, str)):
             if val not in self.types.keys():
                 try:
@@ -187,7 +197,7 @@ class BathArray(np.ndarray):
                     except KeyError:
                         warnings.warn(
                             'Spin type for {} was not provided and was not found in common isotopes.'.format(n))
-        return np.ndarray.__setitem__(self, key, val)
+
 
     def add_type(self, *args, **kwargs):
         self.types.add_type(*args, **kwargs)
@@ -204,10 +214,14 @@ class BathArray(np.ndarray):
         posxpos = np.einsum('ki,kj->kij', pos, pos)
 
         r = np.linalg.norm(pos, axis=1)[:, np.newaxis, np.newaxis]
+        if isinstance(gyro_e, (np.floating, float, int)):
+            pref = (gyro_e * self.gyro * HBAR)[:, np.newaxis, np.newaxis]
 
-        pref = (gyro_e * self.gyro * HBAR)[:, np.newaxis, np.newaxis]
-
-        self['A'] = -(3 * posxpos[np.newaxis, :] - identity[np.newaxis, :] * r ** 2) / (r ** 5) * pref
+            self['A'] = -(3 * posxpos[np.newaxis, :] - identity[np.newaxis, :] * r ** 2) / (r ** 5) * pref
+        else:
+            pref = (gyro_e[np.newaxis, :, :] * self.gyro[:, np.newaxis, np.newaxis] * HBAR)
+            postf = -(3 * posxpos[np.newaxis, :] - identity[np.newaxis, :] * r ** 2) / (r ** 5)
+            np.matmul(pref, postf, out=self['A'])
         return
 
     def from_cube(self, cube, gyro_e=ELECTRON_GYRO):
@@ -296,13 +310,13 @@ class SpinType:
 
     Parameters
     ----------
-    @param isotope: str
+    :param isotope: str
         Name of the bath spin
-    @param s: float
+    :param s: float
         Total spin
-    @param gyro:
+    :param gyro:
         Gyromagnetic ratio in rad/(ms * G)
-    @param q:
+    :param q:
         Quadrupole moment in millibarn (for s > 1/2)
     """
 
@@ -410,10 +424,10 @@ class SpinDict(UserDict):
     def add_type(self, *args, **kwargs):
         """
         Add new types of the spins
-        @param args:
+        :param args:
             any numbers of agruments which could be
-        @param kwargs:
-        @return:
+        :param kwargs:
+        :return:
         """
         try:
             for nuc in args:
@@ -462,7 +476,7 @@ common_isotopes['7Li'] = SpinType('7Li', 3 / 2, 10.3976, -0.0400)
 # Be
 common_isotopes['9Be'] = SpinType('9Be', 3 / 2, -3.9575, 0.0529)
 
-# B
+# mfield
 common_isotopes['10B'] = SpinType('10B', 3, 2.875, 0.0845)
 common_isotopes['11B'] = SpinType('11B', 3 / 2, 8.584, 0.04059)
 

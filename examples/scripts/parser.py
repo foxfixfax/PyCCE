@@ -20,6 +20,7 @@ pcparser.add_argument("--rdipole", "-rd", default=8, type=floatint,
 pcparser.add_argument("--order", "-o", default=2, type=int,
                       help='CCE order')
 pcparser.add_argument("--thickness", "-t", default=1, type=floatint)
+pcparser.add_argument("--nbstates", "-n", default=100, type=floatint)
 pcparser.add_argument("--start", "-s", default=0, type=int)
 
 if __name__ == '__main__':

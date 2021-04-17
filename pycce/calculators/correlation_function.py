@@ -1,256 +1,240 @@
+import numpy as np
 import operator
 
-import numpy as np
 from pycce.cluster_expansion import cluster_expansion_decorator
-from pycce.hamiltonian import expand, zeeman, projected_hyperfine, mf_hamiltonian
-from pycce.hamiltonian import total_hamiltonian, dipole_dipole, quadrupole, generate_dimensions
-from pycce.sm import _smc
+from pycce.hamiltonian import total_hamiltonian, mean_field_hamiltonian, bath_interactions, expanded_single, \
+    conditional_hyperfine, \
+    dimensions_spinvectors
 from pycce.units import ELECTRON_GYRO
-from .density_matrix import propagator_dm, generate_dm0
+from .density_matrix import propagator, generate_dm0, gen_density_matrix
+from .mean_field_dm import generate_bath_state
+from ..sm import _smc
 
 
 def correlation_it_j0(operator_i, operator_j, dm0_expanded, U):
     """
     compute correlation function of the operator i at time t and operator j at time 0
-    @param operator_i: ndarray
+    :param operator_i: ndarray
         matrix representation of operator i
-    @param operator_j: ndarray
+    :param operator_j: ndarray
         matrix representation of operator j
-    @param dm0_expanded: ndarray
+    :param dm0_expanded: ndarray
         initial density matrix of the cluster
-    @param U: ndarray
+    :param U: ndarray
         propagator
-    @return: corr
+    :return: corr
         1D-ndarray of autocorrelation
     """
     operator_i_t = np.matmul(np.transpose(U.conj(), axes=(0, 2, 1)), np.matmul(operator_i, U))
-    it_j0 = np.matmul(operator_i_t, operator_j)
+    # operator_j_t = np.matmul(np.transpose(U.conj(), axes=(0, 2, 1)), np.matmul(operator_j, U))
+    it_j0 = np.matmul(operator_i_t, operator_j)  # + np.matmul(operator_j, operator_i_t)) / 2
     matmul = np.matmul(dm0_expanded, it_j0)
     corr = matmul.trace(axis1=1, axis2=2, dtype=np.complex128)
 
     return corr
 
 
+def compute_correlations(nspin, dm0_expanded, U, central_spin=None):
+    a_is = np.zeros((3, *U.shape[1:]), dtype=np.complex128)
+
+    dimensions, vectors = dimensions_spinvectors(nspin, central_spin=central_spin)
+    for j, n in enumerate(nspin):
+        ivec = vectors[j]
+        hyperfine_tensor = n['A']
+        aivec = np.array([hyperfine_tensor[0, 0] * ivec[0],
+                          hyperfine_tensor[1, 1] * ivec[1],
+                          hyperfine_tensor[2, 2] * ivec[2]])
+        # aivec = np.einsum('ij,jkl->ikl', hyperfine_tensor, ivec)
+        a_is += aivec
+
+    # AI_x = correlation_it_j0(AIs[0], AIs[0], dm0_expanded, U)
+    # AI_y = correlation_it_j0(AIs[1], AIs[1], dm0_expanded, U)
+    AI_z = correlation_it_j0(a_is[2], a_is[2], dm0_expanded, U)
+
+    return AI_z  # np.array([AI_x, AI_y, AI_z])
+
+
+@cluster_expansion_decorator(result_operator=operator.iadd, contribution_operator=operator.imul)
+def projected_noise_correlation(cluster, allspin, projections_state, mfield, timespace, states=None,
+                                imap=None, map_error=False):
+    """
+    Decorated function to compute autocorrelation function with conventional CCE
+    """
+    bath = allspin[cluster]
+    if states is not None:
+        states = states[cluster]
+
+    ntype = bath.types
+
+    dimensions, ivectors = dimensions_spinvectors(bath, central_spin=None)
+
+    totalh = 0
+
+    for ivec, n in zip(ivectors, bath):
+        hsingle = expanded_single(ivec, ntype[n].gyro, mfield, n['Q'])
+
+        hf_state = conditional_hyperfine(n['A'], ivec, projections_state)
+
+        totalh += hsingle + hf_state
+
+    totalh += bath_interactions(bath, ivectors, imap=imap, raise_error=map_error)
+    time_propagator = propagator(timespace, totalh)
+
+    dm0_expanded = gen_density_matrix(states, dimensions=dimensions)
+
+    return compute_correlations(bath, dm0_expanded, time_propagator, central_spin=None)
+
+
 @cluster_expansion_decorator(result_operator=operator.iadd,
                              contribution_operator=operator.imul,
                              removal_operator=operator.isub,
                              addition_operator=np.sum)
-def decorated_noise_correlation(cluster, allspin, dm0, B, D, E,
+def decorated_noise_correlation(cluster, allspin, dm0, B, D,
                                 timespace,
-                                gyro_e=ELECTRON_GYRO):
+                                gyro_e=ELECTRON_GYRO, states=None):
     """
     EXPERIMENTAL Decorated function to compute noise correlation with gCCE (without mean field)
-    @param subclusters: dict
-        dict of subclusters included in different CCE order
-        of structure {int order: np.array([[i,j],[i,j]])}
-    @param allnspin: ndarray
-        array of all bath
-    @param ntype: dict
-        dict with NSpinType objects inside, each key - name of the isotope
-    @param dm0: ndarray
-        initial density matrix of the central spin
-    @param I: dict
-        dict with SpinMatrix objects inside, each key - spin
-    @param S: QSpinMatrix
-        QSpinMatrix of the central spin
-    @param B: ndarray
-        Magnetic field of B = np.array([Bx, By, Bz])
-    @param D: float
-        D parameter in central spin ZFS
-    @param E: float
-        E parameter in central spin ZFS
-    @param timespace: ndarray
-        Time points at which to compute autocorrelation
-    @param gyro_e: float
-        gyromagnetic ratio (in rad/(msec*Gauss)) of the central spin
-    @return: ndarray
-        autocorrelation function
     """
     nspin = allspin[cluster]
+    if states is not None:
+        states = states[cluster]
+
     central_spin = (dm0.shape[0] - 1) / 2
 
-    H, dimensions = total_hamiltonian(nspin, central_spin, B, D, E=E, central_gyro=gyro_e)
-    U = propagator_dm(timespace, H, 0, None, None, dimensions)
-    dm0_expanded = expand(dm0, len(dimensions) - 1, dimensions) / np.prod(dimensions[:-1])
+    totalh = total_hamiltonian(nspin, B, D, central_gyro=gyro_e, central_spin=central_spin)
+    time_propagator = propagator(timespace, totalh)
+    dmtotal0 = generate_dm0(dm0, totalh.dimensions, states=states)
 
-    AIs = 0
-    ntype = nspin.types
-    for j, n in enumerate(nspin):
-        s = ntype[n].s
-
-        ivec = np.array([expand(_smc[s].x, j, dimensions),
-                         expand(_smc[s].y, j, dimensions),
-                         expand(_smc[s].z, j, dimensions)],
-                        dtype=np.complex128)
-
-        atensor = n['A']
-
-        a_ivec = np.array([atensor[0, 0] * ivec[0], atensor[1, 1] * ivec[1], atensor[2, 2] * ivec[2]])
-        AIs += a_ivec
-
-    AI_x = correlation_it_j0(AIs[0], AIs[0], dm0_expanded, U)
-    AI_y = correlation_it_j0(AIs[1], AIs[1], dm0_expanded, U)
-    AI_z = correlation_it_j0(AIs[2], AIs[2], dm0_expanded, U)
-
-    return np.array([AI_x, AI_y, AI_z])
+    return compute_correlations(nspin, dmtotal0, time_propagator, central_spin=central_spin)
 
 
 @cluster_expansion_decorator(result_operator=operator.iadd,
                              contribution_operator=operator.imul,
                              removal_operator=operator.isub,
                              addition_operator=np.sum)
-def mean_field_noise_correlation(cluster, allspin, dm0, B, D, E,
-                                           timespace, bath_state, gyro_e=ELECTRON_GYRO):
+def mean_field_noise_correlation(cluster, allspin, dm0, magnetic_field, D, timespace, bath_state,
+                                 gyro_e=ELECTRON_GYRO, imap=None, map_error=None):
     """
     Decorated function to compute noise autocorrelation function
     with gCCE and MC sampling of the bath states
-    @param subclusters: dict
+    :param subclusters: dict
         dict of subclusters included in different CCE order
         of structure {int order: np.array([[i,j],[i,j]])}
-    @param allnspin: ndarray
+    :param allnspin: ndarray
         array of all bath
-    @param ntype: dict
+    :param ntype: dict
         dict with NSpinType objects inside, each key - name of the isotope
-    @param dm0: ndarray
+    :param dm0: ndarray
         initial density matrix of the central spin
-    @param B: ndarray
-        Magnetic field of B = np.array([Bx, By, Bz])
-    @param D: float
+    :param magnetic_field: ndarray
+        Magnetic field of mfield = np.array([Bx, By, Bz])
+    :param D: float
         D parameter in central spin ZFS
-    @param E: float
-        E parameter in central spin ZFS
-    @param timespace: ndarray
+    :param timespace: ndarray
         Time points at which to compute
-    @param bath_state: list
+    :param bath_state: list
         List of nuclear spin states. if len(shape) == 1, contains Sz projections of nuclear spins.
         Otherwise, contains array of initial dms of nuclear spins
-    @param gyro_e: float
+    :param gyro_e: float
         gyromagnetic ratio (in rad/(msec*Gauss)) of the central spin
-    @return: ndarray
+    :return: ndarray
         autocorrelation function
     """
-    central_spin = (dm0.shape[0] - 1) / 2
     nspin = allspin[cluster]
+    central_spin = (dm0.shape[0] - 1) / 2
+
+    if imap is not None:
+        imap = imap.subspace(cluster)
+
     others_mask = np.ones(allspin.shape, dtype=bool)
     others_mask[cluster] = False
     others = allspin[others_mask]
     others_state = bath_state[others_mask]
 
-    states = bath_state[others_mask]
-    H, dimensions = mf_hamiltonian(nspin, central_spin, B, others, others_state, D, E, gyro_e)
-    U = propagator_dm(timespace, H, 0, None, None, dimensions)
-    dmtotal0 = generate_dm0(dm0, dimensions, states)
+    states = bath_state[~others_mask]
 
-    AIs = 0
-    ntype = nspin.types
+    totalh = mean_field_hamiltonian(nspin, magnetic_field, others, others_state, D,
+                                    central_gyro=gyro_e,
+                                    central_spin=central_spin,
+                                    imap=imap,
+                                    map_error=map_error)
+    time_propagator = propagator(timespace, totalh)
 
-    for j, n in enumerate(nspin):
-        s = ntype[n].s
+    dmtotal0 = generate_dm0(dm0, totalh.dimensions, states)
 
-        ivec = np.array([expand(_smc[s].x, j, dimensions),
-                         expand(_smc[s].y, j, dimensions),
-                         expand(_smc[s].z, j, dimensions)],
-                        dtype=np.complex128)
-
-        atensor = n['A']
-
-        a_ivec = np.array([atensor[0, 0] * ivec[0], atensor[1, 1] * ivec[1], atensor[2, 2] * ivec[2]])
-        AIs += a_ivec
-
-    AI_x = correlation_it_j0(AIs[0], AIs[0], dmtotal0, U)
-    AI_y = correlation_it_j0(AIs[1], AIs[1], dmtotal0, U)
-    AI_z = correlation_it_j0(AIs[2], AIs[2], dmtotal0, U)
-
-    return np.array([AI_x, AI_y, AI_z])
+    return compute_correlations(nspin, dmtotal0, time_propagator, central_spin=central_spin)
 
 
-@cluster_expansion_decorator(result_operator=operator.iadd, contribution_operator=operator.imul)
-def projected_noise_correlation(cluster, allspin, projections_state, B, timespace):
+def noise_sampling(clusters, bath, dm0, timespace, magnetic_field, zfs,
+                   gyro_e=ELECTRON_GYRO, imap=None, map_error=None,
+                   nbstates=100, seed=None, parallel_states=False,
+                   direct=False, parallel=False):
     """
-    Decorated function to compute autocorrelation function with conventional CCE
-    @param subclusters: dict
-        dict of subclusters included in different CCE order
-        of structure {int order: np.array([[i,j],[i,j]])}
-    @param allnspin: ndarray
-        array of all bath
-    @param ntype: dict
-        dict with NSpinType objects inside, each key - name of the isotope
-    @param I: dict
-        dict with SpinMatrix objects inside, each key - spin
-    @param S: QSpinMatrix
-        QSpinMatrix of the central spin
-    @param B: ndarray
-        Magnetic field of B = np.array([Bx, By, Bz])
-    @param timespace: ndarray
-        Time points at which to compute autocorrelation function
-    @return: ndarray
-        autocorrelation function
+    EXPERIMENTAL Compute noise auto correlation function
+    using generalized CCE with Monte-Carlo bath state sampling
+    :param timespace: 1D-ndarray
+        time points at which compute density matrix
+    :param magnetic_field: ndarray
+        magnetic field as (Bx, By, Bz)
+    :param zfs: ndarray with shape (3,3)
+        ZFS tensor of central spin in rad * kHz
+    :param nbstates: int
+        Number of random bath states to sample
+    :param seed: int
+        Seed for the RNG
+    :param parallel: bool
+        whether to use MPI to parallelize the calculations of density matrix
+        for each random bath state
+    :return: ndarray
+        Autocorrelation function of the noise, in (kHz*rad)^2 of shape (N, 3)
+        where N is the number of time points and at each point (Ax, Ay, Az) are noise autocorrelation functions
     """
-    nspin = allspin[cluster]
-    ntype = nspin.types
 
-    dimensions = generate_dimensions(nspin)
-    nnuclei = nspin.shape[0]
+    if parallel_states:
+        try:
+            from mpi4py import MPI
+        except ImportError:
+            print('Parallel states failed: mpi4py is not found. Running serial')
+            parallel_states = False
 
-    tdim = np.prod(dimensions, dtype=np.int32)
+    root_divider = nbstates
 
-    H = np.zeros((tdim, tdim), dtype=np.complex128)
-    AIs = 0
-    ivectors = []
+    if parallel_states:
+        comm = MPI.COMM_WORLD
 
-    for j, n in enumerate(nspin):
-        s = ntype[n].s
+        size = comm.Get_size()
+        rank = comm.Get_rank()
 
-        if s > 1 / 2:
-            H_quad = quadrupole(n['Q'], s)
-            H_single = zeeman(ntype[n].gyro, s, B) + H_quad
-        else:
-            H_single = zeeman(ntype[n].gyro, s, B)
+        remainder = nbstates % size
+        add = int(rank < remainder)
+        nbstates = nbstates // size + add
 
-        H_HF = projected_hyperfine(n['A'], s, projections_state)
+        if seed:
+            seed = seed + rank
+    else:
+        rank = 0
 
-        H_j = H_single + H_HF
-        H += expand(H_j, j, dimensions)
+    averaged_corr = 0
 
-        ivec = np.array([expand(_smc[s].x, j, dimensions),
-                         expand(_smc[s].y, j, dimensions),
-                         expand(_smc[s].z, j, dimensions)],
-                        dtype=np.complex128)
+    for bath_state in generate_bath_state(bath, nbstates, seed=seed):
 
-        ATensor = n['A']
+        corr = mean_field_noise_correlation(clusters, bath, dm0, magnetic_field, zfs,
+                                            timespace, bath_state,
+                                            gyro_e=gyro_e, direct=direct, parallel=parallel,
+                                            imap=imap, map_error=map_error)
 
-        # AIvec = np.einsum('ij,jkl->ikl', ATensor, ivec,
-        #                   dtype=np.complex128)  # AIvec = Atensor @ Ivector
-        # # AIs.append(AIvec)
-        AIvec = np.array([ATensor[0, 0] * ivec[0], ATensor[1, 1] * ivec[1], ATensor[2, 2] * ivec[2]])
-        AIs += AIvec
+        averaged_corr += corr
 
-        ivectors.append(ivec)
+    if parallel_states:
+        root_corr = np.array(np.zeros(averaged_corr.shape), dtype=np.complex128)
+        comm.Reduce(averaged_corr, root_corr, MPI.SUM, root=0)
 
-    for i in range(nnuclei):
-        for j in range(i + 1, nnuclei):
-            n1 = nspin[i]
-            n2 = nspin[j]
+    else:
+        root_corr = averaged_corr
 
-            ivec_1 = ivectors[i]
-            ivec_2 = ivectors[j]
-
-            H_DD = dipole_dipole(n1['xyz'], n2['xyz'], ntype[n1].gyro, ntype[n2].gyro, ivec_1, ivec_2)
-
-            H += H_DD
-
-    eval0, evec0 = np.linalg.eigh(H)
-
-    eigen_exp0 = np.exp(-1j * np.tensordot(timespace,
-                                           eval0, axes=0), dtype=np.complex128)
-
-    U = np.matmul(np.einsum('ij,kj->kij', evec0, eigen_exp0,
-                            dtype=np.complex128),
-                  evec0.conj().T, dtype=np.complex128)
-    dm0_expanded = np.eye(tdim) / tdim
-
-    AI_x = correlation_it_j0(AIs[0], AIs[0], dm0_expanded, U)
-    AI_y = correlation_it_j0(AIs[1], AIs[1], dm0_expanded, U)
-    AI_z = correlation_it_j0(AIs[2], AIs[2], dm0_expanded, U)
-
-    return np.array([AI_x, AI_y, AI_z])
+    if rank == 0:
+        root_corr /= root_divider
+        _smc.clear()
+        return root_corr
+    else:
+        return

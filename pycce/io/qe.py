@@ -34,28 +34,28 @@ def find_line(file, keyw):
 def read_qe(coord_f, hyperfine=None, efg=None, s=1, pw_type=None, types=None, isotopes=None,
             center=None, rotation_matrix=None, rm_style='col'):
     """
-    @param coord_f: str
+    :param coord_f: str
          pw input or output file. if doesn't have proper extension, parameter pw_type should indicate the type
-    @param hyperfine: str
+    :param hyperfine: str
         name of the gipaw hyperfine output
-    @param efg: str
+    :param efg: str
         name of the gipaw electric field tensor output
-    @param s: int
+    :param s: int
         spin of the central spin. Default 1
-    @param pw_type: str
+    :param pw_type: str
         type of the coord_f. if not listed, will be inferred from extension of coord_f
-    @param types: SpinDict
+    :param types: SpinDict
         optional. SpinDict containing SpinTypes of isotopes
-    @param isotopes: dict
+    :param isotopes: dict
         optional if no efg. dictionary with entries: "element" : "isotope", where "element" is the name of the element
         in PW/GIPAW output, "isotope" is the name of the isotope
-    @param center: ndarray of shape (3,)
+    :param center: ndarray of shape (3,)
         position of the (0,0,0) in final coordinates
-    @param rotation_matrix: ndarray of shape (3,3)
+    :param rotation_matrix: ndarray of shape (3,3)
         rotation matrix to rotate coordinates. For details see bath.transform
-    @param rm_style: str
+    :param rm_style: str
         indicates how rotation matrix should be interpreted. Can take values "col" or "row". Default "col"
-    @return: BathArray
+    :return: BathArray
     """
     qe_coord_types = ['crystal', 'bohr', 'angstrom', 'alat']
 
@@ -202,23 +202,23 @@ def read_qe(coord_f, hyperfine=None, efg=None, s=1, pw_type=None, types=None, is
 def transform(atoms, center=None, cell=None, rotation_matrix=None, style='col', inplace=True):
     """
     Coordinate transformation of BathArray
-    @param atoms: BathArray
+    :param atoms: BathArray
         bath to be rotated
-    @param center: ndarray
+    :param center: ndarray
         position of (0,0,0) in new coordinates
-    @param cell: ndarray of shape (3,3)
+    :param cell: ndarray of shape (3,3)
         cell vectors in cartesian coordinates
-    @param rotation_matrix: ndarray of shape (3,3)
+    :param rotation_matrix: ndarray of shape (3,3)
          rotation matrix, which rotates the coordinate system, in which cell vectors are stored.
          Note, that rotaton is applied after transition from cell coordinates to the cartesian coordinates,
          in which cell vectors are stored
-    @param style: str
+    :param style: str
         can have two values: 'col' or 'row'. Shows how cell and rotate matrices are stored:
         if 'col', each column of the matrix is a vector in previous coordinates, if 'row' - each row is a new vector
         default 'col'
-    @param inplace:  bool
+    :param inplace:  bool
         whether to make changes to existing BathArray or create a new one. Default True
-    @return:
+    :return:
     """
 
     styles = ['col', 'row']

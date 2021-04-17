@@ -39,7 +39,7 @@ class Cube:
 
     Parameters
     ------------
-        @param filename: str
+        :param filename: str
             name of the .cube file
 
     """
@@ -106,7 +106,7 @@ class Cube:
     def transform(self, R=None, shift=None, inplace=True):
         """
         Changes coordinates of the grid. DOES NOT ASSUME PERIODICITY.
-        @param R: ndarray with shape (3, 3)
+        :param R: ndarray with shape (3, 3)
 
             Rotation matrix
                 R =  [n_1^(1) n_1^(2) n_1^(3)]
@@ -121,15 +121,15 @@ class Cube:
             basis in the old basis.
 
             Given vector in initial basis v = [v1, v2, v3],
-            vector in new basis is given as v' = R.T @ vector
+            vector in new basis is given as v' = R.T : vector
 
-        @param shift: ndarray with shape (3,)
+        :param shift: ndarray with shape (3,)
             shift in the origin of coordinates (in the rotated basis)
 
-        @param inplace: bool
+        :param inplace: bool
             If False rotates a copy of grid
 
-        @return: ndarray
+        :return: ndarray
             grid
         """
         grid = self.grid
@@ -153,15 +153,15 @@ class Cube:
         """
         Integrate over polarization data, stored in Cube object,
         to obtain hyperfine dipolar-dipolar tensor
-        @param position: ndarray with shape (3,)
+        :param position: ndarray with shape (3,)
             position of the nuclei at which to compute A in final coordinate system
-        @param gyro_n: float
+        :param gyro_n: float
             gyromagnetic ratio of nucleus
-        @param gyro_e: float
+        :param gyro_e: float
             gyromagnetic ratio of central spin
-        @param spin: float
+        :param spin: float
             total spin of the central spin
-        @return: ndarray with shape (3, 3)
+        :return: ndarray with shape (3, 3)
             A tensor
         """
         if spin is None:

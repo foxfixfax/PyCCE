@@ -40,15 +40,15 @@ class Clusters(MutableMapping):
 def make_graph(bath, r_dipole, r_inner=0, ignore=None, max_size=5000):
     """
     Make a connectivity matrix for bath spins
-    @param max_size: int
+    :param max_size: int
         maximum size of the bath before less optimal (but less memory intensive) approach is used
-    @param bath: ndarray
+    :param bath: ndarray
     ndarray of bath spins (should contain 'xyz' in dtype)
-    @param r_dipole: float
+    :param r_dipole: float
         maximum connectivity distance
-    @param r_inner: float
+    :param r_inner: float
         minimum connectivity distance
-    @return: csr_matrix
+    :return: csr_matrix
         connectivity matrix
     """
     if bath.size < max_size:
@@ -85,19 +85,19 @@ def connected_components(csgraph, directed=False, connection='weak', return_labe
 def find_subclusters(maximum_order, graph, labels, n_components, strong=False):
     """
     Find subclusters from connectivity matrix
-    @param maximum_order: int
+    :param maximum_order: int
         Maximum size of the clusters to find
-    @param graph: csr_matrix
+    :param graph: csr_matrix
         connectivity matrix
-    @param labels: ndarray
+    :param labels: ndarray
         The length-N array of labels of the connected components.
-    @param n_components: int
+    :param n_components: int
         The number of connected components
-    @param strong: bool
+    :param strong: bool
         Whether to find only completely interconnected clusters (default False)
-    @return: dict
-        dict with keys corresponding to size of the cluster, and value corresponds to ndarray of shape (M, N),
-        M is the number of clusters of given size, N is the size of the cluster.
+    :return: dict
+        dict with keys corresponding to size of the cluster, and value corresponds to ndarray of shape (matrix, N),
+        matrix is the number of clusters of given size, N is the size of the cluster.
         Each row contains indexes of the bath spins included in the given cluster
     """
     # bool 1D array which is true when given element of graph corresponds to
@@ -239,6 +239,7 @@ def generate_clusters(bath, r_dipole, order, r_inner=0, ignore=None, strong=Fals
     graph = make_graph(bath, r_dipole, r_inner=r_inner, ignore=ignore, max_size=5000)
     n_components, labels = connected_components(csgraph=graph, directed=False, return_labels=True)
     clusters = find_subclusters(order, graph, labels, n_components, strong=strong)
+
     if ignore is not None and order > 0:
         if isinstance(ignore, (str, np.str)):
             clusters[1] = clusters[1][bath[clusters[1]]['N'] != ignore].reshape(-1, 1)
@@ -268,9 +269,9 @@ def combine_clusters(cs1, cs2):
 def expand_clusters(sc):
     """
     Expand dict with subclusters so each cluster include all possible additions of one more bath spin
-    @param sc: dict
+    :param sc: dict
     initial clusters dictionary
-    @return: dict
+    :return: dict
     dict of expanded clusters
     """
     indexes = np.arange(sc[1].size, dtype=np.int32)

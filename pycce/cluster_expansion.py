@@ -28,13 +28,13 @@ def cluster_expansion_decorator(_func=None, *,
     """
     Decorator for creating cluster correlation expansion. Each expanded function will have two first arguments:
     subclusters and allnspin
-    @param _func: function to expand
-    @param result_operator: function
+    :param _func: function to expand
+    :param result_operator: function
         operator which will combine the result of expansion (default: operator.imul)
-    @param contribution_operator: function
+    :param contribution_operator: function
         operator which will combine multiple contributions
         of the same cluster (default: operator.ipow)
-    @return: function
+    :return: function
     """
 
     def inner_cluster_expansion_decorator(function):
@@ -43,24 +43,24 @@ def cluster_expansion_decorator(_func=None, *,
         def cluster_expansion(subclusters, allspin, *arg, parallel=False, direct=False, **kwarg):
             """
             Inner part of cluster expansion.
-            @param direct: bool
+            :param direct: bool
                 True if use direct approach (requires way more memory but might be more numerically stable).
                 False if use memory efficient approach. Default False
-            @param parallel: bool
+            :param parallel: bool
                 True if parallelize calculation of cluster contributions over different mpi threads.
                 Default False
-            @param subclusters: dict
+            :param subclusters: dict
                 dict of subclusters included in different CCE order
                 of structure {int order: np.array([[i,j],[i,j]])}
-            @param allspin: ndarray
+            :param allspin: ndarray
                 array of bath
 
-            @param arg:
+            :param arg:
                 all additional arguments
-            @param kwarg:
+            :param kwarg:
                 all additional keyword arguments
 
-            @return:
+            :return:
             """
             if direct:
                 return direct_approach(function, subclusters, allspin, *arg, parallel=parallel,
@@ -83,21 +83,22 @@ def cluster_expansion_decorator(_func=None, *,
 
 
 def optimized_approach(function, subclusters, allspin, *arg, parallel=False,
-                       result_operator=operator.imul, contribution_operator=operator.ipow,
+                       result_operator=operator.imul,
+                       contribution_operator=operator.ipow,
                        **kwarg):
     """
     Inner part of cluster expansion.
-    @param subclusters: dict
+    :param subclusters: dict
         dict of subclusters included in different CCE order
         of structure {int order: np.array([[i,j],[i,j]])}
-    @param allspin: ndarray
+    :param allspin: ndarray
         array of bath
 
-    @param arg:
+    :param arg:
         all additional arguments
-    @param kwarg:
+    :param kwarg:
         all additional keyword arguments
-    @return:
+    :return:
     """
     revorders = sorted(subclusters)[::-1]
     norders = len(revorders)
@@ -209,17 +210,17 @@ def direct_approach(function, subclusters, allspin, *arg, parallel=False,
                     **kwarg):
     """
     Inner part of cluster expansion.
-    @param subclusters: dict
+    :param subclusters: dict
         dict of subclusters included in different CCE order
         of structure {int order: np.array([[i,j],[i,j]])}
-    @param allspin: ndarray
+    :param allspin: ndarray
         array of bath
 
-    @param arg:
+    :param arg:
         all additional arguments
-    @param kwarg:
+    :param kwarg:
         all additional keyward
-    @return:
+    :return:
     """
     if parallel:
         try:

@@ -15,16 +15,16 @@ from pycce.units import MHZ_TO_RADKHZ, HBAR, ELECTRON_GYRO
 def read_xyz(nspin, skiprows: int = 2, spin_types=None):
     """
     read positions of bath within r_bath
-    @param nspin: ndarray or str
+    :param nspin: ndarray or str
         either np.ndarray with dtype [('N', np.unicode_, 16), ('xyz', np.float64, (3,))], which
         contains isotope type and position or name of the file in which they are stored
-    @param center: ndarray with shape (3,)
+    :param center: ndarray with shape (3,)
         position of the qubit spin
-    @param r_bath: float
+    :param r_bath: float
         maximum distance from the qubit spin, at which nuclei are added to the bath
-    @param skiprows:
+    :param skiprows:
         used when nspin is filename. Number of rows to skip in the file
-    @return: ndarray
+    :return: ndarray
         array with positions and names of the bath with dtype [('N', np.unicode_, 16), ('xyz', np.float64, (3,))]
     """
 
@@ -53,22 +53,22 @@ def gen_hyperfine(atoms: np.ndarray, ntype: dict, center: np.ndarray = None,
     """
     Generate hyperfine values for array of bath
 
-    @param atoms: ndarray with shape (natoms,)
+    :param atoms: ndarray with shape (natoms,)
         dtype should include [('N', np.unicode_, 16), ('xyz', np.float64, (3,))] containing the
         coordinates (xyz) of the nuclear isotope and it's type (N)
-    @param ntype: dict
+    :param ntype: dict
         contains instances of SpinType class with nuclear types, present in the bath array
-    @param center: ndarray with shape (3,)
+    :param center: ndarray with shape (3,)
         position of central spin
-    @param gyro_e: float
+    :param gyro_e: float
         gyromagnetic ratio of the qubit spin (rad/kHz/G)
-    @param external_atoms: ndarray
+    :param external_atoms: ndarray
         contains bath with predefined hyperfine values and EFG
-    @param error_range: float
+    :param error_range: float
         error range within which the coordinates of bath in external_atoms are considered the same
         as in the atoms_inside array
-    @param cube:
-    @return: BathArray
+    :param cube:
+    :return: BathArray
         array of bath with dtype [('N', np.unicode_, 16),
                                    ('xyz', np.float64, (3,)),
                                    ('A', np.float64, (3, 3))]
@@ -134,19 +134,19 @@ def read_external(coord_f: str, hf_f: str = None, cont_f: str = None,
     Function to read inserts from GIPAW. Does not renormalize the data by the spin
     Exists for backwards compatibility with Meng Code. To be removed in the release version
 
-    @param coord_f: str
+    :param coord_f: str
         name of the file containing coord of bath with external hyperfine
-    @param hf_f: str
+    :param hf_f: str
         external dipolar-dipolar
-    @param cont_f: str
+    :param cont_f: str
         external contact terms
-    @param skiprows: int
+    :param skiprows: int
         number of rows to skip in the three files
-    @param erbath: float
+    :param erbath: float
         maximum distance from the center to be included
-    @param center: ndarray with shape (3,)
+    :param center: ndarray with shape (3,)
         position of the central spin
-    @return: ndarray
+    :return: ndarray
         ndarray with bath
     """
     dt_read = np.dtype([('N', np.unicode_, 16), ('xyz', np.float64, (3,))])

@@ -125,10 +125,10 @@ class InteractionMap(MutableMapping):
         Get new InteractionMap with indexes readressed from array. Within the subspace indexes are renumbered
         E.g. array = [3,4,7]. Subspace will contain InteractionMap only within [3,4,7] elements
         with new indexes [0, 1, 2]
-        @param array: ndarray
+        :param array: ndarray
             either bool array containing True for elements within the subspace
             or array of indexes presented in the subspace
-        @return: InteractionMap
+        :return: InteractionMap
         """
         array = np.asarray(array)
 
@@ -179,11 +179,11 @@ class InteractionMap(MutableMapping):
 def find_first(item, vec):
     """
     return the index of the first occurence of item in vec. Otherwise returns None
-    @param item: obj
+    :param item: obj
         object to find in the vec
-    @param vec: arraylike
+    :param vec: arraylike
         an array of objects
-    @return: int or None
+    :return: int or None
         index of item if it is in vec, otherwise None
     """
     """

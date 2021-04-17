@@ -4,19 +4,23 @@ from pycce.cluster_expansion import cluster_expansion_decorator
 from pycce.hamiltonian import projected_hamiltonian
 from .density_matrix import gen_density_matrix
 
-def propagators(timespace, H0, H1, N):
+
+def propagators(timespace, H0, H1, N, as_delay=False):
     """
     Function to compute propagators U0 and U1 in conventional CCE
-    @param timespace: ndarray
+    :param timespace: ndarray
         Time delay values at which to compute propagators
-    @param H0: ndarray
+    :param H0: ndarray
         Hamiltonian projected on state qubit state
-    @param H1: ndarray
+    :param H1: ndarray
         Hamiltonian projected on beta qubit state
-    @param N: int
+    :param N: int
         number of pulses in CPMG
-    @return: U0, U1
+    :return: U0, U1
     """
+    if not as_delay and N > 0:
+        timespace = timespace / (2 * N)
+
     eval0, evec0 = np.linalg.eigh(H0)
     eval1, evec1 = np.linalg.eigh(H1)
 
@@ -55,28 +59,25 @@ def propagators(timespace, H0, H1, N):
     return U0, U1
 
 
-def compute_coherence(H0, H1, timespace, N, as_delay=False, states=None, dimensions=None):
+def compute_coherence(H0, H1, timespace, N, as_delay=False, states=None):
     """
     Function to compute cluster coherence function in conventional CCE
-    @param H0: ndarray
+    :param H0: ndarray
         Hamiltonian projected on state qubit state
-    @param H1: ndarray
+    :param H1: ndarray
         Hamiltonian projected on beta qubit state
-    @param timespace: ndarray
+    :param timespace: ndarray
         Time points at which to compute coherence function
-    @param N: int
+    :param N: int
         number of pulses in CPMG
-    @param as_delay: bool
+    :param as_delay: bool
         True if time points are delay between pulses,
         False if time points are total time
-    @return: coherence_function
+    :return: coherence_function
     """
     # if timespace was given not as delay between pulses,
     # divide to obtain the delay
-    if not as_delay and N > 0:
-        timespace = timespace / (2 * N)
-
-    U0, U1 = propagators(timespace, H0, H1, N)
+    U0, U1 = propagators(timespace, H0, H1, N, as_delay=as_delay)
 
     # coherence_function = np.trace(np.matmul(U0, np.transpose(
     #     U1.conj(), axes=(0, 2, 1))), axis1=1, axis2=2) / U0.shape[1]
@@ -85,7 +86,7 @@ def compute_coherence(H0, H1, timespace, N, as_delay=False, states=None, dimensi
         coherence_function = np.einsum('zij,zij->z', U0, U1.conj()) / U0.shape[1]
 
     else:
-        dm = gen_density_matrix(states, dimensions=dimensions)
+        dm = gen_density_matrix(states, dimensions=H0.dimensions)
         # tripple einsum is slow
         # coherence_function = np.einsum('zli,ij,zlj->z', U0, dm, U1.conj())
         dmUdagger = np.matmul(dm, np.transpose(U1.conj(), axes=(0, 2, 1)))
@@ -93,52 +94,46 @@ def compute_coherence(H0, H1, timespace, N, as_delay=False, states=None, dimensi
     return coherence_function
 
 
-# @cluster_expansion_decorator
-# def decorated_coherence_function(*arg, **kwarg):
-#     return inner_coherence_function(*arg, **kwarg)
-#
-#
-# @cluster_expansion_direct_decorator
-# def direct_coherence_function(*arg, **kwarg):
-#     return inner_coherence_function(*arg, **kwarg)
-
 @cluster_expansion_decorator
-def decorated_coherence_function(cluster, allspin, projections_alpha, projections_beta, B, timespace, N,
-                             as_delay=False, states=None, imap=None, map_error=None):
-
+def decorated_coherence_function(cluster, allspin, projections_alpha, projections_beta, magnetic_field, timespace, N,
+                                 as_delay=False, states=None, projected_states=None, imap=None, map_error=None):
     """
         Overarching decorated function to compute L in conventional CCE. The call of the function includes:
-    @param subclusters: dict
+    :param subclusters: dict
         dict of subclusters included in different CCE order
         of structure {int order: np.array([[i,j],[i,j]])}
-    @param allnspin: ndarray
+    :param allnspin: ndarray
         array of all bath
-    @param projections_alpha: ndarray
+    :param projections_alpha: ndarray
         ndarray containing projections of state state [<Sx>, <Sy>, <Sz>]
-    @param projections_beta: ndarray
+    :param projections_beta: ndarray
         ndarray containing projections of beta state [<Sx>, <Sy>, <Sz>]
-    @param B: ndarray
-        Magnetic field of B = np.array([Bx, By, Bz])
-    @param timespace: ndarray
-        Time points at which to compute L
-    @param N: int
-        number of pulses in CPMG
-    @param as_delay: bool
-        True if time points are delay between pulses,
-        False if time points are total time
-    @return: L
-        L computed with conventional CCE
+    :param magnetic_field: Magnetic field of type mfield = np.array([Bx, By, Bz])
+    :param timespace: Time points at which to compute coherence
+    :param N: number of pulses in CPMG
+    :param as_delay: True if time points are delay between pulses, False if time points are total time
+    :return: L computed with conventional CCE
     """
     nspin = allspin[cluster]
+
+    others = None
+    other_states = None
 
     if states is not None:
         states = states[cluster]
 
+    if projected_states is not None:
+        others_mask = np.ones(allspin.shape, dtype=bool)
+        others_mask[cluster] = False
+        others = allspin[others_mask]
+        other_states = projected_states[others_mask]
+
     if imap is not None:
         imap = imap.subspace(cluster)
 
-    H0, H1, dimensions = projected_hamiltonian(nspin, projections_alpha, projections_beta, B,
-                                               imap=imap, map_error=map_error)
-    L = compute_coherence(H0, H1, timespace, N, as_delay=as_delay, states=states, dimensions=dimensions)
-    return L
+    H0, H1 = projected_hamiltonian(nspin, projections_alpha, projections_beta, magnetic_field,
+                                   imap=imap, map_error=map_error, others=others,
+                                   other_states=other_states)
 
+    coherence = compute_coherence(H0, H1, timespace, N, as_delay=as_delay, states=states)
+    return coherence

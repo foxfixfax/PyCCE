@@ -12,7 +12,7 @@ class SpinMatrix:
 
     Parameters
     ----------
-    @param s: float
+    :param s: float
     total spin
     """
 
