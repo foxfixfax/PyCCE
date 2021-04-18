@@ -319,12 +319,13 @@ Bath consists of {self.bath.size} spins."""
             includes the names of bath spins which are ignored in the cluster generation
         :type ignore: list or str
 
-        :return: Dict with keys corresponding to size of the cluster,
-            and value corresponds to ndarray of shape (matrix, N),
-            matrix is the number of clusters of given size,
-            N is the size of the cluster.
-
+        :return: view of self.clusters. self.clusters is a dictionary
+            with keys corresponding to size of the cluster.
+            i.e. self.clusters[n] contains ndarray of shape (m, n),
+            where m is the number of clusters of given size,
+            n is the size of the cluster.
             Each row contains indexes of the bath spins included in the given cluster
+        :rtype: dict
         """
 
         self.order = order if order is not None else self.order
@@ -373,7 +374,6 @@ Bath consists of {self.bath.size} spins."""
             True if include mean field effect of all
             Default False.
         :type  parallel: bool
-
 
         :return: Coherence function computed at the time points in listed in the timespace
         :rtype: ndarray with shape (n,)

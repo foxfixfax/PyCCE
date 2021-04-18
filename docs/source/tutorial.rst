@@ -1,7 +1,7 @@
 
 Tutorials
 ==========
-
+The following examples are available as jupyter notebooks in the github repository.
 
 .. toctree::
    :maxdepth: 1

@@ -15,4 +15,4 @@ conda activate pycce_env
 module load mpich/3.2
 
 export OMP_NUM_THREADS=1  
-mpirun python runner_t2.py thickness 0 2 4 6 8 10 12 14 -o 2 -s 0
+mpirun python nv_parallel.py order 1 2 3 4 -s 0
