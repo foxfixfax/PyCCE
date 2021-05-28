@@ -7,9 +7,9 @@ import scipy.sparse.csgraph
 from scipy.sparse import csr_matrix
 
 
-class Clusters(MutableMapping):
+class _Clusters(MutableMapping):
     """
-    NOT IMPLEMENTED YET Specific Class for storing the clusters objects
+    NOT IMPLEMENTED YET. Specific Class for storing the clusters objects
     """
 
     def __init__(self, ):
@@ -39,18 +39,19 @@ class Clusters(MutableMapping):
 
 def make_graph(bath, r_dipole, r_inner=0, ignore=None, max_size=5000):
     """
-    Make a connectivity matrix for bath spins
-    :param max_size: int
-        maximum size of the bath before less optimal (but less memory intensive) approach is used
-    :param bath: ndarray
-    ndarray of bath spins (should contain 'xyz' in dtype)
-    :param r_dipole: float
-        maximum connectivity distance
-    :param r_inner: float
-        minimum connectivity distance
-    :return: csr_matrix
-        connectivity matrix
+    Make a connectivity matrix for bath spins.
+    Args:
+        bath (BathArray): Array of bath spins.
+        r_dipole (float): Maximum connectivity distance.
+        r_inner (float): Minimum connectivity distance.
+        ignore (list or str, optional):
+            If not None, includes the names of bath spins which are ignored in the cluster generation.
+        max_size (int): Maximum size of the bath before less optimal (but less memory intensive) approach is used.
+
+    Returns:
+        crs_matrix: Connectivity matrix.
     """
+
     if bath.size < max_size:
         dist_matrix = np.linalg.norm(bath['xyz'][:, np.newaxis, :] - bath['xyz'][np.newaxis, :, :], axis=-1)
         atoms_within = np.logical_and(dist_matrix < r_dipole, dist_matrix > r_inner)
@@ -78,27 +79,32 @@ def make_graph(bath, r_dipole, r_inner=0, ignore=None, max_size=5000):
 
 # Import from connected components from scipy
 def connected_components(csgraph, directed=False, connection='weak', return_labels=True):
+    """
+    Find connected components using ``scipy.sparse.csgraph``.
+    See documentation of ``scipy.sparse.csgraph.connected_components``
+    """
     return scipy.sparse.csgraph.connected_components(csgraph, directed=directed, connection=connection,
                                                      return_labels=return_labels)
 
 
 def find_subclusters(maximum_order, graph, labels, n_components, strong=False):
     """
-    Find subclusters from connectivity matrix
-    :param maximum_order: int
-        Maximum size of the clusters to find
-    :param graph: csr_matrix
-        connectivity matrix
-    :param labels: ndarray
-        The length-N array of labels of the connected components.
-    :param n_components: int
-        The number of connected components
-    :param strong: bool
-        Whether to find only completely interconnected clusters (default False)
-    :return: dict
-        dict with keys corresponding to size of the cluster, and value corresponds to ndarray of shape (matrix, N),
-        matrix is the number of clusters of given size, N is the size of the cluster.
-        Each row contains indexes of the bath spins included in the given cluster
+    Find subclusters from connectivity matrix.
+
+    Args:
+        maximum_order (int):
+            Maximum size of the clusters to find.
+        graph (csr_matrix): Connectivity matrix.
+        labels (ndarray with shape (n,)): Array of labels of the connected components.
+        n_components (int): The number of connected components n.
+        strong (bool): Whether to find only completely interconnected clusters (default False).
+
+    Returns:
+        dict:
+            Dictionary with keys corresponding to size of the cluster,
+            and value corresponds to ndarray of shape (matrix, N).
+            Here matrix is the number of clusters of given size, N is the size of the cluster.
+            Each row contains indexes of the bath spins included in the given cluster.
     """
     # bool 1D array which is true when given element of graph corresponds to
     # cluster component
@@ -236,6 +242,26 @@ def find_subclusters(maximum_order, graph, labels, n_components, strong=False):
 
 
 def generate_clusters(bath, r_dipole, order, r_inner=0, ignore=None, strong=False):
+    """
+    Generate clusters for the bath spins.
+    Args:
+        bath (BathArray): Array of bath spins.
+        r_dipole (float): Maximum connectivity distance.
+        order (int): Maximum size of the clusters to find.
+
+        r_inner (float): Minimum connectivity distance.
+        ignore (list or str, optional):
+            If not None, includes the names of bath spins which are ignored in the cluster generation.
+
+        strong (bool): Whether to find only completely interconnected clusters (default False).
+
+    Returns:
+        dict:
+            Dictionary with keys corresponding to size of the cluster,
+            and value corresponds to ndarray of shape (matrix, N).
+            Here matrix is the number of clusters of given size, N is the size of the cluster.
+            Each row contains indexes of the bath spins included in the given cluster.
+    """
     graph = make_graph(bath, r_dipole, r_inner=r_inner, ignore=ignore, max_size=5000)
     n_components, labels = connected_components(csgraph=graph, directed=False, return_labels=True)
     clusters = find_subclusters(order, graph, labels, n_components, strong=strong)
@@ -251,6 +277,16 @@ def generate_clusters(bath, r_dipole, order, r_inner=0, ignore=None, strong=Fals
 
 
 def combine_clusters(cs1, cs2):
+    """
+    Combine two dictionaries with clusters.
+    Args:
+        cs1 (dict): First cluster dictionary with keys corresponding to size of the cluster,
+            and value corresponds to ndarray of shape (matrix, N).
+        cs2 (dict): Second cluster dictionary with the same structure.
+
+    Returns:
+        dict: Combined dictionary with unique clusters from both dictionaries.
+    """
     keys_1 = list(cs1.keys())
     keys_2 = list(cs2.keys())
     keys = {*keys_1, *keys_2}
@@ -268,12 +304,16 @@ def combine_clusters(cs1, cs2):
 
 def expand_clusters(sc):
     """
-    Expand dict with subclusters so each cluster include all possible additions of one more bath spin
-    :param sc: dict
-    initial clusters dictionary
-    :return: dict
-    dict of expanded clusters
+    Expand dict so each new cluster will include all possible additions of one more bath spin. This increases
+    maximum size of the cluster by one.
+
+    Args:
+        sc (dict): Initial clusters dictionary.
+
+    Returns:
+        dict: Dictionary with expanded clusters.
     """
+
     indexes = np.arange(sc[1].size, dtype=np.int32)
     comb = np.array([*combinations(indexes, 2)], dtype=np.int32)
 

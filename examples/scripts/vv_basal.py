@@ -2,6 +2,8 @@ import numpy as np
 import os
 import time
 import sys
+
+import pycce.utilities
 from parser import pcparser
 
 import pandas as pd
@@ -67,7 +69,7 @@ if __name__ == '__main__':
     sic.zdir = [0, 0, 1]
 
     # Rotation matrix for DFT supercell
-    R = pc.rotmatrix([0, 0, 1], sic.to_cartesian(vsi_cell - vc_cell))
+    R = pycce.utilities.rotmatrix([0, 0, 1], sic.to_cartesian(vsi_cell - vc_cell))
 
     sic.zdir = vsi_cell - vc_cell
 
@@ -103,6 +105,8 @@ if __name__ == '__main__':
 
     for v in arguments.values:
         # initiallize Simulator instance
+        calc_setup[arguments.param] = v
+
         calc = pc.Simulator(1, center, bath=atoms,
                             D=D, E=E, r_bath=calc_setup['rbath'],
                             external_bath=exatoms,

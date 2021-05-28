@@ -1,11 +1,22 @@
 
-CCE Simulator
+Running the simulations
 =========================
 
-Documentation for the main class
+Setting up the Simulator object
+--------------------------------------
+Documentation for the ``pycce.Simulator`` - main class for conducting CCE Simulations.
 
-.. automodule:: pycce.main
-   :members:
+.. autoclass:: pycce.main.Simulator
+   :members: set_magnetic_field, set_states, eigenstates, read_bath, generate_clusters
+   :inherited-members: Environment
+   :exclude-members: compute, cce_coherence, gcce_dm, cce_noise, gcce_noise
 
-.. automodule:: pycce.bath.array
-   :members:
+Calculate properties with Simulator
+-------------------------------------
+And here we talk stuff about simulating stuff.
+
+.. automethod:: pycce.main.Simulator.compute
+.. automethod:: pycce.main.Simulator.cce_coherence
+.. automethod:: pycce.main.Simulator.gcce_dm
+.. automethod:: pycce.main.Simulator.cce_noise
+.. automethod:: pycce.main.Simulator.gcce_noise

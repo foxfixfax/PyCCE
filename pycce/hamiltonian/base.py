@@ -1,8 +1,27 @@
+import numpy as np
 from pycce.utilities import *
 
+
 class Hamiltonian:
+    r"""
+    Class containing properties of the Hamiltonian.
+
+    Essentially wrapper for ndarray with additional attributes of ``dimensions`` and ``spins``.
+
+    Usual methods (e.g. ``__setitem__`` or ``__getitem__``) access the ``data`` attribute.
+
+    Args:
+        dimensions (array-like): array of the dimensions for each spin in the Hilbert space of the Hamiltonian.
+
+    Attributes:
+        dimensions (ndarray): array of the dimensions for each spin in the Hilbert space of the Hamiltonian.
+        spins (ndarray): array of the spins, spanning the Hilbert space of the Hamiltonian.
+        data (ndarray): matrix representation of the Hamiltonian.
+
+    """
+
     def __init__(self, dimensions):
-        self.dimensions = dimensions
+        self.dimensions = np.asarray(dimensions)
         self.spins = (dimensions - 1) / 2
         tdim = np.prod(dimensions)
         self.data = np.zeros((tdim, tdim), dtype=np.complex128)
@@ -21,8 +40,6 @@ class Hamiltonian:
             return getattr(self, item)
         else:
             return getattr(self.data, item)
-
-
 
     # def __iadd__(self, other):
     #     self.data.__iadd__(self, other)

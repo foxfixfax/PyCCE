@@ -28,7 +28,8 @@ def mkdir_p(dir):
 seed = 1
 
 # parameters of calcuations
-calc_param = {'magnetic_field': np.array([0., 0., 500.]), 'N': 1}
+calc_param = {'magnetic_field': np.array(
+    [0., 0., 500.]), 'N': 1, 'parallel': True}
 
 # position of central spin
 center = np.array([0, 0, 0])
@@ -36,7 +37,8 @@ center = np.array([0, 0, 0])
 alpha = np.array([0, 0, 1])
 beta = np.array([0, 1, 0])
 
-# A script to calculate ensemble average coherence for nv_center in diamond
+# A script to calculate coherence for one nuclear configuration
+# of nv_center in diamond using parallel impementation of pycce
 
 if __name__ == '__main__':
     # check how long the calculations was
@@ -54,7 +56,7 @@ if __name__ == '__main__':
     rank = comm.Get_rank()
 
     # Each configuration is determined by rng seed as a sum of seed + conf
-    conf = rank + arguments.start
+    conf = arguments.start
     # Set up BathCell
     diamond = bulk('C', 'diamond', cubic=True)
     diamond = pc.bath.BathCell.from_ase(diamond)
@@ -72,10 +74,13 @@ if __name__ == '__main__':
     ls = []
     # argument.values contains values of the varied parameter
     # arguments.param
+
+    fol = f'var_{arguments.param}'
+    mkdir_p(fol)
     for v in arguments.values:
+        # initiallize Simulator instance
         calc_setup[arguments.param] = v
 
-        # initiallize Simulator instance
         calc = pc.Simulator(1, center, alpha=alpha, beta=beta, bath=atoms,
                             r_bath=calc_setup['rbath'],
                             r_dipole=calc_setup['rdipole'],
@@ -87,28 +92,20 @@ if __name__ == '__main__':
 
     ls = np.asarray(ls)
 
-    if rank == 0:
-        average_ls = np.zeros(ls.shape, dtype=ls.dtype)
-    else:
-        average_ls = None
-
-    comm.Reduce(ls, average_ls)
-
-    average_ls /= comm.size
-
     etime = time.time()
 
-    print(f'Calculation of {len(arguments.values)} {arguments.param} took '
-          f'{etime - stime:.2f} s for configuration {conf}')
-
     if rank == 0:
-        df = pd.DataFrame(average_ls.T, columns=arguments.values,
+
+        print(f'Calculation of {len(arguments.values)} {arguments.param} took '
+              f'{etime - stime:.2f} s for configuration {conf}')
+
+        df = pd.DataFrame(ls.T, columns=arguments.values,
                           index=time_space)
 
         df.index.rename('Time', inplace=True)
 
         # write the calculation parameters into file
-        with open(f'{arguments.param}.csv', 'w') as file:
+        with open(os.path.join(fol, f'pyCCE_{conf}.csv'), 'w') as file:
             tw = ', '.join(f'{a} = {b}' for a, b in calc_setup.items())
             file.write('# ' + tw + '\n')
             df.to_csv(file)

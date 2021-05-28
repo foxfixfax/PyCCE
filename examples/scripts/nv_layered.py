@@ -1,4 +1,5 @@
 import numpy as np
+import pycce.utilities
 from mpi4py import MPI
 import os
 import time
@@ -69,7 +70,7 @@ if __name__ == '__main__':
     # distance between two unit cell along chosen growth axis
     length = np.linalg.norm(offset)
     # rotation matrix, necessary to transform z direction to offset
-    R = pc.bath.rotmatrix([0, 0, 1], offset)
+    R = pycce.utilities.rotmatrix([0, 0, 1], offset)
 
     atoms = diamond.gen_supercell(400, seed=seed + conf)
     # top layers of spin bath are obtained as the ones with coordinate >= 0

@@ -1,3 +1,6 @@
+"""
+Module with helper functions for obtaining CPMG coherence from the noise autocorrelation function.
+"""
 import numba
 import numpy as np
 import scipy.integrate
@@ -6,7 +9,7 @@ from numba.types import intc, CPointer, float64, int32
 from scipy import LowLevelCallable
 
 
-def jit_integrand_function(integrand_function):
+def _jit_integrand_function(integrand_function):
     jitted_function = numba.jit(integrand_function, nopython=True)
 
     @cfunc(float64(intc, CPointer(float64)))
@@ -18,7 +21,7 @@ def jit_integrand_function(integrand_function):
 
 
 @cfunc(float64(float64, float64, float64))
-def yfunc(x, tau, npulses):
+def _yfunc(x, tau, npulses):
     delay = tau / 2 / npulses
     pulses_passed = (x // delay + 1) // 2
 
@@ -28,13 +31,23 @@ def yfunc(x, tau, npulses):
         return -1
 
 
-@jit_integrand_function
-def integrand(args):
+@_jit_integrand_function
+def _integrand(args):
     v, u, tau, np = args[0], args[1], args[2], args[3]
-    return yfunc((v + u) / 2, tau, np) * yfunc((v - u) / 2, tau, np)
+    return _yfunc((v + u) / 2, tau, np) * _yfunc((v - u) / 2, tau, np)
 
 
 def filterfunc(ts, tau, npulses):
+    """
+    Time-domain filter function for the given CPMG sequence.
+    Args:
+        ts (ndarray with shape (n,)): Time points at which filter function will be computed.
+        tau (float): Delay between pulses.
+        npulses (int): Number of pulses in CPMG sequence.
+
+    Returns:
+        ndarray with shape (n,): Filter function for the given CPMG sequence
+    """
     fs = np.empty(ts.shape)
     ks = np.empty(npulses) * 2
     ks[:npulses] = np.arange(npulses)
@@ -47,26 +60,30 @@ def filterfunc(ts, tau, npulses):
         bad_points = np.unique(bad_points[(bad_points > u) & (bad_points < 2 * tau - u)])
 
         if bad_points.size == 0:
-            fs[i] = scipy.integrate.quad(integrand, u, 2 * tau - u, args=(u, tau, npulses))[0]
+            fs[i] = scipy.integrate.quad(_integrand, u, 2 * tau - u, args=(u, tau, npulses))[0]
 
         else:
-            fs[i] = scipy.integrate.quad(integrand, u, bad_points[0], args=(u, tau, npulses))[0]
+            fs[i] = scipy.integrate.quad(_integrand, u, bad_points[0], args=(u, tau, npulses))[0]
 
             for j in range(1, bad_points.size):
-                fs[i] += scipy.integrate.quad(integrand, bad_points[j - 1], bad_points[j],
+                fs[i] += scipy.integrate.quad(_integrand, bad_points[j - 1], bad_points[j],
                                               args=(u, tau, npulses))[0]
 
-            fs[i] += scipy.integrate.quad(integrand, bad_points[-1], 2 * tau - u, args=(u, tau, npulses))[0]
+            fs[i] += scipy.integrate.quad(_integrand, bad_points[-1], 2 * tau - u, args=(u, tau, npulses))[0]
 
     return fs
+
 
 def gaussian_phase(timespace, corr, npulses):
     """
     Compute average random phase squared assuming Gaussian noise.
-    :param timespace: Time points at which correlation function was computed
-    :param corr: noise autocorrelation function
-    :param npulses: number of pulses in CPMG sequence
-    :return: random phase accumulated by the qubit
+    Args:
+        timespace (ndarray with shape (n,)): Time points at which correlation function was computed.
+        corr (ndarray with shape (n,)): Noise autocorrelation function.
+        npulses (int): Number of pulses in CPMG sequence.
+
+    Returns:
+        ndarray with shape (n,): Random phase accumulated by the qubit.
     """
     timespace = np.asarray(timespace)
     chis = np.zeros(timespace.shape)

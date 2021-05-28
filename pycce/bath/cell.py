@@ -2,43 +2,72 @@ import sys
 from string import digits
 
 import numpy as np
+from pycce.utilities import rotmatrix
 
 from .array import BathArray
+from .conc import common_concentrations
 
 err_range = 0.1
 FLOAT_ERROR_RANGE = 1e-10
 
 
 class BathCell:
-    """
-    Generator of the ndarray of bath spins
-    Parameters
-    ____________
-        :param a: float
-            a parameter of the primitive cell
-        :param b: float
-            b parameter of the primitive cell
-        :param c: float
-            c parameter of the primitive cell
-        :param alpha: float
-            state angle of the primitive cell
-        :param beta: float
-            beta angle of the primitive cell
-        :param gamma: float
-            gamma angle of the primitive cell
-        :param angle: str
-            units of the state, beta, gamma angles ['rad', 'deg']
+    r"""
+    Generator of the bath spins positions from the unit cell of the material.
 
+    Args:
+        a (float): `a` parameter of the primitive cell.
+        b (float): `b` parameter of the primitive cell.
+        c (float): `c` parameter of the primitive cell.
+        alpha (float): :math:`\alpha` angle of the primitive cell.
+        beta (float): :math:`\beta` angle of the primitive cell.
+        gamma (float): :math:`\gamma` angle of the primitive cell.
+        angle (str): units of the :math:`\alpha`, :math:`\beta`, :math:`\gamma` angles.
+            Can be either radians (``'rad'``), or degrees (``'deg'``).
+        cell (ndarray with shape (3, 3)): Parameters of the cell.
+
+            ``cell`` is 3x3 matrix with columns of coordinates of crystallographic vectors
+            in the cartesian reference frame. See ``cell`` attribute.
+
+            If provided, overrides `a`, `b`, and `c`.
+
+    Attributes:
+
+        cell (ndarray with shape (3, 3)): Parameters of the cell.
+            ``cell`` is 3x3 matrix with entries:
+
+            .. math::
+
+                [&[a_x\ b_x\ c_x]\\
+                &[a_y\ b_y\ c_y]\\
+                &[a_z\ b_z\ c_z]]
+
+            where a, b, c are crystallographic vectors
+            and x, y, z are their coordinates in the cartesian reference frame.
+
+        atoms (dict): Dictionary containing coordinates and occupancy of each lattice site::
+
+                {atom_1: [array([x1, y1, z1]), array([x2, y2, z2])],
+                 atom_2: [array([x3, y3, z3]), ...]}
+
+        isotopes (dict):
+            Dictionary containing spin types and their concentration for each lattice site type::
+
+                {atom_1: {spin_1: concentration, spin_2: concentration},
+                 atom_2: {spin_3: concentration ...}}
+
+            where ``atom_i`` are lattice site types, and ``spin_i`` are spin types.
     """
+
     _conv = {'rad': 1, 'deg': 2 * np.pi / 360}
     _coord_types = ['angstrom', 'cell']
 
-    def __init__(self, a=1, b=None, c=None,
+    def __init__(self, a=None, b=None, c=None,
                  alpha=None, beta=None, gamma=None,
                  angle='rad', cell=None):
 
         if angle not in self._conv:
-            raise KeyError('Only angle available are: ' +
+            raise KeyError('Only angle available are: '
                            ', '.join(self._conv.keys()))
 
         if alpha is None:
@@ -97,7 +126,7 @@ class BathCell:
     @property
     def zdir(self):
         """
-        z-direction of the cell (in cell coordinates)
+        ndarray: z-direction of the reference cartesian coordinate frame in cell coordinates.
         """
         return self._zdir
 
@@ -113,18 +142,18 @@ class BathCell:
         # Rotational matrix
         # If z direction is opposite
         if abs(a @ b + 1) < FLOAT_ERROR_RANGE:
-            R = np.array([[0, 1, 0],
-                          [1, 0, 0],
-                          [0, 0, -1]])
+            rotation = np.array([[0, 1, 0],
+                                 [1, 0, 0],
+                                 [0, 0, -1]])
 
         elif abs(a @ b - 1) < FLOAT_ERROR_RANGE:
-            R = np.eye(3)
+            rotation = np.eye(3)
 
         else:
             # a -> b
-            R = rotmatrix(a, b)
+            rotation = rotmatrix(a, b)
 
-        self.cell = np.linalg.inv(R) @ self.cell
+        self.cell = np.linalg.inv(rotation) @ self.cell
 
         # R =  [n_1^(1) n_1^(2) n_1^(3)]
         #      [n_2^(1) n_2^(2) n_2^(3)]
@@ -137,32 +166,63 @@ class BathCell:
         # basis in the old basis.
 
     def set_zdir(self, direction, type='cell'):
+        """
+        Set z-direction of the cell.
+
+        Args:
+            direction (ndarray with shape (3,)): Direction of the z axis.
+
+            type (str): How coordinates in ``direction`` are stored. If ``type="cell"``,
+                assumes crystallographic coordinates. If ``type="angstrom"`` assumes that z direction is given
+                in the cartresian reference frame.
+
+        """
         if type == 'cell':
             direction = np.asarray(direction)
         elif type == 'angstrom':
-            direction = np.linalg.inv(self.cell) @ np.asarray(direction)
+            direction = self.to_cell(np.asarray(direction))
+        else:
+            raise ValueError('Unknown direction type.')
         self.zdir = direction
 
     def add_atoms(self, *args, type='cell'):
         """
-        add coordinates of bath to the primitive cell
-        :param args: tuples
-            tuples, each containing the type of atom N (str),
-            and the xyz coordinates (float, float, float):
-            (N, x, y, z)
-        :param type: str
-            type of coordinates ['cell', 'angstrom']
-        :return: dict
+        Add coordinates of the lattice sites to the unit cell.
+
+        Args:
+            *args (tuple): List of tuples, each containing the type of atom N (*str*),
+                and the xyz coordinates in the format (*float, float, float*): ``(N, [x, y, z])``.
+
+            type (str): Type of coordinates. Can take values of ``['cell', 'angstrom']``.
+
+                If ``type="cell"``, assumes crystallographic coordinates.
+
+                If ``type="angstrom"`` assumes that coordinates are given in the cartresian reference frame.
+
+        Returns:
+
+            dict:
+                View of ``cell.atoms`` dictionary, where each key is the type of lattice site, and each value
+                is the list of coordinates in crystallographic frame.
+
+        Examples:
+
+            >>> cell = BathCell(10)
+            >>> cell.add_atoms(('C', [0, 0, 0]), ('C', [5, 5, 5]), type='angstrom')
+            >>> cell.add_atoms(('Si', [0, 0.5, 0.]), type='cell')
+            >>> print(cell.atoms)
+            {'C': [array([0., 0., 0.]), array([0.5, 0.5, 0.5])], 'Si': [array([0. , 0.5, 0. ])]}
 
         """
-        if not type in self._coord_types:
-            raise ValueError('Unsupported coordinates type. Supported:',
-                             '\n'.join(str(x) for x in self._coord_types))
+
         for tup in args:
             if type == 'cell':
                 coord = np.asarray(tup[1])
             elif type == 'angstrom':
-                coord = np.linalg.inv(self.cell) @ np.asarray(tup[1])
+                coord = self.to_cell(tup[1])
+            else:
+                raise ValueError('Unknown coordinates type.Supported:'
+                                 '\n'.join(str(x) for x in self._coord_types))
             if tup[0] in self.atoms:
                 self.atoms[tup[0]].append(coord)
             else:
@@ -172,40 +232,114 @@ class BathCell:
 
     def add_isotopes(self, *args):
         """
-        add isotope types for each of the atom types. Isotopes should have name
-        '{}{}'.format(digits, atomname)
-        :param args: list
-            list of tuples each containing the name of the isotope and it's concentration
-            (isotope_name, concentration)
-            sum of the concentrations for the given atom type should be less or equal to 1
-        :return: dict
+        Add spins that can populate each lattice site type.
+
+        Args:
+
+            *args (tuple or list of tuples): Each tuple can have any of the following formats:
+
+                * Name of the lattice site `N` (`str`), name of the spin `X` (`str`),
+                  concentration `c` (`float`, in decimal): ``(N, X, c)``.
+
+                * Isotope name `X and concentration `c`: ``(X, c)``.
+
+                  In this case, the name of the isotope is given in the format
+                  ``"{}{}".format(digits, atom_name)`` where ``digits`` is any set of digits 0-9,
+                  ``atom_name`` is the name of the corresponding lattice site.
+                  Convenient when generating nuclear spin bath.
+
+        Returns:
+            dict:
+                View of ``cell.isotopes`` dictionary which contains information about lattice site types, spin types,
+                and their concentrations::
+
+                    {atom_1: {spin_1: concentration, spin_2: concentration},
+                     atom_2: {spin_3: concentration ...}}
+
+        Examples:
+
+            >>> cell = BathCell(10)
+            >>> cell.add_atoms(('C', [0, 0, 0]), ('C', [5, 5, 5]), type='angstrom')
+            >>> cell.add_isotopes(('C', 'X', 0.001), ('13C', 0.0107))
+            >>> print(cell.isotopes)
+            {'C': {'X': 0.001, '13C': 0.0107}}
+
         """
+
         remove_digits = str.maketrans('', '', digits)
 
         for tup in args:
-            isotope_name = tup[0]
-            atom_name = isotope_name.translate(remove_digits)
+            try:
 
-            if atom_name in self.isotopes:
-                self.isotopes[atom_name][isotope_name] = tup[1]
-            else:
-                self.isotopes[atom_name] = {isotope_name: tup[1]}
+                atom_name = tup[0]
+                isotope_name = tup[1]
+                concentration = tup[2]
+
+                if atom_name in self.isotopes:
+                    self.isotopes[atom_name][isotope_name] = concentration
+
+                else:
+                    self.isotopes[atom_name] = {isotope_name: concentration}
+
+            except IndexError:
+
+                isotope_name = tup[0]
+                concentration = tup[1]
+                atom_name = isotope_name.translate(remove_digits)
+
+                if atom_name in self.isotopes:
+                    self.isotopes[atom_name][isotope_name] = concentration
+                else:
+                    self.isotopes[atom_name] = {isotope_name: concentration}
+
         return self.isotopes
 
     def gen_supercell(self, size, add=None, remove=None, seed=None):
         """
-        generate supercell with nuclear spins
-        :param size: float
-            approximate linear size of the supercell. The generated supercell will have
-            minimal distance betweel edges larger than this parameter
-        :param add: list
-            which bath to add in the defect (see pyCCE.bath.defect for details)
-        :param remove: list
-            which bath to remove in the defect (see pyCCE.bath.defect for details)
-        :param seed: int
-            seed for RNG
-        :return: ndarray
+        Generate supercell populated with spins.
+
+        .. note::
+
+            If ``isotopes`` were not provided, assumes the natural concentration of nuclear spin isotopes for each
+            lattice site type. However, if any isotope concentration is provided,
+            then uses only user-defined ones.
+
+        Args:
+            size (float): Approximate linear size of the supercell. The generated supercell will have
+                minimal distance between opposite sides larger than this parameter.
+
+            add (tuple or list of tuples):
+                Tuple or list of tuples containing common_isotopes to add as a defect.
+                Each tuple contains name of the new isotope
+                and its coordinates in the cell basis: ``(isotope_name, x_cell, y_cell, z_cell)``.
+
+            remove (tuple or list of tuples):
+                Tuple or list of tuples containing bath to remove in the defect.
+                Each tuple contains name of the atom to remove
+                and its coordinates in the cell basis: ``(atom_name, x_cell, y_cell, z_cell)``.
+
+            seed (int): Seed for random number generator.
+
+        .. note::
+
+            While ``add`` takes the **spin** name as an argument, ``remove`` takes the lattice site name.
+
+        Returns:
+            BathArray: Array of the spins in the given supercell.
         """
+        if not self.isotopes:
+            isotopes = {}
+
+            for a in self.atoms:
+
+                try:
+                    isotopes[a] = common_concentrations[a]
+                except KeyError:
+                    pass
+
+        else:
+            isotopes = self.isotopes
+
         rgen = np.random.default_rng(seed)
 
         axb = np.cross(self.cell[:, 0], self.cell[:, 1])
@@ -220,7 +354,7 @@ class BathCell:
         dt = np.dtype([('N', np.unicode_, 16), ('xyz', np.float64, (3,))])
         atoms = []
 
-        for a in self.isotopes:
+        for a in isotopes:
             nsites = len(self.atoms[a])
             # print(nsites)
             sites_xyz = np.asarray(self.atoms[a]) @ self.cell.T
@@ -234,8 +368,8 @@ class BathCell:
             atom_seedsites = np.arange(natoms, dtype=np.int32)
             mask = np.zeros(natoms, dtype=bool)
 
-            for i in self.isotopes[a]:
-                conc = self.isotopes[a][i]
+            for i in isotopes[a]:
+                conc = isotopes[a][i]
                 nisotopes = int(round(natoms * conc))
                 seedsites = rgen.choice(atom_seedsites[~mask],
                                         nisotopes, replace=False,
@@ -273,55 +407,125 @@ class BathCell:
 
     def to_cartesian(self, coord):
         """
-        transform coordinates from cell to cartesians
-        :param coord: ndarray with shape (3,)
-            coordinates in the cell basis
-        :return: ndarray
+        Transform coordinates from crystallographic basis to the cartesian reference frame.
+
+        Args:
+            coord (ndarray with shape (3,) or (n, 3)): Coordinates in crystallographic basis or array of coordinates.
+
+        Returns:
+            ndarray with shape (3,) or (n, 3): Cartesian coordinates in angstrom.
+        """
+
+        coord = np.asarray(coord)
+        if len(coord.shape) == 1:
+            return self.cell @ coord
+
+        elif len(coord.shape) == 2:
+            return np.einsum('jk,ik->ij', self.cell, coord)
+        else:
+            raise ValueError('Improper coordinates format')
+
+    def to_cell(self, coord):
+        """
+        Transform coordinates from the cartesian coordinates of the reference frame to the cell coordinates.
+
+        Args:
+            coord (ndarray with shape (3,) or (n, 3)): Cartesian coordinates in angstrom or array of coordinates.
+
+        Returns:
+            ndarray with shape (3,) or (n, 3): Coordinates in the cell basis.
 
         """
-        return self.cell @ np.asarray(coord)
+        coord = np.asarray(coord)
+
+        if len(coord.shape) == 1:
+            return np.linalg.inv(self.cell) @ coord
+
+        elif len(coord.shape) == 2:
+            return np.einsum('jk,ik->ij', np.linalg.inv(self.cell), coord)
+        else:
+            raise ValueError('Improper coordinates format')
 
     @classmethod
     def from_ase(cls, atoms_object):
         """
-        generate NSpinCell object from ase Atoms object
-        :param atoms_object: Atoms
-            ase Atoms object
-        :return: NSpinCell
+        Generate ``BathCell`` instance from ``ase.Atoms`` object of Atomic Simulations Environment (ASE) package.
+
+        Args:
+            atoms_object (Atoms): Atoms object, used to generate new ``BathCell`` instance.
+
+        Returns:
+            BathCell: New instance of the ``BathCell`` with atoms read from ``ase.Atoms``.
         """
-        nspin_cell = cls()
-        nspin_cell.cell = atoms_object.cell[:].T
+
+        spin_cell = cls(cell=atoms_object.cell[:].T)
         positions = atoms_object.get_scaled_positions(wrap=True)
         symbols = atoms_object.get_chemical_symbols()
 
-        zdr = np.linalg.inv(nspin_cell.cell) @ np.array([0, 0, 1])
+        zdr = np.linalg.inv(spin_cell.cell) @ np.array([0, 0, 1])
+
         zdr = zdr / np.linalg.norm(zdr)
-        nspin_cell._zdir = zdr
+
+        spin_cell._zdir = zdr
+
         for s in symbols:
-            nspin_cell.atoms[s] = []
+            spin_cell.atoms[s] = []
+
         for sym, pos in zip(symbols, positions):
-            nspin_cell.atoms[sym].append(pos)
-        return nspin_cell
+            spin_cell.atoms[sym].append(pos)
+
+        return spin_cell
+
+    def __repr__(self):
+        m = f"{type(self).__name__} containing:\n"
+        na = 0
+        for k in self.atoms:
+            na += 1
+            m += f"{len(self.atoms[k])} positions for {k}"
+            try:
+                im = ' with'
+                for ik in self.isotopes[k]:
+                    im += f" {ik}: {self.isotopes[k][ik]}"
+                im += '.\n'
+            except KeyError:
+                im = ".\n"
+            m += im
+        if not na:
+            m += "No atomic positions.\n"
+
+        m += f"\nCell:\n{self.cell}\n"
+        m += f"\nz-direction: {self.zdir}\n"
+
+        return m
 
 
 def defect(cell, atoms, add=None, remove=None):
     """
-    generate a defect in the given supercell. the defect will be located in the elementary cell, located roughly
-    in the middle of the supercell, generated by NSpinCell and near (0, 0, 0) cartesian coordinate
-    :param cell: ndarray with shape (3, 3)
-        coordinates of the elementary cell
-    :param atoms: ndarray
-        bath in the supercell
-    :param add: list
-        list of tuples containing common_isotopes to add as a defect. Each tuple contains name of the new isotope
-        and its coordinates in the cell basis:
-        (isotope_name, x_cell, y_cell, z_cell)
-    :param remove:
-        list of tuples containing bath to remove in the defect. Each tuple contains name of the atom to remove
-        and its coordinates in the cell basis:
-        (atom_name, x_cell, y_cell, z_cell)
-    :return: ndarray
+    Generate a defect in the given supercell.
+
+    The defect will be located in the unit cell, located roughly
+    in the middle of the supercell, generated by ``BathCell``, such that (0, 0, 0) of cartesian reference frame
+    is located at (0, 0, 0) position of this unit cell.
+
+    Args:
+        cell (ndarray with shape (3, 3)): parameters of the unit cell.
+
+        atoms (BathArray): Array of spins in the supercell.
+
+        add (tuple or list of tuples):
+            Add spin type(s) to the supercell at specified positions to create point defect.
+            Each tuple contains name of the new isotope
+            and its coordinates in the cell basis: ``(isotope_name, x_cell, y_cell, z_cell)``.
+
+        remove (tuple or list of tuples):
+            Remove lattice site from the supercell at specified position to create point defect.
+            Each tuple contains name of the atom to remove
+            and its coordinates in the cell basis: ``(atom_name, x_cell, y_cell, z_cell)``.
+
+    Returns:
+        BathArray: Array of spins with the defect added.
     """
+
     defective_atoms = atoms.copy()
     dt = atoms.dtype
 
@@ -385,30 +589,3 @@ def defect(cell, atoms, add=None, remove=None):
         defective_atoms = np.append(defective_atoms, newlist)
 
     return defective_atoms
-
-
-def rotmatrix(initial_vector, final_vector):
-    """
-    Generate 3D rotation matrix which applied on initial vector will produce final vector
-    :param initial_vector: ndarray with shape(3,)
-    initial vector
-    :param final_vector: ndarray with shape (3,)
-    final vector
-    :return: ndarray with shape (3,3)
-    rotation matrix
-    """
-    iv = np.asarray(initial_vector)
-    fv = np.asarray(final_vector)
-    a = iv / np.linalg.norm(iv)
-    b = fv / np.linalg.norm(fv)  # Final vector
-
-    c = a @ b  # Cosine between vectors
-    # if they're antiparallel
-    if c == -1.:
-        raise ValueError('Vectors are antiparallel')
-
-    v = np.cross(a, b)
-    screw_v = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
-    r = np.eye(3) + screw_v + np.dot(screw_v, screw_v) / (1 + c)
-
-    return r

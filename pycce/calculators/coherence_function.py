@@ -1,24 +1,38 @@
 import numpy as np
-
+import numpy.ma as ma
 from pycce.cluster_expansion import cluster_expansion_decorator
 from pycce.hamiltonian import projected_hamiltonian
-from .density_matrix import gen_density_matrix
+
+from .density_matrix import gen_density_matrix, generate_bath_state
 
 
 def propagators(timespace, H0, H1, N, as_delay=False):
     """
-    Function to compute propagators U0 and U1 in conventional CCE
-    :param timespace: ndarray
-        Time delay values at which to compute propagators
-    :param H0: ndarray
-        Hamiltonian projected on state qubit state
-    :param H1: ndarray
-        Hamiltonian projected on beta qubit state
-    :param N: int
-        number of pulses in CPMG
-    :return: U0, U1
+    Function to compute propagators U0 and U1 in conventional CCE.
+
+    Args:
+        timespace (ndarray with shape (t, )): Time delay values at which to compute propagators.
+
+        H0 (ndarray with shape (2s+1, 2s+1)): Hamiltonian projected on alpha qubit state.
+
+        H1 (ndarray with shape (2s+1, 2s+1)): Hamiltonian projected on beta qubit state.
+
+        N (int): number of pulses in CPMG.
+
+        as_delay (bool):
+            True if time points are delay between pulses.
+            False if time points are total time.
+
+    Returns:
+        tuple: *tuple* containing:
+
+            * **ndarray with shape (t, 2s+1, 2s+1)**:
+              Matrix representation of the propagator conditioned on the alpha qubit state for each time point.
+            * **ndarray with shape (t, 2s+1, 2s+1)**:
+              Matrix representation of the propagator conditioned on the beta qubit state for each time point.
+
     """
-    if not as_delay and N > 0:
+    if not as_delay and N:
         timespace = timespace / (2 * N)
 
     eval0, evec0 = np.linalg.eigh(H0)
@@ -37,7 +51,7 @@ def propagators(timespace, H0, H1, N, as_delay=False):
                              dtype=np.complex128),
                    evec1.conj().T, dtype=np.complex128)
 
-    if N == 0:
+    if not N:
         return v0, v1
 
     V0_HE = np.matmul(v0, v1, dtype=np.complex128)
@@ -61,19 +75,22 @@ def propagators(timespace, H0, H1, N, as_delay=False):
 
 def compute_coherence(H0, H1, timespace, N, as_delay=False, states=None):
     """
-    Function to compute cluster coherence function in conventional CCE
-    :param H0: ndarray
-        Hamiltonian projected on state qubit state
-    :param H1: ndarray
-        Hamiltonian projected on beta qubit state
-    :param timespace: ndarray
-        Time points at which to compute coherence function
-    :param N: int
-        number of pulses in CPMG
-    :param as_delay: bool
-        True if time points are delay between pulses,
-        False if time points are total time
-    :return: coherence_function
+    Function to compute cluster coherence function in conventional CCE.
+
+    Args:
+        H0 (ndarray): Hamiltonian projected on alpha qubit state.
+        H1 (ndarray): Hamiltonian projected on beta qubit state.
+        timespace (ndarray): Time points at which to compute coherence function.
+        N (int): Number of pulses in CPMG.
+        as_delay (bool):
+            True if time points are delay between pulses,
+            False if time points are total time.
+        states (ndarray): ndarray of bath states in any accepted format.
+
+    Returns:
+        coherence_function (ndarray):
+            Coherence function of the central spin.
+
     """
     # if timespace was given not as delay between pulses,
     # divide to obtain the delay
@@ -96,23 +113,45 @@ def compute_coherence(H0, H1, timespace, N, as_delay=False, states=None):
 
 @cluster_expansion_decorator
 def decorated_coherence_function(cluster, allspin, projections_alpha, projections_beta, magnetic_field, timespace, N,
-                                 as_delay=False, states=None, projected_states=None, imap=None, map_error=None):
+                                 as_delay=False, states=None, projected_states=None, imap=None, map_error=None,
+                                 **kwargs):
     """
-        Overarching decorated function to compute L in conventional CCE. The call of the function includes:
-    :param subclusters: dict
-        dict of subclusters included in different CCE order
-        of structure {int order: np.array([[i,j],[i,j]])}
-    :param allnspin: ndarray
-        array of all bath
-    :param projections_alpha: ndarray
-        ndarray containing projections of state state [<Sx>, <Sy>, <Sz>]
-    :param projections_beta: ndarray
-        ndarray containing projections of beta state [<Sx>, <Sy>, <Sz>]
-    :param magnetic_field: Magnetic field of type mfield = np.array([Bx, By, Bz])
-    :param timespace: Time points at which to compute coherence
-    :param N: number of pulses in CPMG
-    :param as_delay: True if time points are delay between pulses, False if time points are total time
-    :return: L computed with conventional CCE
+    Overarching decorated function to compute coherence function in conventional CCE.
+
+    Args:
+        cluster (dict):
+            clusters included in different CCE orders of structure ``{int order: ndarray([[i,j],[i,j]])}``.
+        allspin (BathArray):
+            array of all bath spins
+        projections_alpha (ndarray):
+            ndarray containing projections of alpha state
+            :math:`[\braket{\hat{S}_x}, \braket{\hat{S}_y}, \braket{\hat{S}_z}]`.
+        projections_beta (ndarray):
+            ndarray containing projections of beta state
+            :math:`[\braket{\hat{S}_x}, \braket{\hat{S}_y}, \braket{\hat{S}_z}]`.
+        magnetic_field (ndarray):
+            Magnetic field of type ``mfield = np.array([Bx, By, Bz])``.
+        timespace (ndarray):
+            Time points at which to compute coherence.
+        N (int):
+            number of pulses in CPMG sequence.
+        as_delay (bool):
+            True if time points are delay between pulses, False if time points are total time.
+        states (list):
+            list of bath states in any accepted format.
+        projected_states (ndarray): ndarray of ``shape = len(allspin)``
+            containing z-projections of the bath spins states.
+        imap (InteractionMap):
+            Optional. Instance of InteractionMap
+            which contains interaction tensors between bath spins.
+        map_error (bool):
+            True if treat absence of the interaction between bath spins in imap as an error.
+            False if not.
+        **kwargs (any): Additional arguments for projected_hamiltonian.
+
+    Returns:
+        coherence_function (ndarray):
+            Coherence function of the central spin.
     """
     nspin = allspin[cluster]
 
@@ -133,7 +172,126 @@ def decorated_coherence_function(cluster, allspin, projections_alpha, projection
 
     H0, H1 = projected_hamiltonian(nspin, projections_alpha, projections_beta, magnetic_field,
                                    imap=imap, map_error=map_error, others=others,
-                                   other_states=other_states)
+                                   other_states=other_states, **kwargs)
 
     coherence = compute_coherence(H0, H1, timespace, N, as_delay=as_delay, states=states)
     return coherence
+
+
+def monte_carlo_coherence(cluster, allspin, projections_alpha, projections_beta, magnetic_field, timespace, N,
+                          as_delay=False, imap=None,
+                          nbstates=100, seed=None, masked=True,
+                          parallel_states=False,
+                          fixstates=None, direct=False, parallel=False,
+                          **kwargs):
+    """
+    Compute coherence of the central spin using conventional CCE with Monte-Carlo bath state sampling.
+
+    Args:
+        cluster (dict):
+            clusters included in different CCE orders of structure ``{int order: ndarray([[i,j],[i,j]])}``.
+        allspin (BathArray):
+            array of all bath spins.
+        projections_alpha (ndarray):
+            ndarray containing projections of alpha state
+            :math:`[\braket{\hat{S}_x}, \braket{\hat{S}_y}, \braket{\hat{S}_z}]`.
+        projections_beta (ndarray):
+            ndarray containing projections of beta state
+            :math:`[\braket{\hat{S}_x}, \braket{\hat{S}_y}, \braket{\hat{S}_z}]`.
+        magnetic_field (ndarray):
+            Magnetic field of type ``mfield = np.array([Bx, By, Bz])``.
+        timespace (ndarray):
+            Time points at which to compute coherence.
+        N (int):
+            number of pulses in CPMG sequence.
+        as_delay (bool):
+            True if time points are delay between pulses, False if time points are total time.
+        nbstates (int):
+            Number of random bath states to sample.
+        seed (int):
+            Seed for the RNG.
+        masked (bool):
+            True if mask numerically unstable points (with coherence > 1) in the averaging over bath states
+            False if not. Default True.
+        parallel_states (bool):
+            True if use MPI to parallelize the calculations of density matrix
+            for each random bath state.
+        fixstates (dict):
+            dict of which bath states to fix. Each key is the index of bath spin,
+            value - fixed :math:`\hat{I}_z` projection of the mixed state of bath spin.
+        direct (bool):
+            True if use the direct approach in cluster expansion
+        parallel (bool):
+            True if use MPI for parallel computing of the cluster contributions.
+        **kwargs (any):
+            Additional keyword arguments for the projected_hamiltonian.
+
+    Returns:
+        coherence_function (ndarray):
+            coherence function of the central spin
+    """
+    if parallel_states:
+        try:
+            from mpi4py import MPI
+
+            comm = MPI.COMM_WORLD
+
+            size = comm.Get_size()
+            rank = comm.Get_rank()
+
+            remainder = nbstates % size
+            add = int(rank < remainder)
+            nbstates = nbstates // size + add
+
+            if seed:
+                seed = seed + rank
+
+        except ImportError:
+            print('Parallel failed: mpi4py is not found. Running serial')
+            parallel_states = False
+            rank = 0
+
+    else:
+        rank = 0
+
+    if masked:
+        divider = np.zeros(timespace.shape, dtype=np.int32)
+    else:
+        divider = nbstates
+
+    average = np.zeros(timespace.size, dtype=np.complex128)
+
+    for bath_state in generate_bath_state(allspin, nbstates, seed=seed, fixstates=fixstates, parallel=parallel):
+        coherence = decorated_coherence_function(cluster, allspin, projections_alpha, projections_beta,
+                                                 magnetic_field, timespace, N, as_delay=as_delay, states=bath_state,
+                                                 projected_states=bath_state,
+                                                 parallel=parallel, direct=direct, imap=imap, **kwargs)
+        if masked:
+            proper = np.abs(coherence) <= np.abs(coherence[0])
+            divider += proper.astype(np.int32)
+            coherence[~proper] = 0.
+
+        average += coherence
+
+    if parallel_states:
+        root_result = np.array(np.zeros(average.shape), dtype=np.complex128)
+        comm.Reduce(average, root_result, MPI.SUM, root=0)
+        if masked:
+            root_divider = np.zeros(divider.shape, dtype=np.int32)
+            comm.Reduce(divider, root_divider, MPI.SUM, root=0)
+        else:
+            root_result = divider
+    else:
+        root_result = average
+        root_divider = divider
+
+    if rank == 0:
+        root_result = ma.array(root_result, fill_value=0j, dtype=np.complex128)
+
+        if masked:
+            root_result[root_divider == 0] = ma.masked
+        root_result /= root_divider
+
+        return root_result
+    else:
+        return

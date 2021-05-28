@@ -2,8 +2,8 @@ import warnings
 
 import numpy as np
 from numba import jit
-
-from ..units import BOHR_TO_ANGSTROM, HBAR, ELECTRON_GYRO
+from .array import BathArray
+from ..constants import BOHR_TO_ANGSTROM, HBAR, ELECTRON_GYRO
 
 # Copied from ASE
 chemical_symbols = [
@@ -34,14 +34,23 @@ chemical_symbols = [
 
 
 class Cube:
+
     """
-    Class for the processing of .cube datafiles with polarization
+    Class to process the .cube datafiles with spin polarization.
 
-    Parameters
-    ------------
-        :param filename: str
-            name of the .cube file
+    Args:
+        filename (str): Name of the .cube file.
 
+    Attributes:
+        comments (str): First two lines of the .cube file.
+        origin (ndarray with shape (3,)): Coordinates of the origin in angstrom.
+        voxel (ndarray with shape (3,3)): Parameters of the voxel - unit of the 3D grid in angstrom.
+        size (ndarray with shape (3,)): Size of the cube.
+        atoms (BathArray with shape (n)): Array of atoms in the cube.
+        data (ndarray with shape (size[0], size[1], size[2]): Data stored in cube.
+        grid (ndarray with shape (size[0], size[1], size[2], 3): Coordinates of the points at which data is computed.
+        integral (float): Data integrated over cube.
+        spin (float): integral / 2 - total spin.
     """
     _dt = np.dtype([('N', np.unicode_, 16), ('xyz', np.float64, (3,))])
 
@@ -55,12 +64,11 @@ class Cube:
             tot = next(content).split()
             natoms = int(tot[0])
 
-            self.origin = np.array([float(x) for x in tot[1:]])
+            self.origin = np.array([float(x) for x in tot[1:]]) * BOHR_TO_ANGSTROM
             self.voxel = np.empty([3, 3], dtype=np.float64)
             self.size = np.empty(3, dtype=np.int32)
 
-            self.atoms = np.empty(natoms, dtype=self._dt)
-
+            self.atoms = BathArray((natoms,))
 
             for i in range(3):
                 tot = next(content).split()
@@ -74,8 +82,8 @@ class Cube:
 
             for j in range(natoms):
                 tot = next(content).split()
-
-                self.atoms[j]['N'] = chemical_symbols[int(tot[0])]
+                with warnings.catch_warnings():
+                    self.atoms[j]['N'] = chemical_symbols[int(tot[0])]
                 self.atoms[j]['xyz'] = [float(x) for x in tot[2:]]
 
             if self.size[0] > 0:
@@ -88,7 +96,7 @@ class Cube:
         else:
             self.data = np.array(data).reshape(np.abs(self.size)) / (BOHR_TO_ANGSTROM ** 3)
 
-        # direct if diagonal
+        # detect if diagonal
         # (see https://stackoverflow.com/questions/43884189/check-if-a-large-matrix-is-diagonal-matrix-in-python)
         if np.any(self.voxel.reshape(-1)[:-1].reshape(2, 4)[:, 1:]):
             warnings.warn('Voxel might be non-orthogonal. Correctness of the results is not tested')
@@ -103,66 +111,65 @@ class Cube:
         self.integral = np.trapz(np.trapz(np.trapz(self.data))) * np.linalg.det(self.voxel)
         self.spin = round(self.integral) * 0.5
 
-    def transform(self, R=None, shift=None, inplace=True):
+    def transform(self, rotmatrix=None, shift=None):
         """
         Changes coordinates of the grid. DOES NOT ASSUME PERIODICITY.
-        :param R: ndarray with shape (3, 3)
 
-            Rotation matrix
-                R =  [n_1^(1) n_1^(2) n_1^(3)]
-                     [n_2^(1) n_2^(2) n_2^(3)]
-                     [n_3^(1) n_3^(2) n_3^(3)]
+        Args:
+            rotmatrix (ndarray with shape (3, 3)): Rotation matrix `R`:
 
-            n_i^(j) corresponds to coeff of initial basis vector i
-            for j new basis vector:
-            e'_j = n_1^(j)*e_1 + n_2^(j)*e_2 + n_3^(j)*e_3
+                ..math::
 
-            in other words, columns of R are coordinates of the new
-            basis in the old basis.
+                R =  &[n_1^{(1)} n_1^{(2)} n_1^{(3)}]\\
+                     &[n_2^{(1)} n_2^{(2)} n_2^{(3)}]\\
+                     &[n_3^{(1)} n_3^{(2)} n_3^{(3)}]
 
-            Given vector in initial basis v = [v1, v2, v3],
-            vector in new basis is given as v' = R.T : vector
+                where :math:`n_i^{(j)}` corresponds to the coefficient of initial basis vector :math:`i`
+                for :math:`j` new basis vector:
 
-        :param shift: ndarray with shape (3,)
-            shift in the origin of coordinates (in the rotated basis)
+                ..math::
 
-        :param inplace: bool
-            If False rotates a copy of grid
+                    e'_j = n_1^{(j)} \vec{e}_1 + n_2^{(j)} \vec{e}_2 + n_3^{(j)} \vec{e}_3
 
-        :return: ndarray
-            grid
+                In other words, columns of `R` are coordinates of the new
+                basis in the old basis.
+
+                Given vector in initial basis v = [v1, v2, v3],
+                vector in new basis is given as v' = R.T @ v.
+
+            shift (ndarray with shape (3,)): Shift in the origin of coordinates (in the old basis).
+
+        Returns:
+
         """
-        grid = self.grid
-
-        if R is not None:
-            assert (np.isclose(np.linalg.det(R), 1.)), 'Determinant of R is not equal to 1'
-            grid = np.einsum('ij,abcj->abci', R.T, grid)
 
         if shift is not None:
-            grid = grid + np.asarray(shift)
+            shift = np.asarray(shift)
+            self.grid = self.grid + shift
 
-            if inplace:
-                self.origin += shift
+            self.origin += shift
 
-        if inplace:
-            self.grid = grid
+        if rotmatrix is not None:
+            assert (np.isclose(np.linalg.det(rotmatrix), 1.)), 'Determinant of R is not equal to 1'
+            self.grid = np.einsum('ij,abcj->abci', rotmatrix.T, self.grid)
+            self.origin = rotmatrix.T @ self.origin
 
-        return grid
+        return
 
     def integrate(self, position, gyro_n, gyro_e=ELECTRON_GYRO, spin=None):
         """
         Integrate over polarization data, stored in Cube object,
-        to obtain hyperfine dipolar-dipolar tensor
-        :param position: ndarray with shape (3,)
-            position of the nuclei at which to compute A in final coordinate system
-        :param gyro_n: float
-            gyromagnetic ratio of nucleus
-        :param gyro_e: float
-            gyromagnetic ratio of central spin
-        :param spin: float
-            total spin of the central spin
-        :return: ndarray with shape (3, 3)
-            A tensor
+        to obtain hyperfine dipolar-dipolar tensor.
+
+        Args:
+            position (ndarray with shape (3,) or (n, 3)): Position of the bath spin at which to compute
+                hyperfine tensor or array of positions.
+            gyro_n (float or ndarray with shape (n,) ): Gyromagnetic ratio of the bath spin or array of the ratios.
+            gyro_e (float): Gyromagnetic ratio of central spin.
+            spin (float): Total spin of the central spin. If not given, taken from the integral of the polarization.
+
+        Returns:
+            ndarray with shape (3, 3) or (n, 3, 3): Hyperfine tensor or array of hyperfine tensors.
         """
         if spin is None:
             spin = self.spin
@@ -173,25 +180,41 @@ class Cube:
         position = np.asarray(position)
 
         if len(position.shape) > 1:
-            A = cube_integrate_array(self.data, self.grid, self.voxel, spin,
-                                     position, gyro_n, gyro_e)
+            hyperfine = _cube_integrate_array(self.data, self.grid, self.voxel, spin,
+                                      position, gyro_n, gyro_e)
         else:
-            A = cube_integrate(self.data, self.grid, self.voxel, spin,
-                               position, gyro_n, gyro_e)
-        return A
+            hyperfine = _cube_integrate(self.data, self.grid, self.voxel, spin,
+                                position, gyro_n, gyro_e)
+        return hyperfine
 
         # d['A'] = -(3 * np.outer(pos, pos) - identity * r ** 2) / (r ** 5) * pre
 
 
 @jit(nopython=True)
-def cube_integrate(data, grid, voxel, spin, position, gyro_n, gyro_e=ELECTRON_GYRO):
+def _cube_integrate(data, grid, voxel, spin, position, gyro_n, gyro_e=ELECTRON_GYRO):
+    """
+    Integrate cube for one position.
+
+    Args:
+        data (ndarray): 3D data.
+        grid (ndarray): Grid over which to integrate.
+        voxel (ndarray): Parameters of the voxel.
+        spin (float): Total central spin.
+        position (ndarray with shape (3,)): Position of the bath spin at which to compute
+            hyperfine tensor
+        gyro_n (float): Gyromagnetic ratio of the bath spin.
+        gyro_e (float): Gyromagnetic ratio of central spin.
+
+    Returns:
+        ndarray with shape (3, 3): Hyperfine tensor.
+    """
     pos = grid - position
 
-    dist = np.sqrt(np.sum(pos ** 2))
+    dist = np.sqrt(np.sum(pos ** 2, axis=-1))
 
     pre = gyro_e * gyro_n * HBAR / (2 * spin) * np.linalg.det(voxel)
 
-    A = np.zeros((3, 3), dtype=np.float64)
+    hyperfine = np.zeros((3, 3), dtype=np.float64)
     for i in range(3):
         for j in range(3):
 
@@ -200,14 +223,31 @@ def cube_integrate(data, grid, voxel, spin, position, gyro_n, gyro_e=ELECTRON_GY
             else:
                 integrand = - pre * data * (3 * pos[:, :, :, i] * pos[:, :, :, j]) / dist ** 5
 
-            A[i, j] = np.trapz(np.trapz(np.trapz(integrand)))
+            hyperfine[i, j] = np.trapz(np.trapz(np.trapz(integrand)))
 
-    return A
+    return hyperfine
 
 
 @jit(nopython=True)
-def cube_integrate_array(data, grid, voxel, spin, coordinates, gyros, gyro_e=ELECTRON_GYRO):
-    As = np.zeros((coordinates.shape[0], 3, 3), dtype=np.float64)
+def _cube_integrate_array(data, grid, voxel, spin, coordinates, gyros, gyro_e=ELECTRON_GYRO):
+    """
+    Integrate cube for array of positions.
+    Args:
+        data (ndarray): 3D data.
+        grid (ndarray): Grid over which to integrate.
+        voxel (ndarray): Parameters of the voxel.
+        spin (float): Total central spin.
+        coordinates (ndarray with shape (n, 3)): Positions of the bath spins at which to compute
+                hyperfine tensors.
+        gyros (ndarray with shape (n,) ): Array of gyromagnetic ratio of the bath spins.
+        gyro_e (float): Gyromagnetic ratio of central spin.
+
+    Returns:
+        ndarray with shape (n, 3, 3): Array of hyperfine tensors.
+    """
+    hyperfines = np.zeros((coordinates.shape[0], 3, 3), dtype=np.float64)
+
     for i, position in enumerate(coordinates):
-        As[i] = cube_integrate(data, grid, voxel, spin, position, gyros[i], gyro_e)
-    return As
+        hyperfines[i] = _cube_integrate(data, grid, voxel, spin, position, gyros[i], gyro_e)
+
+    return hyperfines

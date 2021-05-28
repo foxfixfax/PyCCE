@@ -15,7 +15,7 @@ import sys
 
 sys.path.insert(0, os.path.abspath('.'))
 sys.path.insert(0, os.path.abspath('Z:/codes_development/pyCCE'))
-
+sys.path.insert(0, os.path.abspath('/home/onizhuk/midway/codes_development/pyCCE'))
 
 # -- Project information -----------------------------------------------------
 
@@ -39,7 +39,7 @@ extensions = [
     'sphinx.ext.autodoc',
     'IPython.sphinxext.ipython_console_highlighting',
     'sphinx_rtd_theme',
-
+    'sphinx.ext.napoleon',
 ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -68,3 +68,4 @@ html_static_path = ['_static']
 # The name of the Pygments (syntax highlighting) style to use.
 pygments_style = 'sphinx'
 
+autodoc_member_order = 'bysource'

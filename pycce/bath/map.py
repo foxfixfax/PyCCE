@@ -3,12 +3,26 @@ from collections.abc import MutableMapping
 
 import numpy as np
 from scipy.sparse.sputils import isintlike
-from numba import jit
 
 TwoLayerDict = lambda: defaultdict(dict)
 
 
 class InteractionMap(MutableMapping):
+    """
+    Dict-like object containing information about tensor interactions between two spins.
+
+    Each key is a tuple of two bath spin indexes.
+
+    Args:
+        rows (array-like with shape (n,)):
+            Indexes of the bath spins, appearing on the left in the pairwise interaction.
+        columns (array-like with shape (n,)):
+            Indexes of the bath spins, appearing on the right in the pairwise interaction.
+        tensors (array-like with shape (n, 3, 3)):
+            Tensors of pairwise interactions between two spins with the indexes in ``rows`` and ``columns``.
+    Attributes:
+        mapping (dict): Actual dictionary storing the data.
+    """
     def __init__(self, rows=None, columns=None, tensors=None):
         self.mapping = dict()
         self._indexes = None
@@ -19,6 +33,9 @@ class InteractionMap(MutableMapping):
 
     @property
     def indexes(self):
+        """
+        ndarray with shape (n, 2): Array with the indexes of pairs of bath spins, for which the tensors are stored.
+        """
         if self._indexes is None:
             self.__gen_indexes()
         return self._indexes
@@ -124,12 +141,16 @@ class InteractionMap(MutableMapping):
         """
         Get new InteractionMap with indexes readressed from array. Within the subspace indexes are renumbered
         E.g. array = [3,4,7]. Subspace will contain InteractionMap only within [3,4,7] elements
-        with new indexes [0, 1, 2]
-        :param array: ndarray
-            either bool array containing True for elements within the subspace
-            or array of indexes presented in the subspace
-        :return: InteractionMap
+        with new indexes [0, 1, 2].
+
+        Args:
+            array (ndarray): Either bool array containing True for elements within the subspace
+                or array of indexes presented in the subspace.
+
+        Returns:
+            InteractionMap: The map for the subspace.
         """
+
         array = np.asarray(array)
 
         if array.dtype == bool:
@@ -161,6 +182,15 @@ class InteractionMap(MutableMapping):
 
     @classmethod
     def from_dict(cls, dictionary, presorted=False):
+        """
+        Generate InteractionMap from the dictionary.
+        Args:
+            dictionary (dict): Dictionary with tensors.
+            presorted (bool): If true, assumes that the keys in the dictionary were already presorted.
+
+        Returns:
+            InteractionMap: New instance generated from the dictionary.
+        """
         obj = cls()
         if presorted:
             obj.mapping = dictionary
@@ -170,42 +200,10 @@ class InteractionMap(MutableMapping):
         return obj
 
     # TODO implement compressed tensors
-    def compress(self):
+    def _compress(self):
         self.tensors = np.empty((self.indexes.shape[0] * 2, 3, 3))
         self.tensors = None
         pass
-
-@jit(nopython=True)
-def find_first(item, vec):
-    """
-    return the index of the first occurence of item in vec. Otherwise returns None
-    :param item: obj
-        object to find in the vec
-    :param vec: arraylike
-        an array of objects
-    :return: int or None
-        index of item if it is in vec, otherwise None
-    """
-    """
-    """
-    for i in range(len(vec)):
-        if item == vec[i]:
-            return i
-    return None
-
-
-def imap_vectorized_item(list_of_keys, list_of_values, get):
-    keys = np.asarray(list_of_keys)
-    values = np.asarray(list_of_values)
-
-    getreshuffle = get[:, 0] > get[:, 1]
-    get.sort(axis=1)
-    na = np.newaxis
-    where = ((keys[:, na, 0] == get[na, :, 0]) & (keys[:, na, 1] == get[na, :, 1]))
-    indkeys, indget = np.nonzero(where)
-    vs = values[indkeys]
-    vs[getreshuffle] = vs[getreshuffle].transpose(0, 2, 1)
-    return vs
 
 
 def _index(key):

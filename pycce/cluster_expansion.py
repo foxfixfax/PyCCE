@@ -1,6 +1,9 @@
+"""
+This module contains information about the way the cluster expansion is implemented in the package.
+"""
 import functools
 import operator
-
+import warnings
 import numpy as np
 
 from .sm import _smc
@@ -26,42 +29,43 @@ def cluster_expansion_decorator(_func=None, *,
                                 removal_operator=operator.itruediv,
                                 addition_operator=np.prod):
     """
-    Decorator for creating cluster correlation expansion. Each expanded function will have two first arguments:
-    subclusters and allnspin
-    :param _func: function to expand
-    :param result_operator: function
-        operator which will combine the result of expansion (default: operator.imul)
-    :param contribution_operator: function
-        operator which will combine multiple contributions
-        of the same cluster (default: operator.ipow)
-    :return: function
+    Decorator for creating cluster correlation expansion. Each expanded function will have two first arguments
+    and two additional keyword arguments.
+
+    Additional arguments:
+        subclusters (dict):
+            clusters included in different CCE orders of structure {int order: ndarray([[i,j],[i,j]])}.
+        allspin (BathArray): array of all bath spins.
+        parallel (bool):
+            True if parallelize calculation of cluster contributions over different mpi threads using mpi4py.
+            Default False.
+        direct (bool):
+            True if use direct approach (requires way more memory but might be more numerically stable).
+            False if use memory efficient approach. Default False.
+
+    Args:
+        _func (func): Function to expand.
+        result_operator (func):
+            Operator which will combine the result of expansion (default: operator.imul).
+        contribution_operator (func):
+            Operator which will combine multiple contributions
+            of the same cluster (default: operator.ipow) in the optimized approach.
+        result_operator (func):
+            Operator which will combine the result of expansion (default: operator.imul).
+        removal_operator (func):
+            Operator which will remove subcluster contribution from the given cluster contribution.
+            First argument cluster contribution, second - subcluster contribution (default: operator.itruediv).
+
+    Returns:
+        func: Expanded function.
+
     """
 
     def inner_cluster_expansion_decorator(function):
 
         @functools.wraps(function)
         def cluster_expansion(subclusters, allspin, *arg, parallel=False, direct=False, **kwarg):
-            """
-            Inner part of cluster expansion.
-            :param direct: bool
-                True if use direct approach (requires way more memory but might be more numerically stable).
-                False if use memory efficient approach. Default False
-            :param parallel: bool
-                True if parallelize calculation of cluster contributions over different mpi threads.
-                Default False
-            :param subclusters: dict
-                dict of subclusters included in different CCE order
-                of structure {int order: np.array([[i,j],[i,j]])}
-            :param allspin: ndarray
-                array of bath
 
-            :param arg:
-                all additional arguments
-            :param kwarg:
-                all additional keyword arguments
-
-            :return:
-            """
             if direct:
                 return direct_approach(function, subclusters, allspin, *arg, parallel=parallel,
                                        result_operator=result_operator,
@@ -87,19 +91,28 @@ def optimized_approach(function, subclusters, allspin, *arg, parallel=False,
                        contribution_operator=operator.ipow,
                        **kwarg):
     """
-    Inner part of cluster expansion.
-    :param subclusters: dict
-        dict of subclusters included in different CCE order
-        of structure {int order: np.array([[i,j],[i,j]])}
-    :param allspin: ndarray
-        array of bath
+    Optimized approach to compute cluster correlation expansion.
 
-    :param arg:
-        all additional arguments
-    :param kwarg:
-        all additional keyword arguments
-    :return:
+    Args:
+        function (func): Function to expand.
+        subclusters (dict):
+            Clusters included in different CCE orders of structure {int order: ndarray([[i,j],[i,j]])}.
+        allspin (BathArray): Array of all bath spins.
+        *arg: list of positional arguments of the expanded function.
+        parallel (bool):
+            True if parallelize calculation of cluster contributions over different mpi threads.
+            Default False.
+        result_operator (func):
+            Operator which will combine the result of expansion (default: operator.imul).
+        contribution_operator (func):
+            Operator which will combine multiple contributions
+            of the same cluster (default: operator.ipow).
+        **kwarg: Dictionary containing all keyword arguments of the expanded function.
+
+    Returns:
+        func: Expanded function.
     """
+
     revorders = sorted(subclusters)[::-1]
     norders = len(revorders)
 
@@ -107,7 +120,7 @@ def optimized_approach(function, subclusters, allspin, *arg, parallel=False,
         try:
             from mpi4py import MPI
         except ImportError:
-            print('Parallel failed: mpi4py is not found. Running serial')
+            warnings.warn('Parallel failed: mpi4py is not found. Running serial.')
             parallel = False
 
     if parallel:
@@ -172,7 +185,6 @@ def optimized_approach(function, subclusters, allspin, *arg, parallel=False,
 
             result = result_operator(result, vcalc)
         if parallel:
-            comm.Barrier()
             buffer = np.empty(current_power.shape, dtype=np.int32)
             comm.Allreduce(current_power, buffer, MPI.SUM)
             current_power = buffer - size + 1
@@ -195,7 +207,7 @@ def optimized_approach(function, subclusters, allspin, *arg, parallel=False,
             result = contribution_operator(result, 0)
 
         root_result = np.zeros(result_shape, dtype=np.complex128)
-        comm.Allreduce(result, root_result, mpiop[result_operator.__name__])
+        comm.Allreduce(result.astype(np.complex128), root_result, mpiop[result_operator.__name__])
 
     else:
         root_result = result
@@ -209,25 +221,39 @@ def direct_approach(function, subclusters, allspin, *arg, parallel=False,
                     addition_operator=np.prod,
                     **kwarg):
     """
-    Inner part of cluster expansion.
-    :param subclusters: dict
-        dict of subclusters included in different CCE order
-        of structure {int order: np.array([[i,j],[i,j]])}
-    :param allspin: ndarray
-        array of bath
+    Direct approach to compute cluster correlation expansion.
 
-    :param arg:
-        all additional arguments
-    :param kwarg:
-        all additional keyward
-    :return:
+    Args:
+        function (func): Function to expand.
+        subclusters (dict):
+            Clusters included in different CCE orders of structure {int order: ndarray([[i,j],[i,j]])}.
+        allspin (BathArray): Array of all bath spins.
+        *arg: list of positional arguments of the expanded function.
+        parallel (bool):
+            True if parallelize calculation of cluster contributions over different mpi threads.
+            Default False.
+        result_operator (func):
+            Operator which will combine the result of expansion (default: operator.imul).
+        removal_operator (func):
+            Operator which will remove subcluster contribution from the given cluster contribution.
+            First argument cluster contribution, second - subcluster contribution (default: operator.itruediv).
+        addition_operator (func):
+            Group operation which will combine contributions from the different clusters into one
+            contribution (default: np.prod).
+        **kwarg: Dictionary containing all keyword arguments of the expanded function.
+
+    Returns:
+        func: Expanded function.
+
     """
     if parallel:
         try:
             from mpi4py import MPI
         except ImportError:
-            print('Parallel failed: mpi4py is not found. Running serial')
+            warnings.warn('Parallel failed: mpi4py is not found. Running serial')
             parallel = False
+            MPI = None
+
     orders = sorted(subclusters)
     norders = len(orders)
 
@@ -238,7 +264,7 @@ def direct_approach(function, subclusters, allspin, *arg, parallel=False,
         rank = comm.Get_rank()
     else:
         rank = 0
-
+        comm = None
     # print(dms_zero.mask)
     # If there is only one set of indexes for only one order,
     # Then for this subcluster nelements < maximum CCE order
@@ -296,10 +322,7 @@ def direct_approach(function, subclusters, allspin, *arg, parallel=False,
         result_tilda[order] = current_order
         visited += 1
 
-    if rank == 0:
-        for o in orders:
-            result = result_operator(result, np.prod(result_tilda[o], axis=0))
-    else:
-        result = None
-    if parallel: comm.Barrier()
+    for o in orders:
+        result = result_operator(result, addition_operator(result_tilda[o], axis=0))
+
     return result

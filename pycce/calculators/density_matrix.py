@@ -1,34 +1,42 @@
 import numpy as np
-import numpy.ma as ma
 import scipy.linalg
+from numpy import ma as ma
 
 from pycce.bath.array import BathArray
 from pycce.cluster_expansion import cluster_expansion_decorator
-from pycce.hamiltonian import total_hamiltonian, expand, eta_hamiltonian
-from pycce.units import ELECTRON_GYRO
-
-hbar = 1.05457172  # When everything else in rad, kHz, ms, G, A
+from pycce.hamiltonian import total_hamiltonian, expand, eta_hamiltonian, mean_field_hamiltonian
+from pycce.constants import ELECTRON_GYRO
 
 
 def propagator(timespace, hamiltonian, dimensions=None,
                pulse_sequence=None, alpha=None, beta=None, as_delay=False):
     """
-    Function to compute time propagator U
-    :param beta:
-    :param timespace: ndarray
-        Time delay values at which to compute propagators
-    :param hamiltonian: ndarray
-        Cluster Hamiltonian
-    :param pulse_sequence: list
-    pulse_sequence should have format of list with tuples,
-       each tuple contains two entries:
-       first: axis the rotation is about;
-       second: angle of rotation. E.g. for Hahn-Echo [('x', np.pi/2)]
-    :param alpha: QSpinMatrix
-        QSpinMatrix of the central spin
-    :param dimensions: list
-        list of nuclear spin dimensions. Last entry - electron spin dimensions
-    :return: U
+    Function to compute time propagator U.
+
+    Args:
+        timespace (ndarray):
+            Time points at which to compute propagators.
+        hamiltonian (ndarray):
+            Matrix representation of the cluster Hamiltonian.
+        dimensions (ndarray):
+            ndarray of bath spin dimensions. Last entry - electron spin dimensions.
+        pulse_sequence (list):
+            Pulse_sequence should have format of list with tuples,
+            each tuple contains two or three entries:
+
+                1. axis the rotation is about;
+                2. angle of rotation. E.g. for Hahn-Echo ``[('x', np.pi/2)]``.
+                3. (Optional). Fraction of time before the pulse. E.g. for Hahn-Echo ``[('x', np.pi/2, 0.5)]``.
+
+        alpha (ndarray with shape (2s+1,)):
+            Vector representation of the alpha qubit state in :math:`\hat{S}_z` basis.
+        beta (ndarray with shape (2s+1,)):
+            Vector representation of the beta qubit state in :math:`\hat{S}_z` basis.
+        as_delay (bool):
+            True if time points are delay between pulses, False if time points are total time.
+
+    Returns:
+        ndarray: array of propagators, evaluated at each time point in timespace.
     """
     evalues, evec = np.linalg.eigh(hamiltonian)
 
@@ -57,13 +65,13 @@ def propagator(timespace, hamiltonian, dimensions=None,
                  'y': expand(sigmay, len(dimensions) - 1, dimensions),
                  'z': expand(sigmaz, len(dimensions) - 1, dimensions)}
 
-        equispaced = True
+        equispaced = False
         try:
             pulse_sequence[0][2]
         except IndexError:
-            equispaced = False
+            equispaced = True
 
-        if not equispaced:
+        if equispaced:
             if not as_delay:
                 N = len(pulse_sequence)
                 timespace = timespace / (2 * N)
@@ -124,29 +132,30 @@ def propagator(timespace, hamiltonian, dimensions=None,
 
 def compute_dm(dm0, H, alpha, beta, timespace, pulse_sequence=None, as_delay=False, states=None):
     """
-    Function to compute density matrix of the central spin spin_matrix, given Hamiltonian H
-    :param dm0: ndarray
-        initial density matrix of nuclear spin
-    :param H: ndarray
-        Cluster Hamiltonian
-    :param alpha: ndarray
-        |0> state of the qubit in Sz basis
-    :param beta: ndarray
-        |1> state of the qubit in Sz basis
-    :param timespace: ndarray
-        Time delay values at which to compute propagators
-    :param pulse_sequence: list
-        pulse_sequence should have format of list with tuples,
-        each tuple contains two entries: first: axis the rotation is about; second: angle of rotation.
-        E.g. for Hahn-Echo [('x', np.pi/2)]. For now only pulses with same delay are supported
-    :param as_delay: bool
-        True if time points are delay between pulses,
-        False if time points are total time
-    :param states: array_like
-        List of nuclear spin states. if len(shape) == 1, contains Sz projections of nuclear spins.
-        Otherwise, contains array of initial dms of nuclear spins
-    :return: dm
-        density matrix of the electron
+    Function to compute density matrix of the central spin, given Hamiltonian H.
+
+    Args:
+        dm0 (ndarray): Initial density matrix of nuclear spin.
+        H (ndarray): Cluster Hamiltonian
+        alpha (ndarray with shape (2s+1,)):
+            Vector representation of the alpha qubit state in :math:`\hat{S}_z` basis.
+        beta (ndarray with shape (2s+1,)):
+            Vector representation of the beta qubit state in :math:`\hat{S}_z` basis.
+        timespace (ndarray): Time points at which to compute density matrix.
+        pulse_sequence (list):
+            Pulse_sequence should have format of list with tuples,
+            each tuple contains two or three entries:
+
+                1. axis the rotation is about;
+                2. angle of rotation. E.g. for Hahn-Echo ``[('x', np.pi/2)]``.
+                3. (Optional). Fraction of time before the pulse. E.g. for Hahn-Echo ``[('x', np.pi/2, 0.5)]``.
+
+        as_delay (bool):
+            True if time points are delay between pulses, False if time points are total time.
+        states (ndarray): ndarray of bath states in any accepted format.
+
+    Returns:
+        ndarray: Array of density matrices evaluated at all time points in timespace.
     """
 
     dm0 = generate_dm0(dm0, H.dimensions, states)
@@ -161,21 +170,32 @@ def compute_dm(dm0, H, alpha, beta, timespace, pulse_sequence=None, as_delay=Fal
 
 def full_dm(dm0, H, alpha, beta, timespace, pulse_sequence=None, as_delay=False):
     """
-     A function to compute dm using hamiltonian H from expanded dm0
-    :param dm0: ndarray
-        initial density matrix of nuclear spin
-    :param H: ndarray
-        Cluster Hamiltonian
-    :param S: QSpinMatrix
-        QSpinMatrix of the central spin
-    :param timespace: ndarray
-        Time delay values at which to compute propagators
-    :param pulse_sequence: list
-        pulse_sequence should have format of list with tuples,
-        each tuple contains two entries: first: axis the rotation is about; second: angle of rotation.
-        E.g. for Hahn-Echo [('x', np.pi/2)]. For now only even pulses are supported
-    :return: dm
-        density matrix of the cluster
+    A function to compute density matrix of the cluster, using hamiltonian H
+    from the initial density matrix of the cluster.
+
+    Args:
+        dm0 (ndarray):
+            Initial density matrix of the cluster
+        H (ndarray):
+            Cluster Hamiltonian
+        alpha (ndarray with shape (2s+1,)):
+            Vector representation of the alpha qubit state in :math:`\hat{S}_z` basis.
+        beta (ndarray with shape (2s+1,)):
+            Vector representation of the beta qubit state in :math:`\hat{S}_z` basis.
+        timespace (ndarray): Time points at which to compute coherence function.
+        pulse_sequence (list):
+            Pulse_sequence should have format of list with tuples,
+            each tuple contains two or three entries:
+
+                1. axis the rotation is about;
+                2. angle of rotation. E.g. for Hahn-Echo ``[('x', np.pi/2)]``.
+                3. (Optional). Fraction of time before the pulse. E.g. for Hahn-Echo ``[('x', np.pi/2, 0.5)]``.
+
+        as_delay (bool):
+            True if time points are delay between pulses, False if time points are total time.
+
+    Returns:
+        ndarray: Array of density matrices of the cluster, evaluated at the time points from timespace.
     """
 
     U = propagator(timespace, H, H.dimensions, pulse_sequence, alpha, beta, as_delay=as_delay)
@@ -189,17 +209,19 @@ def full_dm(dm0, H, alpha, beta, timespace, pulse_sequence=None, as_delay=False)
 
 def generate_dm0(dm0, dimensions, states=None):
     """
-    A function to generate initial density matrix of the cluster
-    :param dm0: ndarray
-        initial dm of the central spin
-    :param dimensions: list
-        list of nuclear spin dimensions. Last entry - electron spin dimensions
-    :param states: array_like
-        List of nuclear spin states. if len(shape) == 1, contains Sz projections of nuclear spins.
-        Otherwise, contains array of initial dms of nuclear spins
-    :return: dm
-        initial density matrix of the cluster
+    A function to generate initial density matrix of the cluster.
+    Args:
+        dm0 (ndarray):
+            Initial density matrix of the central spin.
+        dimensions (ndarray):
+            ndarray of bath spin dimensions. Last entry - electron spin dimensions.
+        states (ndarray):
+            ndarray of bath states in any accepted format.
+
+    Returns:
+        ndarray: Initial density matrix of the cluster.
     """
+
     if states is None:
         dmtotal0 = expand(dm0, len(dimensions) - 1, dimensions) / np.prod(dimensions[:-1])
     else:
@@ -210,6 +232,29 @@ def generate_dm0(dm0, dimensions, states=None):
 
 
 def gen_density_matrix(states=None, dimensions=None):
+    """
+    Generate density matrix from the ndarray of states.
+
+    Args:
+        states (ndarray):
+            Array of bath spin states. If None, assume completely random state.
+            Can have the following forms:
+
+                - array of the Iz projections for each spin.
+                  Assumes that each bath spin is in the pure eigenstate of :math:`\hat{I}_z`.
+
+                - array of the diagonal elements of the density matrix for each spin.
+                  Assumes mixed state and the density matrix for each bath spin
+                  is diagonal in :math:`\hat{I}_z` basis.
+
+                - array of the density matrices of the bath spins.
+
+        dimensions (ndarray):
+            array of bath spin dimensions. Last entry - electron spin dimensions.
+
+    Returns:
+        ndarray: Density matrix of the system.
+    """
     if states is None:
         tdim = np.prod(dimensions)
         dmtotal0 = np.eye(tdim) / tdim
@@ -245,48 +290,62 @@ def decorated_density_matrix(cluster, allspin, dm0, alpha, beta, magnetic_field,
                              gyro_e=ELECTRON_GYRO, as_delay=False, zeroth_cluster=None,
                              bath_state=None, eta=None, imap=None, map_error=None):
     """
-    Decorated function to compute electron density matrix with gCCE (without mean field)
-    :param subclusters: dict
-        dict of subclusters included in different CCE order
-        of structure {int order: np.array([[i,j],[i,j]])}
-    :param allnspin: ndarray
-        array of all bath
-    :param ntype: dict
-        dict with NSpinType objects inside, each key - name of the isotope
-    :param dm0: ndarray
-        initial density matrix of the central spin
-    :param alpha: ndarray
-        dict with SpinMatrix objects inside, each key - spin
-    :param beta: ndarray
-        QSpinMatrix of the central spin
-    :param magnetic_field: ndarray
-        Magnetic field of mfield = np.array([Bx, By, Bz])
-    :param zfs: ndarray of shape (3,3)
-        ZFS tensor
-    :param timespace: ndarray
-        Time points at which to compute density matrix
-    :param pulse_sequence: list
-        pulse_sequence should have format of list with tuples,
-        each tuple contains two entries: first: axis the rotation is about; second: angle of rotation.
-        E.g. for Hahn-Echo [('x', np.pi/2)]. For now only pulses with same delay are supported
-    :param gyro_e: float
-        gyromagnetic ratio (in rad/(msec*Gauss)) of the central spin
-    :param as_delay: bool
-        True if time points are delay between pulses,
-        False if time points are total time
-    :param zeroth_cluster: ndarray
-        density matrix of isolated central spin at all time poins.
-        Shape (n x m x m) where n = len(time_space) and m is central spin dimensions
-    :param bath_state: ndarray or None
-        List of nuclear spin states. if len(shape) == 1, contains Sz projections of nuclear spins.
-        Otherwise, contains array of initial dms of nuclear spins
-    :param allspins: ndarray
-        array of all bath. Passed twice because one is passed to decorator, another - directly to function
-    :param eta: float
-        value of eta (see eta_hamiltonian)
-    :return: dms
-        array of central spin dm for each time point
+    Decorated function to compute electron density matrix with gCCE (without mean field).
+
+    Args:
+        cluster (dict): Clusters included in different CCE orders of structure ``{int order: ndarray([[i,j],[i,j]])}``.
+
+        allspin (BathArray): Array of all bath spins.
+
+        dm0 (ndarray): Initial density matrix of the central spin.
+
+        alpha (ndarray with shape (2s+1,)): Vector representation of the alpha qubit state in :math:`\hat{S}_z` basis.
+
+        beta (ndarray with shape (2s+1,)): Vector representation of the beta qubit state in :math:`\hat{S}_z` basis.
+
+        magnetic_field (ndarray): Magnetic field of type ``mfield = np.array([Bx, By, Bz])``.
+
+        zfs (ndarray with shape (3, 3)): Zero Field Splitting tensor of the central spin.
+
+        timespace (ndarray): Time points at which to compute coherence function.
+
+        pulse_sequence (list):
+            Pulse_sequence should have format of list with tuples,
+            each tuple contains two or three entries:
+
+                1. axis the rotation is about;
+                2. angle of rotation. E.g. for Hahn-Echo ``[('x', np.pi/2)]``.
+                3. (Optional). Fraction of time before the pulse. E.g. for Hahn-Echo ``[('x', np.pi/2, 0.5)]``.
+
+        gyro_e (float or ndarray with shape (3, 3)):
+            Gyromagnetic ratio of the central spin
+
+            **OR**
+
+            tensor corresponding to interaction between magnetic field and central spin.
+
+        as_delay (bool):
+            True if time points are delay between pulses, False if time points are total time.
+
+        zeroth_cluster (ndarray):
+            Density matrix of isolated central spin at all time poins.
+
+        bath_state (ndarray): Array of bath states in any accepted format.
+
+        eta (float): Value of eta (see eta_hamiltonian)
+
+        imap (InteractionMap):
+            Optional. Instance of InteractionMap
+            which contains interaction tensors between bath spins.
+
+        map_error (bool):
+            True if treat absence of the interaction between bath spins in imap as an error.
+            False if not.
+
+    Returns:
+        ndarray: Array of central spin density matricies at each time point.
     """
+
     nspin = allspin[cluster]
 
     if imap is not None:
@@ -312,3 +371,308 @@ def decorated_density_matrix(cluster, allspin, dm0, alpha, beta, magnetic_field,
     dms = compute_dm(dm0, H, alpha, beta, timespace, pulse_sequence, as_delay=as_delay, states=states) / zeroth_cluster
 
     return dms
+
+
+@cluster_expansion_decorator
+def mean_field_density_matrix(cluster, allspin, dm0, alpha, beta, magnetic_field, zfs, timespace, pulse_sequence,
+                              bath_state, gyro_e=ELECTRON_GYRO, as_delay=False, zeroth_cluster=None, imap=None,
+                              map_error=None, projected_bath_state=None):
+    """
+    Decorated function to compute electron density matrix with gCCE with mean field.
+
+    Args:
+        cluster (dict): Clusters included in different CCE orders of structure ``{int order: ndarray([[i,j],[i,j]])}``.
+
+        allspin (BathArray): Array of all bath spins.
+
+        dm0 (ndarray): Initial density matrix of the central spin.
+
+        alpha (ndarray with shape (2s+1,)): Vector representation of the alpha qubit state in :math:`\hat{S}_z` basis.
+
+        beta (ndarray with shape (2s+1,)): Vector representation of the beta qubit state in :math:`\hat{S}_z` basis.
+
+        magnetic_field (ndarray): Magnetic field of type ``mfield = np.array([Bx, By, Bz])``.
+
+        zfs (ndarray with shape (3,3)): Zero Field Splitting tensor of the central spin.
+
+        timespace (ndarray): Time points at which to compute coherence function.
+
+        pulse_sequence (list):
+            Pulse_sequence should have format of list with tuples,
+            each tuple contains two or three entries:
+
+                1. axis the rotation is about;
+                2. angle of rotation. E.g. for Hahn-Echo ``[('x', np.pi/2)]``.
+                3. (Optional). Fraction of time before the pulse. E.g. for Hahn-Echo ``[('x', np.pi/2, 0.5)]``.
+
+        bath_state (ndarray): Array of bath states in any accepted format.
+
+        gyro_e (float or ndarray with shape (3, 3)):
+            Gyromagnetic ratio of the central spin
+
+            **OR**
+
+            tensor corresponding to interaction between magnetic field and
+            central spin.
+
+        as_delay (bool): True if time points are delay between pulses, False if time points are total time.
+
+        zeroth_cluster (ndarray): Density matrix of isolated central spin at all time points.
+
+        imap (InteractionMap): Optional. Instance of InteractionMap
+            which contains interaction tensors between bath spins.
+
+        map_error (bool): True if treat absence of the interaction between bath spins in imap as an error.
+            False if not.
+
+        projected_bath_state (ndarray): Array of ``shape = len(allspin)``
+            containing z-projections of the bath spins states.
+
+    Returns:
+        ndarray: array of central spin density matrices at each time point.
+    """
+    nspin = allspin[cluster]
+    central_spin = (alpha.size - 1) / 2
+
+    if imap is not None:
+        imap = imap.subspace(cluster)
+
+    others_mask = np.ones(allspin.shape, dtype=bool)
+    others_mask[cluster] = False
+    others = allspin[others_mask]
+
+    states = bath_state[~others_mask]
+
+    if projected_bath_state is None:
+        projected_bath_state = bath_state
+
+    others_state = projected_bath_state[others_mask]
+
+    if zeroth_cluster is None:
+        H = mean_field_hamiltonian(BathArray(0), magnetic_field, allspin, projected_bath_state, zfs,
+                                   central_spin=central_spin, central_gyro=gyro_e)
+        zeroth_cluster = compute_dm(dm0, H, alpha, beta, timespace, pulse_sequence, as_delay=as_delay)
+        zeroth_cluster = ma.masked_array(zeroth_cluster, mask=(zeroth_cluster == 0))
+
+    H = mean_field_hamiltonian(nspin, magnetic_field, others, others_state, zfs,
+                               central_spin=central_spin, central_gyro=gyro_e,
+                               imap=imap, map_error=map_error)
+
+    dms = compute_dm(dm0, H, alpha, beta, timespace, pulse_sequence,
+                     as_delay=as_delay, states=states) / zeroth_cluster
+    return dms
+
+
+def generate_bath_state(bath, nbstates, seed=None, fixstates=None, parallel=False):
+    """
+    Generator of the random bath states.
+
+    Args:
+        bath (BathArray): Array of bath spins.
+        nbstates (int): Number of random bath states to generate.
+        seed (int): Optional. Seed for RNG.
+        fixstates (dict): Optional. dict of which bath states to fix. Each key is the index of bath spin,
+            value - fixed Sz projection of the mixed state of nuclear spin.
+
+    Yields:
+        ndarray: Array of ``shape = len(bath)`` containing z-projections of the bath spins states.
+    """
+    rgen = np.random.default_rng(seed)
+    rank = 0
+    if parallel:
+        try:
+            import mpi4py
+            comm = mpi4py.MPI.COMM_WORLD
+            rank = comm.Get_rank()
+
+        except ImportError:
+            print('Parallel failed: mpi4py is not found. Running serial')
+            parallel = False
+
+    for _ in range(nbstates):
+        bath_state = np.empty(bath.shape, dtype=np.float64)
+        if rank == 0:
+            for n in bath.types:
+                s = bath.types[n].s
+                snumber = int(round(2 * s + 1))
+                mask = bath['N'] == n
+                bath_state[mask] = rgen.integers(snumber, size=np.count_nonzero(mask)) - s
+
+            if fixstates is not None:
+                for fs in fixstates:
+                    bath_state[fs] = fixstates[fs]
+
+        if parallel:
+            comm.Bcast(bath_state, root=0)
+
+        yield bath_state
+
+
+def monte_carlo_dm(clusters, bath, dm0, alpha, beta, magnetic_field, zfs, timespace, pulse_sequence,
+                   central_gyro=ELECTRON_GYRO, as_delay=False, imap=None, map_error=None,
+                   nbstates=100, seed=None, masked=True,
+                   normalized=None, parallel_states=False,
+                   fixstates=None, direct=False, parallel=False):
+    """
+    Compute density matrix of the central spin using generalized CCE with Monte-Carlo bath state sampling.
+
+    Args:
+
+        cluster (dict):
+            Clusters included in different CCE orders of structure ``{int order: ndarray([[i,j],[i,j]])}``.
+
+        bath (BathArray):
+            Array of all bath spins.
+
+        dm0 (ndarray):
+            Initial density matrix of the central spin.
+
+        alpha (ndarray with shape (2s+1,)):
+            Vector representation of the alpha qubit state in :math:`\hat{S}_z` basis.
+
+        beta (ndarray with shape (2s+1,)):
+            Vector representation of the beta qubit state in :math:`\hat{S}_z` basis.
+
+        magnetic_field (ndarray):
+            Magnetic field of type ``mfield = np.array([Bx, By, Bz])``.
+
+        zfs (ndarray with shape (3, 3)):
+            Zero Field Splitting tensor of the central spin.
+
+        timespace (ndarray): Time points at which to compute coherence function.
+
+        pulse_sequence (list):
+            Pulse_sequence should have format of list with tuples,
+            each tuple contains two or three entries:
+
+                1. axis the rotation is about;
+                2. angle of rotation. E.g. for Hahn-Echo ``[('x', np.pi/2)]``.
+                3. (Optional). Fraction of time before the pulse. E.g. for Hahn-Echo ``[('x', np.pi/2, 0.5)]``.
+
+        central_gyro (float or ndarray with shape (3,3)):
+            gyromagnetic ratio of the central spin
+
+            **OR**
+
+            tensor corresponding to interaction between magnetic field and
+            central spin.
+
+        as_delay (bool): True if time points are delay between pulses, False if time points are total time.
+
+        imap (InteractionMap): Optional.
+            Instance of InteractionMap which contains interaction tensors between bath spins.
+
+        map_error (bool): True if treat absence of the interaction between bath spins in imap as an error.
+            False if not.
+
+        nbstates (int): Number of random bath states to sample.
+
+        seed (int): Seed for the RNG.
+
+        masked (bool): True if mask numerically unstable points (with elements > 1) in the averaging over bath states
+            False if not. Default True.
+
+        normalized (ndarray of bool): which diagonal elements to renormalize,
+            so the total sum of the diagonal elements is 1.
+
+        parallel_states (bool): True if use MPI to parallelize the calculations of density matrix.
+            for each random bath state.
+
+        fixstates (dict): Dictionary with bath states to fix. Each key is the index of bath spin,
+            value - fixed Sz projection of the mixed state of nuclear spin.
+
+        direct (bool): True if use the direct approach in cluster expansion.
+
+        parallel (bool): True if use MPI for parallel computing of the cluster contributions.
+
+        **kwargs: Additional keyword arguments for the projected_hamiltonian.
+
+    Returns:
+        ndarray: array of central spin density matrices at each time point.
+
+    """
+    central_spin = (alpha.size - 1) / 2
+
+    if parallel_states:
+        try:
+            from mpi4py import MPI
+        except ImportError:
+            print('Parallel failed: mpi4py is not found. Running serial')
+            parallel_states = False
+
+    if masked:
+        divider = np.zeros(timespace.shape, dtype=np.int32)
+    else:
+        root_divider = nbstates
+
+    if parallel_states:
+        comm = MPI.COMM_WORLD
+
+        size = comm.Get_size()
+        rank = comm.Get_rank()
+
+        remainder = nbstates % size
+        add = int(rank < remainder)
+        nbstates = nbstates // size + add
+
+        if seed:
+            seed = seed + rank * 196532520
+    else:
+        rank = 0
+
+    averaged_dms = ma.zeros((timespace.size, *dm0.shape), dtype=np.complex128)
+
+    for bath_state in generate_bath_state(bath, nbstates, seed=seed, fixstates=fixstates, parallel=parallel):
+        H0 = mean_field_hamiltonian(BathArray(0), magnetic_field, bath, bath_state, zfs,
+                                    central_spin=central_spin, central_gyro=central_gyro)
+
+        dmzero = compute_dm(dm0, H0, alpha, beta, timespace, pulse_sequence, as_delay=as_delay)
+        dmzero = ma.array(dmzero, mask=(dmzero == 0), fill_value=0j, dtype=np.complex128)
+
+        dms = mean_field_density_matrix(clusters, bath, dm0, alpha, beta, magnetic_field,
+                                        zfs, timespace, pulse_sequence, bath_state, as_delay=as_delay,
+                                        zeroth_cluster=dmzero, imap=imap, map_error=map_error,
+                                        direct=direct, parallel=parallel) * dmzero
+        if masked:
+            dms = dms.filled()
+            proper = np.all(np.abs(dms) <= 1, axis=(1, 2))
+            divider += proper.astype(np.int32)
+            dms[~proper] = 0.
+
+        if normalized is not None:
+            norm = np.asarray(normalized)
+            ind = np.arange(dms.shape[1])
+            diagonals = dms[:, ind, ind]
+
+            sums = np.sum(diagonals[:, norm], keepdims=True, axis=-1)
+            sums[sums == 0.] = 1
+
+            expsum = 1 - np.sum(diagonals[:, ~norm], keepdims=True, axis=-1)
+
+            diagonals[:, norm] = diagonals[:, norm] / sums * expsum
+            dms[:, ind, ind] = diagonals
+
+        averaged_dms += dms
+
+    if parallel_states:
+        root_dms = ma.array(np.zeros(averaged_dms.shape), dtype=np.complex128)
+        comm.Allreduce(averaged_dms, root_dms, MPI.SUM)
+
+        if masked:
+            root_divider = np.zeros(divider.shape, dtype=np.int32)
+            comm.Allreduce(divider, root_divider, MPI.SUM)
+
+    else:
+        root_dms = averaged_dms
+        if masked:
+            root_divider = divider
+
+    root_dms = ma.array(root_dms, fill_value=0j, dtype=np.complex128)
+
+    if masked:
+        root_dms[root_divider == 0] = ma.masked
+        root_divider = root_divider[:, np.newaxis, np.newaxis]
+
+    root_dms /= root_divider
+
+    return root_dms
