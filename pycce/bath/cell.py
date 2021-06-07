@@ -6,7 +6,7 @@ import numpy as np
 from pycce.utilities import rotmatrix
 
 from .array import BathArray
-from .conc import common_concentrations
+from .array import common_concentrations
 
 err_range = 0.1
 FLOAT_ERROR_RANGE = 1e-10

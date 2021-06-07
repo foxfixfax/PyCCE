@@ -3,7 +3,7 @@ import warnings
 import numpy as np
 from pycce.io.base import DFTCoordinates, fortran_value, find_first_index, set_isotopes
 from pycce.bath.array import BathArray, transform
-from pycce.constants import MHZ_TO_RADKHZ, BOHR_TO_ANGSTROM, EFG_CONVERSION
+from pycce.constants import MHZ_TO_KHZ, BOHR_TO_ANGSTROM, EFG_CONVERSION
 
 qe_coord_types = ['crystal', 'bohr', 'angstrom', 'alat']
 
@@ -500,7 +500,7 @@ def read_hyperfine(filename, spin=1):
             * **ndarray with shape (n, 3,3)**: Array of spin dipolar hyperfine tensors.
 
     """
-    conversion = MHZ_TO_RADKHZ / (2 * spin)
+    conversion = MHZ_TO_KHZ / (2 * spin)
 
     lines = open(filename).readlines()
 

@@ -8,7 +8,7 @@ from .base import set_isotopes
 # UPDATE: derived, it checks out
 # HBAR = 1.054571729
 # External HF given in MHz, transform to kHz * rad
-# MHZ_TO_RADKHZ = 2 * np.pi * 1000
+# MHZ_TO_KHZ = 2 * np.pi * 1000
 
 
 def read_xyz(xyz, skiprows: int = 2, spin_types=None, isotopes=None, imap=None):

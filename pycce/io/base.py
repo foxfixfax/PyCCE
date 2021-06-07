@@ -3,8 +3,7 @@ import warnings
 from abc import ABC
 
 import numpy as np
-from pycce.bath.array import common_isotopes
-from pycce.bath.conc import common_concentrations
+from pycce.bath.array import common_isotopes, common_concentrations
 from pycce.constants import BOHR_TO_ANGSTROM
 
 coord_types = ['crystal', 'bohr', 'angstrom', 'alat']

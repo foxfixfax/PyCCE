@@ -1,7 +1,9 @@
 import numpy as np
 
+PI2 = 2 * np.pi
+
 # Energy
-MHZ_TO_RADKHZ = 2 * np.pi * 1000
+MHZ_TO_KHZ = PI2 * 1000
 
 joule_to_khz = 1.50919E+30
 hartree_to_khz = 6.57968E+12
@@ -19,15 +21,15 @@ wavenumber_to_khz = 2.99792E+07
 
 
 _CONVERSION_TO_RADKHZ = {
-    'ghz': ghz_to_khz * 2 * np.pi,
+    'ghz': ghz_to_khz * PI2,
     'radghz': ghz_to_khz,
-    'mhz': mhz_to_khz * 2 * np.pi,
+    'mhz': mhz_to_khz * PI2,
     'radmhz': mhz_to_khz,
-    'khz': khz_to_khz * 2 * np.pi,
+    'khz': khz_to_khz * PI2,
     'radkhz': khz_to_khz,
-    'hz': hz_to_khz * 2 * np.pi,
+    'hz': hz_to_khz * PI2,
     'radhz': hz_to_khz,
-    'joule': joule_to_khz * 2 * np.pi,
+    'joule': joule_to_khz * PI2,
 }
 
 m_to_angstrom = 1.00000E+10
@@ -53,6 +55,9 @@ HBAR = 1.05457172  # When everything else in rad, kHz, ms, G, A
 COMPLEX_DTYPE = np.complex128
 
 BARN_TO_BOHR2 = M_TO_BOHR ** 2 * 1E-28
-EFG_CONVERSION = BARN_TO_BOHR2 * HARTREE_TO_MHZ * MHZ_TO_RADKHZ  # units to convert EFG
+EFG_CONVERSION = BARN_TO_BOHR2 * HARTREE_TO_MHZ * MHZ_TO_KHZ  # units to convert EFG
 
-
+PI2 = np.pi * 2
+HBAR_SI = 6.62607015e-34 / PI2
+BOHR_MAGNETON = 9.274009994E-24
+NUCLEAR_MAGNETON = 5.05078366E-27

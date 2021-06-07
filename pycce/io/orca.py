@@ -1,6 +1,6 @@
 from .base import DFTCoordinates, find_first_index, yield_index, set_isotopes
 import numpy as np
-from pycce.constants import MHZ_TO_RADKHZ, EFG_CONVERSION
+from pycce.constants import MHZ_TO_KHZ, EFG_CONVERSION
 from pycce.bath.array import BathArray, transform
 import re
 import warnings
@@ -60,7 +60,7 @@ def read_orca(fname, isotopes=None, types=None, center=None,
             tensor = []
             for _ in range(3):
                 line = lines[n]
-                tensor.append([float(x) * MHZ_TO_RADKHZ for x in line.split()])
+                tensor.append([float(x) * MHZ_TO_KHZ for x in line.split()])
                 n += 1
             hyperfines.append(tensor)
             a_indexes.append(atom_index)
