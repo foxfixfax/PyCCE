@@ -32,16 +32,16 @@ def cluster_expansion_decorator(_func=None, *,
     Decorator for creating cluster correlation expansion. Each expanded function will have two first arguments
     and two additional keyword arguments.
 
-    Additional arguments:
-        subclusters (dict):
-            clusters included in different CCE orders of structure {int order: ndarray([[i,j],[i,j]])}.
-        allspin (BathArray): array of all bath spins.
-        parallel (bool):
-            True if parallelize calculation of cluster contributions over different mpi threads using mpi4py.
-            Default False.
-        direct (bool):
-            True if use direct approach (requires way more memory but might be more numerically stable).
-            False if use memory efficient approach. Default False.
+
+    **Additional parameters**:
+
+        * **subclusters** (*dict*) -- Clusters included in different CCE orders of structure
+          {int order: ndarray([[i,j],[i,j]])}.
+        * **allspin** (*BathArray*) -- Array of all bath spins.
+        * **parallel** (*bool*) -- True if parallelize calculation of cluster contributions
+          over different mpi threads using mpi4py.Default False.
+        * **direct** (*bool*) -- True if use direct approach (requires way more memory
+          but might be more numerically stable). False if use memory efficient approach. Default False.
 
     Args:
         _func (func): Function to expand.

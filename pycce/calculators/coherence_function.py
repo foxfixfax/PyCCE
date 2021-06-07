@@ -113,7 +113,7 @@ def compute_coherence(H0, H1, timespace, N, as_delay=False, states=None):
 
 @cluster_expansion_decorator
 def decorated_coherence_function(cluster, allspin, projections_alpha, projections_beta, magnetic_field, timespace, N,
-                                 as_delay=False, states=None, projected_states=None, imap=None, map_error=None,
+                                 as_delay=False, states=None, projected_states=None,
                                  **kwargs):
     """
     Overarching decorated function to compute coherence function in conventional CCE.
@@ -141,12 +141,7 @@ def decorated_coherence_function(cluster, allspin, projections_alpha, projection
             list of bath states in any accepted format.
         projected_states (ndarray): ndarray of ``shape = len(allspin)``
             containing z-projections of the bath spins states.
-        imap (InteractionMap):
-            Optional. Instance of InteractionMap
-            which contains interaction tensors between bath spins.
-        map_error (bool):
-            True if treat absence of the interaction between bath spins in imap as an error.
-            False if not.
+
         **kwargs (any): Additional arguments for projected_hamiltonian.
 
     Returns:
@@ -167,11 +162,11 @@ def decorated_coherence_function(cluster, allspin, projections_alpha, projection
         others = allspin[others_mask]
         other_states = projected_states[others_mask]
 
-    if imap is not None:
-        imap = imap.subspace(cluster)
+    # if imap is not None:
+    #     imap = imap.subspace(cluster)
 
     H0, H1 = projected_hamiltonian(nspin, projections_alpha, projections_beta, magnetic_field,
-                                   imap=imap, map_error=map_error, others=others,
+                                   others=others,
                                    other_states=other_states, **kwargs)
 
     coherence = compute_coherence(H0, H1, timespace, N, as_delay=as_delay, states=states)
@@ -179,12 +174,12 @@ def decorated_coherence_function(cluster, allspin, projections_alpha, projection
 
 
 def monte_carlo_coherence(cluster, allspin, projections_alpha, projections_beta, magnetic_field, timespace, N,
-                          as_delay=False, imap=None,
+                          as_delay=False,
                           nbstates=100, seed=None, masked=True,
                           parallel_states=False,
                           fixstates=None, direct=False, parallel=False,
                           **kwargs):
-    """
+    r"""
     Compute coherence of the central spin using conventional CCE with Monte-Carlo bath state sampling.
 
     Args:
@@ -265,7 +260,7 @@ def monte_carlo_coherence(cluster, allspin, projections_alpha, projections_beta,
         coherence = decorated_coherence_function(cluster, allspin, projections_alpha, projections_beta,
                                                  magnetic_field, timespace, N, as_delay=as_delay, states=bath_state,
                                                  projected_states=bath_state,
-                                                 parallel=parallel, direct=direct, imap=imap, **kwargs)
+                                                 parallel=parallel, direct=direct, **kwargs)
         if masked:
             proper = np.abs(coherence) <= np.abs(coherence[0])
             divider += proper.astype(np.int32)

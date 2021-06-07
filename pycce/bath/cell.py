@@ -1,6 +1,7 @@
 import sys
 from string import digits
-
+import re
+import warnings
 import numpy as np
 from pycce.utilities import rotmatrix
 
@@ -113,7 +114,7 @@ class BathCell:
             self.cell[2, 2] = volume / a / b / np.sin(gamma)
 
         if np.linalg.cond(self.cell) < 1 / sys.float_info.epsilon:
-            zdr = np.linalg.inv(self.cell) @ np.array([0, 0, 1])
+            zdr = self.to_cell([0, 0, 1])
             zdr = zdr / np.linalg.norm(zdr)
         else:
             zdr = np.zeros(3)
@@ -132,7 +133,7 @@ class BathCell:
 
     @zdir.setter
     def zdir(self, direction):
-        self._zdir = np.asarray(direction)  # Stored in the cell coordinates
+        self._zdir = np.asarray(direction) / np.linalg.norm(direction)  # Stored in the cell coordinates
 
         a = np.array([0, 0, 1])  # Initial vector
 
@@ -154,6 +155,7 @@ class BathCell:
             rotation = rotmatrix(a, b)
 
         self.cell = np.linalg.inv(rotation) @ self.cell
+        self.cell[np.abs(self.cell) < FLOAT_ERROR_RANGE * np.max(np.abs(self.cell))] = 0
 
         # R =  [n_1^(1) n_1^(2) n_1^(3)]
         #      [n_2^(1) n_2^(2) n_2^(3)]
@@ -164,6 +166,22 @@ class BathCell:
         # e'_j = n_1^(j)*e_1 + n_2^(j)*e_2 + n_3^(j)*e_3
         # in other words, columns of matrix are coordinates of the new
         # basis in the old basis.
+
+    def rotate(self, rotation_matrix):
+        """
+        Rotate the BathCell using the rotation matrix provided.
+
+        Args:
+            rotation_matrix (ndarray with shape (3,)): Rotation matrix R which rotates the old basis of the
+                cartesian reference frame to the new basis.
+        """
+
+        self.cell = np.linalg.inv(rotation_matrix) @ self.cell
+        self.cell[np.abs(self.cell) < FLOAT_ERROR_RANGE * np.max(np.abs(self.cell))] = 0
+
+        zd = self.to_cell([0, 0, 1])
+        self._zdir = zd / np.linalg.norm(zd)
+        self._zdir[np.abs(self._zdir) < FLOAT_ERROR_RANGE * np.max(np.abs(self._zdir))] = 0
 
     def set_zdir(self, direction, type='cell'):
         """
@@ -497,6 +515,119 @@ class BathCell:
         m += f"\nz-direction: {self.zdir}\n"
 
         return m
+
+
+_remove_digits = str.maketrans('', '', '+-^1234567890')
+
+
+def random_bath(names, size, number=1000, density=None, types=None,
+                density_units='cm-3', center=None,
+                seed=None):
+    r"""
+    Generate random bath containing spins with names provided with argument ``name`` in the box of size ``size``.
+    By default generates coordinates in range (-size/2; +size/2) but this behavior can be changed by providing
+    ``center`` keyword.
+
+    Examples:
+
+        Generate 2000 :math:`^{13}\mathrm{C}` nuclear spins in the cubic box with the side of 100 angstrom::
+
+            >>> atoms = random_bath('13C', 100, number=2000, seed=10)
+            >>> print(atoms.size)
+            2000
+            >>> print(round(atoms.x.min()), round(atoms.x.max()))
+            -50.0 50.0
+
+        Generate electron spin bath with density :math:`10^{17} \mathrm{cm}^{-3}` in the cuboid box::
+
+            >>> electrons = random_bath('e', [1e3, 2e3, 3e3], density=1e17,
+            >>>                         density_units='cm-3', seed=10)
+            >>> print(electrons.size, round(electrons.x.min()), round(electrons.x.max()))
+            600 -494.0 500.0
+            >>> print(electrons.types)
+            SpinDict(e: (e, 0.5, -17608.59705))
+
+    Args:
+        names (str or array-like with length n): Name of the bath spin or array with the names of the bath spins,
+        size (float or ndarray with shape (3,)): Size of the box. If float is given,
+            assumes 3D cube with the edge = ``size``. Otherwise the size specifies the dimensions of the box.
+            Dimensionality is controlled by setting entries of the size array to 0.
+
+        number (int or array-like with length n): Number of the bath spins in the box
+            or array with the numbers of the bath spins. Has to have the same length as the ``name`` array.
+
+        density (float or array-like with length n): Concentration of the bath spin
+            or array with the concentrations. Has to have the same length as the ``name`` array.
+
+        types (SpinDict): Dictionary with SpinTypes or input to create one.
+
+        density_units (str): If number of spins provided as density, defines units.
+            Values are accepted in the format ``m``, or ``m^x`` or ``m-x`` where m is the length unit,
+            x is dimensionality of the bath (e.g. x = 1 for 1D, 2 for 2D etc).
+            If only ``m`` is provided the dimensions are inferred from ``size`` argument.
+            Accepted length units:
+
+                * ``m`` meters;
+                * ``cm`` centimeters;
+                * ``a`` angstroms.
+
+        center (ndarray with shape (3,)): Coordinates of the (0, 0, 0) point of the final coordinate system
+            in the initial coordinates. Default is ``size / 2`` - center is in the middle of the box.
+
+    Returns:
+        BathArray with shape (np.prod(number)): Array of the bath spins with random positions.
+    """
+    size = np.asarray(size)
+    unit_conversion = {'a': 1, 'cm': 1e-8, 'm': 1e-10}
+    name = np.asarray(names)
+
+    if size.size == 1:
+        size = np.array([size, size, size])
+
+    elif size.size > 3:
+        raise RuntimeError('Wrong size format')
+
+    if center is None:
+        center = size / 2
+
+    if density is not None:
+        du = density_units.lower().translate(_remove_digits)
+        power = re.findall(r'\d+', density_units.lower())
+
+        sc = np.count_nonzero(size != 0)
+
+        if power:
+            powa = int(power[0])
+            if sc != powa:
+                warnings.warn(f'size dimensions {sc} do not agree with density units {density_units}',
+                              stacklevel=2)
+        else:
+            powa = sc
+
+        density = np.asarray(density) * unit_conversion[du] ** powa
+
+        number = np.rint(density * np.prod(size[size != 0])).astype(np.int32)
+
+    else:
+        number = np.asarray(number, dtype=np.int32)
+
+    total_number = np.sum(number)
+    spins = BathArray((total_number,), types=types)
+
+    if name.shape:
+        counter = 0
+        for n, no in zip(name, number):
+            spins.N[counter:counter + no] = n
+            counter += no
+
+    else:
+        spins.N = name
+
+    # Generate the coordinates
+    generator = np.random.default_rng(seed=seed)
+
+    spins.xyz = generator.random(spins.xyz.shape) * size - center
+    return spins
 
 
 def defect(cell, atoms, add=None, remove=None):

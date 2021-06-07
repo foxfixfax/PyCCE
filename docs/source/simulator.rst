@@ -13,10 +13,14 @@ Documentation for the ``pycce.Simulator`` - main class for conducting CCE Simula
 
 Calculate properties with Simulator
 -------------------------------------
-And here we talk stuff about simulating stuff.
+Documentation for the ``Simulator.compute`` method and it's dependencies -
+the interface to run calculations with **pyCCE**.
 
 .. automethod:: pycce.main.Simulator.compute
 .. automethod:: pycce.main.Simulator.cce_coherence
 .. automethod:: pycce.main.Simulator.gcce_dm
 .. automethod:: pycce.main.Simulator.cce_noise
 .. automethod:: pycce.main.Simulator.gcce_noise
+
+
+

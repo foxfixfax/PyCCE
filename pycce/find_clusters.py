@@ -40,6 +40,7 @@ class _Clusters(MutableMapping):
 def make_graph(bath, r_dipole, r_inner=0, ignore=None, max_size=5000):
     """
     Make a connectivity matrix for bath spins.
+
     Args:
         bath (BathArray): Array of bath spins.
         r_dipole (float): Maximum connectivity distance.
@@ -244,6 +245,7 @@ def find_subclusters(maximum_order, graph, labels, n_components, strong=False):
 def generate_clusters(bath, r_dipole, order, r_inner=0, ignore=None, strong=False):
     """
     Generate clusters for the bath spins.
+
     Args:
         bath (BathArray): Array of bath spins.
         r_dipole (float): Maximum connectivity distance.
@@ -279,9 +281,11 @@ def generate_clusters(bath, r_dipole, order, r_inner=0, ignore=None, strong=Fals
 def combine_clusters(cs1, cs2):
     """
     Combine two dictionaries with clusters.
+
     Args:
         cs1 (dict): First cluster dictionary with keys corresponding to size of the cluster,
             and value corresponds to ndarray of shape (matrix, N).
+
         cs2 (dict): Second cluster dictionary with the same structure.
 
     Returns:

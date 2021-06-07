@@ -13,10 +13,6 @@ def hamiltonian_wrapper(_func=None, *, projected=False):
     **Additional parameters**:
 
         * **central_spin** (*float*) -- value of the central spin.
-        * **imap** (*InteractionMap*) --Optional. Instance of InteractionMap
-          which contains interaction tensors between bath spins.
-        * **map_error** (*bool*): True if treat absence of the interaction
-          between bath spins in imap as an error. False if not.
 
     Args:
         _func (func): Wrapped function.
@@ -31,10 +27,9 @@ def hamiltonian_wrapper(_func=None, *, projected=False):
         @functools.wraps(function)
         def base_hamiltonian(bath, *arg,
                              central_spin=None,
-                             imap=None, map_error=None,
                              **kwargs):
             dim, spinvectors = dimensions_spinvectors(bath, central_spin=central_spin)
-            clusterint = bath_interactions(bath, spinvectors, imap=imap, raise_error=map_error)
+            clusterint = bath_interactions(bath, spinvectors)
             if projected:
                 halpha, hbeta = Hamiltonian(dim), Hamiltonian(dim)
 
@@ -109,14 +104,6 @@ def projected_hamiltonian(bath, vectors, projections_alpha, projections_beta, mf
 
             where :math:`\ket{\beta}` is the beta qubit state, and :math:`\ket{\j}` are all states.
 
-        imap (InteractionMap):
-            Optional. Instance of InteractionMap
-            which contains interaction tensors between bath spins.
-
-        map_error (bool):
-            True if treat absence of the interaction between bath spins in imap as an error.
-            False if not.
-
     Returns:
         tuple: *tuple* containing:
 
@@ -165,12 +152,6 @@ def total_hamiltonian(bath, vectors, mfield, zfs, central_gyro=ELECTRON_GYRO):
         central_gyro(float or ndarray with shape (3,3)):
             gyromagnetic ratio of the central spin OR tensor corresponding to interaction between magnetic field and
             central spin.
-        imap (InteractionMap):
-            Optional. Instance of InteractionMap
-            which contains interaction tensors between bath spins.
-        map_error (bool):
-            True if treat absence of the interaction between bath spins in imap as an error.
-            False if not.
         central_spin (float): value of the central spin.
 
     Returns:
@@ -211,12 +192,6 @@ def mean_field_hamiltonian(bath, vectors, mfield, others, others_state, zfs=None
         central_gyro(float or ndarray with shape (3,3)):
             gyromagnetic ratio of the central spin OR tensor corresponding to interaction between magnetic field and
             central spin.
-        imap (InteractionMap):
-            Optional. Instance of InteractionMap
-            which contains interaction tensors between bath spins.
-        map_error (bool):
-            True if treat absence of the interaction between bath spins in imap as an error.
-            False if not.
         central_spin (float): value of the central spin.
 
     Returns:

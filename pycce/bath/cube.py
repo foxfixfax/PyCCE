@@ -79,12 +79,11 @@ class Cube:
 
                 else:
                     self.voxel[i] = [float(x) * BOHR_TO_ANGSTROM for x in tot[1:]]
-
-            for j in range(natoms):
-                tot = next(content).split()
-                with warnings.catch_warnings():
+            with warnings.catch_warnings(record=True):
+                for j in range(natoms):
+                    tot = next(content).split()
                     self.atoms[j]['N'] = chemical_symbols[int(tot[0])]
-                self.atoms[j]['xyz'] = [float(x) for x in tot[2:]]
+                    self.atoms[j]['xyz'] = [float(x) for x in tot[2:]]
 
             if self.size[0] > 0:
                 self.atoms['xyz'] *= BOHR_TO_ANGSTROM
@@ -112,22 +111,22 @@ class Cube:
         self.spin = round(self.integral) * 0.5
 
     def transform(self, rotmatrix=None, shift=None):
-        """
+        r"""
         Changes coordinates of the grid. DOES NOT ASSUME PERIODICITY.
 
         Args:
             rotmatrix (ndarray with shape (3, 3)): Rotation matrix `R`:
 
-                ..math::
+                .. math::
 
-                R =  &[n_1^{(1)} n_1^{(2)} n_1^{(3)}]\\
-                     &[n_2^{(1)} n_2^{(2)} n_2^{(3)}]\\
-                     &[n_3^{(1)} n_3^{(2)} n_3^{(3)}]
+                    R =  &[n_1^{(1)} n_1^{(2)} n_1^{(3)}]\\
+                         &[n_2^{(1)} n_2^{(2)} n_2^{(3)}]\\
+                         &[n_3^{(1)} n_3^{(2)} n_3^{(3)}]
 
                 where :math:`n_i^{(j)}` corresponds to the coefficient of initial basis vector :math:`i`
                 for :math:`j` new basis vector:
 
-                ..math::
+                .. math::
 
                     e'_j = n_1^{(j)} \vec{e}_1 + n_2^{(j)} \vec{e}_2 + n_3^{(j)} \vec{e}_3
 
@@ -138,8 +137,6 @@ class Cube:
                 vector in new basis is given as v' = R.T @ v.
 
             shift (ndarray with shape (3,)): Shift in the origin of coordinates (in the old basis).
-
-        Returns:
 
         """
 

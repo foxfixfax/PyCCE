@@ -4,6 +4,41 @@ from numba import jit
 from numba.typed import List
 
 
+def rotmatrix(initial_vector, final_vector):
+    r"""
+    Generate 3D rotation matrix which applied on initial vector will produce vector, aligned with final vector.
+
+    Examples:
+
+        >>> R = rotmatrix([0,0,1], [1,1,1])
+        >>> R @ np.array([0,0,1])
+        array([0.577, 0.577, 0.577])
+
+    Args:
+        initial_vector (ndarray with shape(3, )): Initial vector.
+        final_vector (ndarray with shape (3, )): Final vector.
+
+    Returns:
+        ndarray with shape (3, 3): Rotation matrix.
+    """
+
+    iv = np.asarray(initial_vector)
+    fv = np.asarray(final_vector)
+    a = iv / np.linalg.norm(iv)
+    b = fv / np.linalg.norm(fv)  # Final vector
+
+    c = a @ b  # Cosine between vectors
+    # if they're antiparallel
+    if c == -1.:
+        raise ValueError('Vectors are antiparallel')
+
+    v = np.cross(a, b)
+    screw_v = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
+    r = np.eye(3) + screw_v + np.dot(screw_v, screw_v) / (1 + c)
+
+    return r
+
+
 def expand(matrix, i, dim):
     """
     Expand matrix M from it's own dimensions to the total Hilbert space.
@@ -35,7 +70,9 @@ def dimensions_spinvectors(nspin, central_spin=None):
 
     Returns:
         tuple: *tuple* containing:
+
                 * **ndarray with shape (n,)**: Array with dimensions for each spin.
+
                 * **list**: List with vectors of spin matrices for each spin in the cluster
                   (Including central spin if ``central_spin`` is not None). Each with  shape (3, N, N) where
                   ``N = prod(dimensions)``.
@@ -50,9 +87,12 @@ def dimensions_spinvectors(nspin, central_spin=None):
         spins += [central_spin]
 
     dimensions = np.asarray(dimensions, dtype=np.int32)
+
     vectors = []
+
     for j, s in enumerate(spins):
         vectors.append(spinvec(s, j, dimensions))
+
     return dimensions, vectors
 
 
@@ -108,7 +148,7 @@ def generate_projections(state_a, state_b=None):
 
 def zfs_tensor(D, E=0):
     """
-    Generate (3, 3) ZFS tensor from observables D and E parameters.
+    Generate (3, 3) ZFS tensor from observable parameters D and E.
 
     Args:
         D (float or ndarray with shape (3, 3)): Longitudinal splitting (D) in ZFS **OR** total ZFS tensor.
@@ -129,16 +169,19 @@ def zfs_tensor(D, E=0):
 
 
 def project_bath_states(states):
-    """
-    Generate projections of bath states on Sz axis from any type of states input.
+    r"""
+    Generate projections of bath states on :math:`S_z` axis from any type of states input.
     Args:
         states (array-like): Array of bath spin states.
 
     Returns:
-        ndarray: Array of Sz projections of the bath states
+        ndarray: Array of :math:`S_z` projections of the bath states
     """
+
     ndstates = np.asarray(states)
+
     if len(ndstates.shape) > 1:
+
         spin = (ndstates.shape[1] - 1) / 2
         projected_bath_state = np.empty((ndstates.shape[0], 3))
 
@@ -217,118 +260,6 @@ def _gen_sm(dim):
     z = np.diag(projections[::-1])
     return x, y, z
 
-
-def transform(atoms, center=None, cell=None, rotation_matrix=None, style='col', inplace=True):
-    """
-    Coordinate transformation of BathArray.
-
-    Args:
-        atoms (BathArray): Array to be transformed.
-        center (ndarray with shape (3,)): (0, 0, 0) position of new coordinates in the initial frame.
-        cell (ndarray with shape (3, 3)): Cell vectors in cartesian coordinates
-            if initial coordinates of the ``atoms`` are in crystallographic reference frame.
-        rotation_matrix (ndarray with shape (3, 3)):
-            Rotation matrix R of the **coordinate system**.
-
-            E.g. ``R @ [0, 0, 1] = [a, b, c]`` where ``[a, b, c]`` are coordinates of the z axis of the new coordinate
-            system in the old coordinate system.
-
-            Note, that rotaton is applied after transition from cell coordinates to the cartesian coordinates,
-            in which cell vectors are stored.
-
-        style (str): Can have two values: 'col' or 'row'.
-            Shows how ``cell`` and ``rotation_matrix`` matrices are given:
-
-                * if 'col', each column of the matrix is a vector in previous coordinates;
-                * if 'row' - each row is a new vector.
-
-            Default 'col'.
-
-        inplace (bool): If true, makes inplace changes to the provided array.
-
-    Returns:
-        BathArray: Transformed array with bath spins.
-    """
-
-    styles = ['col', 'row']
-    if style not in styles:
-        raise ValueError('Unsupported style of matrices. Available styles are: ' + ', '.join(*styles))
-
-    if not inplace:
-        atoms = atoms.copy()
-
-    if len(atoms.shape) == 0:
-        atoms = atoms[np.newaxis]
-
-    if center is None:
-        center = np.zeros(3)
-
-    if cell is None:
-        cell = np.eye(3)
-
-    if rotation_matrix is None:
-        rotation_matrix = np.eye(3)
-
-    if style.lower() == 'row':
-        cell = cell.T
-        rotation_matrix = rotation_matrix.T
-
-    if not atoms.dtype.names:
-        atoms -= np.asarray(center)
-        atoms = np.einsum('jk,ik->ij', cell, atoms)
-        atoms = np.einsum('jk,ik->ij', np.linalg.inv(rotation_matrix), atoms)
-
-        return atoms
-
-    atoms['xyz'] -= np.asarray(center)
-
-    atoms['xyz'] = np.einsum('jk,ik->ij', cell, atoms['xyz'])
-    atoms['xyz'] = np.einsum('jk,ik->ij', np.linalg.inv(rotation_matrix), atoms['xyz'])
-
-    if 'A' in atoms.dtype.names:
-        atoms['A'] = np.matmul(atoms['A'], rotation_matrix)
-        atoms['A'] = np.matmul(np.linalg.inv(rotation_matrix), atoms['A'])
-
-    if 'Q' in atoms.dtype.names:
-        atoms['Q'] = np.matmul(atoms['Q'], rotation_matrix)
-        atoms['Q'] = np.matmul(np.linalg.inv(rotation_matrix), atoms['Q'])
-
-    return atoms
-
-
-def rotmatrix(initial_vector, final_vector):
-    r"""
-    Generate 3D rotation matrix which applied on initial vector will produce vector, aligned with final vector.
-
-    Examples:
-
-        >>> R = rotmatrix([0,0,1], [1,1,1])
-        >>> R @ np.array([0,0,1])
-        array([0.577, 0.577, 0.577])
-
-    Args:
-        initial_vector (ndarray with shape(3, )): Initial vector.
-        final_vector (ndarray with shape (3, )): Final vector.
-
-    Returns:
-        ndarray with shape (3, 3): Rotation matrix.
-    """
-
-    iv = np.asarray(initial_vector)
-    fv = np.asarray(final_vector)
-    a = iv / np.linalg.norm(iv)
-    b = fv / np.linalg.norm(fv)  # Final vector
-
-    c = a @ b  # Cosine between vectors
-    # if they're antiparallel
-    if c == -1.:
-        raise ValueError('Vectors are antiparallel')
-
-    v = np.cross(a, b)
-    screw_v = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
-    r = np.eye(3) + screw_v + np.dot(screw_v, screw_v) / (1 + c)
-
-    return r
 
 #TODO Implement partial inner product instead of trace when MC bath state sampling.
 def _partial_inner_product(a, total, dimensions, index=-1):

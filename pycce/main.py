@@ -17,7 +17,7 @@ from pycce import mean_field_density_matrix, monte_carlo_dm
 from pycce.io.xyz import read_xyz
 
 from .bath.array import BathArray, SpinDict
-from .bath.read_cube import Cube
+from .bath.cube import Cube
 from .calculators.coherence_function import decorated_coherence_function, monte_carlo_coherence
 from .calculators.correlation_function import decorated_noise_correlation, \
     projected_noise_correlation, noise_sampling
@@ -36,11 +36,11 @@ class Environment:
 
         # Properties of the total bath
         self.total_bath = None
-        self.total_imap = None
+        # self.total_imap = None
         # The reduced bath
         self._r_bath = None
         self._bath = None
-        self.imap = None
+        # self.imap = None
         self._hyperfine = None
         # External bath properties
         self._external_bath = None
@@ -75,7 +75,7 @@ class Environment:
     def ext_r_bath(self):
         """
         float: Maximum distance from the central spins of the bath spins
-            for which to use the DFT positions.
+            for which to use the data from ``external_bath``.
         """
         return self._ext_r_bath
 
@@ -131,9 +131,8 @@ class Environment:
             raise e
 
         self.total_bath = self._bath
-
-        self.total_imap = None
-        self.imap = None
+        # self.imap = None
+        # self.total_imap = None
         self._r_bath = None
         self.external_bath = None
         self._ext_r_bath = None
@@ -147,22 +146,25 @@ class Environment:
                   error_range=None,
                   ext_r_bath=None,
                   imap=None):
-        """
+        r"""
         Read spin bath from the file or from the ``BathArray``.
 
         Args:
             bath (ndarray, BathArray or str): Either:
 
-                - Instance of BathArray class;
-                - ndarray with ``dtype([('N', np.unicode_, 16), ('xyz', np.float64, (3,))])`` containing names
+                * Instance of BathArray class;
+                * ndarray with ``dtype([('N', np.unicode_, 16), ('xyz', np.float64, (3,))])`` containing names
                   of bath spins (same ones as stored in self.ntype) and positions of the spins in angstroms;
-                - the name of the xyz text file containing 4 cols: name of the bath spin and xyz coordinates in A.
+                * the name of the xyz text file containing 4 cols: name of the bath spin and xyz coordinates in A.
 
             r_bath (float): Cutoff size of the spin bath.
+
             skiprows (int, optional): If ``bath`` is name of the file, this argument
                 gives number of rows to skip while reading the .xyz file (default 1).
+
             external_bath (BathArray, optional):
                 BathArray containing spins read from DFT output (see ``pycce.io``)
+
             hyperfine (str, func, or Cube instance, optional):
                 This argument tells the code how to generate hyperfine couplings.
                 If (``hyperfine = None`` and all A in provided bath are 0) or (``hyperfine = 'pd'``),
@@ -171,17 +173,38 @@ class Environment:
                 ``func(coord, gyro, central_gyro)``, where coord is array of the bath spin coordinate,
                 gyro is the gyromagnetic ratio of bath spin,
                 central_gyro is the gyromagnetic ratio of the central bath spin.
+
             types (SpinDict): SpinDict or input to create one.
                 Contains either SpinTypes of the bath spins or tuples which will initialize those.
                 See ``pycce.bath.SpinDict`` documentation for details.
+
             error_range (float, optional): Maximum distance between positions in bath and external
                 bath to consider two positions the same (default 0.2).
+
             ext_r_bath (float, optional): Maximum distance from the central spins of the bath spins
                 for which to use the DFT positions.
+
             imap (InteractionMap): Instance of ``InteractionMap`` class, containing interaction tensors for bath spins.
                 Each key of the ``InteractionMap`` is a tuple with indexes of two bath spins.
-                The value is the 3x3 tensor describing the interaction between two spins in a format
-                :math:`IPI = I_{x}P_{xx}I_{x} + I_{x}P_{xy}I_{y} ...`
+                The value is the 3x3 tensor describing the interaction between two spins in a format:
+
+                .. math::
+
+                    I^iJI^j = I^i_{x}J_{xx}I^j_{x} + I^i_{x}J_{xy}I^j_{y} ...
+
+        .. note::
+
+            For each bath spin pair without interaction tensor in ``imap``, coupling is approximated assuming
+            magnetic point dipole–dipole interaction.  If ``imap = None`` all interactions between bath spins
+            are approximated in this way. Then interaction tensor between spins `i` and `j` is computed as:
+
+            .. math::
+
+                \mathbf{J}_{ij} = -\gamma_{i} \gamma_{j} \frac{\hbar^2}{4\pi \mu_0}
+                                   \left[ \frac{3 \vec{r_{ij}} \otimes \vec{r_ij} - |r_{ij}|^2 I}{|r_{ij}|^5} \right]
+
+            Where :math:`\gamma_{i}` is gyromagnetic ratio of `i` spin, :math:`I` is 3x3 identity matrix, and
+            :math:`\vec{r_{ij}` is distance between two spins.
 
         Returns:
             BathArray:  The view of ``Simulator.bath`` attribute, generated by the method.
@@ -189,7 +212,7 @@ class Environment:
         self._bath = None
 
         if bath is not None:
-            self.total_bath = read_xyz(bath, skiprows=skiprows, spin_types=types)
+            self.total_bath = read_xyz(bath, skiprows=skiprows, spin_types=types, imap=imap)
 
         bath = self.total_bath
 
@@ -197,20 +220,19 @@ class Environment:
             return
 
         self._r_bath = r_bath if r_bath is not None else self._r_bath
-        self.total_imap = imap if imap is not None else self.total_imap
+        # self.total_imap = imap if imap is not None else self.total_imap
         self._external_bath = external_bath if external_bath is not None else self._external_bath
         self._ext_r_bath = ext_r_bath if ext_r_bath is not None else self._ext_r_bath
         self._hyperfine = hyperfine if hyperfine is not None else self._hyperfine
         self._error_range = error_range if error_range is not None else self._error_range
 
+        # imap = self.total_imap
+
         if self.r_bath is not None:
             mask = np.linalg.norm(bath['xyz'] - np.asarray(self.position), axis=-1) < self.r_bath
             bath = bath[mask]
-            if self.total_imap is not None:
-                imap = self.total_imap.subspace(mask)
-
-        elif self.total_imap is not None:
-            imap = self.total_imap
+            # if self.total_imap is not None:
+            #     imap = self.total_imap.subspace(mask)
 
         if self.external_bath is not None and self.ext_r_bath is not None:
             where = np.linalg.norm(self.external_bath['xyz'] - self.position, axis=1) <= self.ext_r_bath
@@ -231,7 +253,7 @@ class Environment:
                         inplace=True)
 
         self._bath = bath
-        self.imap = imap
+        # self.imap = imap
 
         return self.bath
 
@@ -277,7 +299,34 @@ class Simulator(Environment):
         - if both ``r_dipole`` and ``order`` are provided and ``bath`` is not None,
           the ``Simulator.generate_clusters`` is called.
 
-    Examples:
+    Examples::
+
+        >>> atoms = random_bath('13C', 100, number=2000, seed=10)
+        >>> calc = Simulator(1, bath=atoms, r_bath=40, r_dipole=6,
+        >>>                  order=2, D=2.88 * 2 * np.pi * 1e6,
+        >>>                  magnetic_field=500, pulses=1)
+        >>> print(calc)
+        Simulator for spin-1.
+        alpha: [0.+0.j 1.+0.j 0.+0.j]
+        beta: [0.+0.j 0.+0.j 1.+0.j]
+        gyromagnetic ratio: -17608.59705 kHz * rad / G
+        zero field splitting:
+        array([[-6031857.895,        0.   ,        0.   ],
+               [       0.   , -6031857.895,        0.   ],
+               [       0.   ,        0.   , 12063715.79 ]])
+        magnetic field:
+        array([  0.,   0., 500.])
+
+        Parameters of cluster expansion:
+        r_bath: 40
+        r_dipole: 6
+        order: 2
+
+        Bath consists of 549 spins.
+
+        Clusters include:
+        549  clusters of order 1.
+        457  clusters of order 2.
 
 
     Args:
@@ -315,7 +364,7 @@ class Simulator(Environment):
             Total ZFS tensor. Default 0.
 
         E (float): E (transverse splitting) parameter of central spin in ZFS tensor of central spin in rad * kHz.
-             Default 0.
+             Default 0. Ignored if ``D`` is None or tensor.
 
         bath (ndarray or str): First positional argument of the ``Simulator.read_bath`` method.
 
@@ -490,6 +539,24 @@ class Simulator(Environment):
     def r_dipole(self, r_dipole):
         self.generate_clusters(r_dipole=r_dipole)
 
+    def set_zfs(self, D=None, E=0):
+        """
+        Set Zero Field Splitting of the central spin from longitudinal ZFS *D* and transverse ZFS *E*.
+
+        Args:
+            D (float or ndarray with shape (3, 3)): D (longitudinal splitting) parameter of central spin
+                in ZFS tensor of central spin in rad * kHz.
+
+                *OR*
+
+                Total ZFS tensor. Default 0.
+
+            E (float): E (transverse splitting) parameter of central spin in ZFS tensor of central spin in rad * kHz.
+                 Default 0. Ignored if ``D`` is None or tensor.
+        """
+
+        self.zfs = zfs_tensor(D, E)
+
     def set_magnetic_field(self, magnetic_field=None):
         """
         Set magnetic field from either value of the magnetic field along z-direction or full magnetic field vector.
@@ -497,7 +564,7 @@ class Simulator(Environment):
         Args:
             magnetic_field (float or array-like): Magnetic field along z-axis.
 
-                *OR*
+                **OR**
 
                 Array containing external magnetic field as (Bx, By, Bz). Default (0, 0, 0).
 
@@ -573,7 +640,8 @@ class Simulator(Environment):
             magnetic_field (ndarray with shape (3,)): Array containing external magnetic field as (Sx, By, Bz).
             D (float or ndarray with shape (3, 3)): D (longitudinal splitting) parameter of central spin
                 in rad * kHz *OR* total ZFS tensor.
-            E (float): E (transverse splitting) parameter of central spin in rad * kHz. Ignored if D is a tensor.
+            E (float): E (transverse splitting) parameter of central spin in rad * kHz.
+                Ignored if ``D`` is None or tensor.
             return_eigen (bool): If true, returns eigenvalues and eigenvectors of the central spin Hamiltonian.
 
         Returns:
@@ -670,6 +738,23 @@ class Simulator(Environment):
         r"""
         General interface for computing properties with CCE.
 
+        The dynamics are simulated using the Hamiltonian:
+
+        .. math::
+
+            &\hat H_S = \mathbf{SDS} + \mathbf{B\gamma}_{S}\mathbf{S} \\
+            &\hat H_{SB} = \sum_i \mathbf{S}\mathbf{A}_i\mathbf{I}_i \\
+            &\hat H_{B} = \sum_i{\mathbf{I}_i\mathbf{P}_i \mathbf{I}_i +
+                           \mathbf{B}\mathbf{\gamma}_i\mathbf{I}_i} + \sum_{i>j} \mathbf{I}_i\mathbf{J}_{ij}\mathbf{I}_j
+
+        Here :math:`\hat H_S` is the central spin Hamiltonian with Zero Field splitting tensor :math:`\mathbf{D}` and
+        gyromagnetic ratio tensor :math:`\mathbf{\gamma_S} = \mu_S \mathbf{g}`
+        are read from ``Simulator.zfs`` and ``Simulator.gyro`` respectively.
+
+        The :math:`\hat H_{SB}` is the Hamiltonian describing interactions between central spin and the bath.
+        The hyperfine coupling tensors :math:`\mathbf{A}_i` are read from the ``BathArray`` stored in
+        ``Simulator.bath['A']``. They can be generated using point dipole approximation
+
         Examples:
             First set up Simulator object using random bath of 1000 13C nuclear spins.
 
@@ -765,28 +850,41 @@ class Simulator(Environment):
                       mean_field=True, nbstates=None, seed=None, masked=True,
                       parallel_states=False, fixstates=None, second_order=False, level_confidence=0.95,
                       direct=False, parallel=False):
-        """
+        r"""
         Compute coherence function with conventional CCE.
 
         Args:
             timespace (ndarray with shape (n,)): Time points at which compute coherence function.
+
             magnetic_field (ndarray with shape (3,)): Magnetic field vector of form (Bx, By, Bz).
+
             pulses(int): Number of pulses in CPMG sequence.
+
             as_delay (bool): True if time points are delay between pulses (for equispaced pulses),
                 False if time points are total time. Ignored if pulse_sequence contains the time fractions.
+
             states (array-like):
-                List of bath spin states. if len(shape) == 1, contains Iz projections of Iz eigenstates.
+                List of bath spin states. if ``len(shape) == 1``, contains
+                :math:`I_z` projections of :math:`I_z` eigenstates.
                 Otherwise, contains array of initial dms of bath spins.
+                If not set, the code assumes completely random spin bath
+                (density matrix of each nuclear spin is proportional to identity, :math:`\hat {\mathbb{1}}/N`).
+
             mean_field (bool):
                 If True, add mean field corrections.
                 If ``bath_states`` keyword is provided, then compute only for
                 the given state with mean field corrections. Default True.
                 If ``nbstates`` is provided then sample over random bath states.
-            nbstates (int):  Number or random bath states to sample over.
+
+            nbstates (int): Number of *pure* random bath states to sample over.
+                Takes effect only if ``mean_field = True``.
+
             seed (int): Seed for random number generator, used in random bath states sampling.
+
             masked (bool):
                 True if mask numerically unstable points (with density matrix elements > 1)
                 in the averaging over bath states. Default True.
+
             parallel_states (bool):
                 True if to use MPI to parallelize the calculations of coherence function for different
                 bath states equally over present mpi processes. Compared to ``parallel`` keyword,
@@ -795,7 +893,8 @@ class Simulator(Environment):
                 number of bath states is divisible by the number of processes, ``nbstates % size == 0``.
 
             fixstates (dict): Shows which bath states to fix if sampling over bath states.
-                Each key is the index of bath spin, value - fixed Sz projection of the mixed state of nuclear spin.
+                Each key is the index of bath spin,
+                value - fixed :math:`S_z` projection of the mixed state of nuclear spin.
 
             second_order (bool):
                 True if add second order perturbation theory correction to the cluster Hamiltonian.
@@ -817,7 +916,7 @@ class Simulator(Environment):
 
         Returns:
             ndarray with shape (n,):
-                Coherence function computed at the time points in listed in the timespace.
+                Coherence function computed at the time points in listed in the ``timespace``.
 
         """
         if magnetic_field is not None:
@@ -876,7 +975,7 @@ class Simulator(Environment):
                                                      self.magnetic_field, timespace, pulses, as_delay=self.as_delay,
                                                      states=states,
                                                      projected_states=proj_states,
-                                                     parallel=parallel, direct=direct, imap=self.imap,
+                                                     parallel=parallel, direct=direct,
                                                      energy_alpha=energy_alpha, energy_beta=energy_beta,
                                                      energies=energies,
                                                      projections_alpha_all=projections_alpha_all,
@@ -885,7 +984,7 @@ class Simulator(Environment):
         else:
             coherence = monte_carlo_coherence(self.clusters, self.bath, projections_alpha, projections_beta,
                                               self.magnetic_field, timespace, pulses,
-                                              as_delay=self.as_delay, imap=self.imap,
+                                              as_delay=self.as_delay,
                                               nbstates=nbstates, seed=seed, masked=masked,
                                               parallel_states=parallel_states,
                                               fixstates=fixstates, direct=direct, parallel=parallel,
@@ -911,11 +1010,14 @@ class Simulator(Environment):
             magnetic_field (ndarray with shape (3,)): Magnetic field vector of form (Bx, By, Bz).
 
             D (float or ndarray with shape (3,3)):
-                D (longitudinal splitting) parameter of central spin in ZFS tensor of central spin in rad * kHz
-                *OR* total ZFS tensor.
+                D (longitudinal splitting) parameter of central spin in ZFS tensor of central spin in rad * kHz.
+
+                **OR**
+
+                Total ZFS tensor.
 
             E (float): E (transverse splitting) parameter of central spin in ZFS tensor of central spin in rad * kHz.
-
+                Ignored if ``D`` is None or tensor.
             pulses (list or int): Number of pulses in CPMG sequence.
 
                 *OR*
@@ -1009,7 +1111,7 @@ class Simulator(Environment):
 
             dms *= decorated_density_matrix(self.clusters, self.bath, dm0, self.alpha, self.beta, self.magnetic_field,
                                             self.zfs, timespace, pulses, gyro_e=self.gyro, as_delay=self.as_delay,
-                                            zeroth_cluster=dms, bath_state=bath_states, imap=self.imap,
+                                            zeroth_cluster=dms, bath_state=bath_states,
                                             direct=direct, parallel=parallel)
 
         else:
@@ -1025,12 +1127,12 @@ class Simulator(Environment):
                                                  self.magnetic_field, self.zfs, timespace,
                                                  pulses, bath_states, projected_bath_state=proj_bath_states,
                                                  gyro_e=self.gyro, as_delay=self.as_delay, zeroth_cluster=dms,
-                                                 imap=self.imap, parallel=parallel, direct=direct)
+                                                 parallel=parallel, direct=direct)
 
             else:
                 dms = monte_carlo_dm(self.clusters, self.bath, dm0, self.alpha, self.beta, self.magnetic_field,
                                      self.zfs, timespace, pulses, central_gyro=self.gyro,
-                                     as_delay=self.as_delay, imap=self.imap, nbstates=nbstates, seed=seed,
+                                     as_delay=self.as_delay, nbstates=nbstates, seed=seed,
                                      masked=masked, normalized=normalized, parallel_states=parallel_states,
                                      fixstates=fixstates, direct=direct, parallel=parallel)
         return dms
@@ -1128,7 +1230,7 @@ class Simulator(Environment):
         dm0 = np.tensordot(state, state, axes=0)
         if mean_field:
             corr = noise_sampling(self.clusters, self.bath, dm0, timespace, self.magnetic_field, self.zfs,
-                                  gyro_e=self.gyro, imap=self.imap,
+                                  gyro_e=self.gyro,
                                   nbstates=nbstates, seed=seed, parallel_states=parallel_states,
                                   direct=direct, parallel=parallel)
         else:
@@ -1142,35 +1244,33 @@ class Simulator(Environment):
         Update attributes for the ``Simulator`` object from the root process.
         """
         calc = _broadcast_simulator(self)
-
-        self.spin = calc.spin
-        self.gyro = calc.gyro
-
-        self.alpha = calc.alpha
-        self.beta = calc.beta
-
-        self.position = calc.position
-
-        self.zfs = calc.zfs
-        self.magnetic_field = calc.magnetic_field
-
-        self.total_bath = calc.total_bath
-        self.total_imap = calc.total_imap
-
-        self._r_bath = calc.r_bath
-        self._bath = calc.bath
-        self.imap = calc.imap
-
-        self._external_bath = calc.external_bath
-        self._ext_r_bath = calc.ext_r_bath
-
-        self._hyperfine = calc.hyperfine
-
-        self._error_range = calc.error_range
-
-        self._r_dipole = calc.r_dipole
-        self._order = calc.order
-        self.clusters = calc.clusters
+        dict_with_attr = vars(calc)
+        for key in dict_with_attr:
+            setattr(self, key, dict_with_attr[key])
+        # self.spin = calc.spin
+        # self.gyro = calc.gyro
+        #
+        # self.alpha = calc.alpha
+        # self.beta = calc.beta
+        #
+        # self.position = calc.position
+        #
+        # self.zfs = calc.zfs
+        # self.magnetic_field = calc.magnetic_field
+        #
+        # self.total_bath = calc.total_bath
+        # self._r_bath = calc.r_bath
+        # self._bath = calc.bath
+        # self._external_bath = calc.external_bath
+        # self._ext_r_bath = calc.ext_r_bath
+        #
+        # self._hyperfine = calc.hyperfine
+        #
+        # self._error_range = calc.error_range
+        #
+        # self._r_dipole = calc.r_dipole
+        # self._order = calc.order
+        # self.clusters = calc.clusters
 
     _compute_func = {
         'cce': {
@@ -1207,9 +1307,11 @@ def _close_state_index(state, eiv, level_confidence=0.95):
                          f"Eigenstates (rows):\n{repr(eiv.T)}")
     return indexes[0]
 
+
 def _broadcast_simulator(simulator=None, root=0):
     """
     Broadcast ``Simulator`` object from root to all mpi processes.
+
     Args:
         simulator (Simulator): Object to broadcast. Should be defined at root process.
         root (int): Index of the root process.
@@ -1225,6 +1327,19 @@ def _broadcast_simulator(simulator=None, root=0):
     comm = mpi4py.MPI.COMM_WORLD
 
     # size = comm.Get_size()
-    # rank = comm.Get_rank()
+    rank = comm.Get_rank()
+
     nsim = comm.bcast(simulator, root=root)
+    if rank == root:
+        bath = simulator.bath
+        parameters = vars(bath)
+    else:
+        bath = None
+        parameters = None
+
+    nbath = comm.bcast(bath, root)
+    nparam = comm.bcast(parameters, root)
+    for k in nparam:
+        setattr(nbath, k, nparam[k])
+    nsim._bath = nbath
     return nsim

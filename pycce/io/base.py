@@ -10,8 +10,8 @@ from pycce.constants import BOHR_TO_ANGSTROM
 coord_types = ['crystal', 'bohr', 'angstrom', 'alat']
 
 
-class DFTCoordinates(ABC):
-    """
+class DFTCoordinates:
+    r"""
     Abstract class for container of the DFT output coordinates.
 
     Attributes:
@@ -88,7 +88,7 @@ class DFTCoordinates(ABC):
 
 
 def change_to_angstrom(coordinates, units, alat=None, cell=None):
-    """
+    r"""
     Change coordinates to angstrom.
 
     Args:
@@ -98,6 +98,7 @@ def change_to_angstrom(coordinates, units, alat=None, cell=None):
 
         cell (ndarray with shape (3,3)):
             cell is 3x3 matrix with entries:
+
             .. math::
 
                 [&[a_x\ b_x\ c_x]\\

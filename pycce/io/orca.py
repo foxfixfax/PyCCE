@@ -1,78 +1,9 @@
 from .base import DFTCoordinates, find_first_index, yield_index, set_isotopes
 import numpy as np
 from pycce.constants import MHZ_TO_RADKHZ, EFG_CONVERSION
-from pycce.utilities import transform
-from pycce.bath.array import BathArray
+from pycce.bath.array import BathArray, transform
 import re
 import warnings
-
-
-class ORCACoordinates(DFTCoordinates):
-    """
-    Coordinates of the system from the ORCA output. Subclass of the DFTCoordinates.
-
-    With initiallization reads output of the ORCA.
-
-    Args:
-        orca_output (str or list of str): either name of the output file or list of lines read from that file.
-    Attributes:
-        alat (float): The lattice parameter in angstrom.
-        cell (ndarray with shape (3, 3)):
-            cell is 3x3 matrix with entries:
-                [a_x b_x c_x]
-                [a_y b_y c_y]
-                [a_z b_z c_z],
-            where a, b, c are crystallographic vectors
-            and x, y, z are their coordinates in the cartesian reference frame.
-        coordinates (ndarray with shape (n, 3)): array with the coordinates of atoms in the cell.
-        names (ndarray with shape (n,)): array with the names of atoms in the cell.
-        cell_units (str): Units of cell coordinates: 'bohr', 'angstrom', 'alat'.
-        coordinates_units (str): Units of atom coordinates: 'crystal', 'bohr', 'angstrom', 'alat'.
-    """
-
-    def __init__(self, orca_output):
-        self.cell = np.eye(3)
-        self.cell_units = 'angstrom'
-        self.read_output(orca_output)
-
-    def read_output(self, orca_output):
-        """
-        Method to read coordinates of atoms from ORCA output into the ORCACoordinates instance.
-
-        Args:
-            orca_output (str or list of str): either name of the output file or list of lines read from that file.
-
-        Returns:
-            None
-
-        """
-        try:
-            lines = open(orca_output).readlines()
-
-        except TypeError:
-            lines = orca_output
-
-        index = find_first_index('CARTESIAN COORDINATES (ANGSTROEM)', lines) + 1
-        names = []
-        coordinates = []
-
-        while True:
-            try:
-                index += 1
-
-                row_split = lines[index].split()
-                name = row_split[0]
-                crow = [float(x) for x in row_split[1:]]
-
-                names.append(name)
-                coordinates.append(crow)
-            except (IndexError, ValueError):
-                break
-
-        self.coordinates_units = 'angstrom'
-        self.coordinates = np.asarray(coordinates)
-        self.names = np.array(names, dtype='<U16')
-
 
 def read_orca(fname, isotopes=None, types=None, center=None,
               find_isotopes=True, rotation_matrix=None, rm_style='col'):
@@ -85,11 +16,11 @@ def read_orca(fname, isotopes=None, types=None, center=None,
     Args:
         fname (str): file name of the ORCA output.
         isotopes (dict): Optional.
-            Dictionary with entries:
+            Dictionary with entries::
 
-            `{"element" : "isotope"}`,
+            {"element" : "isotope"}
 
-             where "element" is the name of the element in DFT output, "isotope" is the name of the isotope.
+            where "element" is the name of the element in DFT output, "isotope" is the name of the isotope.
 
         types (SpinDict or list of tuples): SpinDict containing SpinTypes of isotopes or input to make one.
         center (ndarray of shape (3,)): position of (0, 0, 0) point in the DFT coordinates.
@@ -158,4 +89,73 @@ def read_orca(fname, isotopes=None, types=None, center=None,
         atoms[q_indexes] = atoms[q_indexes].from_efg(efgs)
 
     atoms = transform(atoms, center, rotation_matrix=rotation_matrix, style=rm_style)
+
     return atoms
+
+
+class ORCACoordinates(DFTCoordinates):
+    r"""
+    Coordinates of the system from the ORCA output. Subclass of the DFTCoordinates.
+
+    With initialization reads output of the ORCA.
+
+    Args:
+        orca_output (str or list of str): either name of the output file or list of lines read from that file.
+    Attributes:
+        alat (float): The lattice parameter in angstrom.
+        cell (ndarray with shape (3, 3)):
+            cell is 3x3 matrix with entries:
+
+            .. math::
+
+                [&[a_x\ b_x\ c_x]\\
+                &[a_y\ b_y\ c_y]\\
+                &[a_z\ b_z\ c_z]]
+
+            where a, b, c are crystallographic vectors,
+            and x, y, z are their coordinates in the cartesian reference frame.
+        coordinates (ndarray with shape (n, 3)): array with the coordinates of atoms in the cell.
+        names (ndarray with shape (n,)): array with the names of atoms in the cell.
+        cell_units (str): Units of cell coordinates: 'bohr', 'angstrom', 'alat'.
+        coordinates_units (str): Units of atom coordinates: 'crystal', 'bohr', 'angstrom', 'alat'.
+    """
+
+    def __init__(self, orca_output):
+        super().__init__()
+        self.cell = np.eye(3)
+        self.cell_units = 'angstrom'
+        self.read_output(orca_output)
+
+    def read_output(self, orca_output):
+        """
+        Method to read coordinates of atoms from ORCA output into the ORCACoordinates instance.
+
+        Args:
+            orca_output (str or list of str): either name of the output file or list of lines read from that file.
+        """
+        try:
+            lines = open(orca_output).readlines()
+
+        except TypeError:
+            lines = orca_output
+
+        index = find_first_index('CARTESIAN COORDINATES (ANGSTROEM)', lines) + 1
+        names = []
+        coordinates = []
+
+        while True:
+            try:
+                index += 1
+
+                row_split = lines[index].split()
+                name = row_split[0]
+                crow = [float(x) for x in row_split[1:]]
+
+                names.append(name)
+                coordinates.append(crow)
+            except (IndexError, ValueError):
+                break
+
+        self.coordinates_units = 'angstrom'
+        self.coordinates = np.asarray(coordinates)
+        self.names = np.array(names, dtype='<U16')

@@ -78,7 +78,7 @@ def compute_correlations(nspin, dm0_expanded, U, central_spin=None):
 
 @cluster_expansion_decorator(result_operator=operator.iadd, contribution_operator=operator.imul)
 def projected_noise_correlation(cluster, allspin, projections_state, magnetic_field, timespace, states=None,
-                                imap=None, map_error=False):
+                                ):
     """
     Decorated function to compute autocorrelation function with conventional CCE.
 
@@ -95,12 +95,6 @@ def projected_noise_correlation(cluster, allspin, projections_state, magnetic_fi
             Time points at which to compute autocorrelation.
         states (ndarray):
             Array of bath states in any accepted format.
-        imap (InteractionMap):
-            Optional. Instance of InteractionMap
-            which contains interaction tensors between bath spins.
-        map_error (bool):
-            True if treat absence of the interaction between bath spins in imap as an error.
-            False if not.
 
     Returns:
         ndarray with shape (t,): Autocorrelation of the bath spin noise along z-axis.
@@ -123,7 +117,7 @@ def projected_noise_correlation(cluster, allspin, projections_state, magnetic_fi
 
         totalh += hsingle + hf_state
 
-    totalh += bath_interactions(bath, ivectors, imap=imap, raise_error=map_error)
+    totalh += bath_interactions(bath, ivectors)
     time_propagator = propagator(timespace, totalh)
 
     dm0_expanded = gen_density_matrix(states, dimensions=dimensions)
@@ -137,8 +131,7 @@ def projected_noise_correlation(cluster, allspin, projections_state, magnetic_fi
                              addition_operator=np.sum)
 def decorated_noise_correlation(cluster, allspin, dm0, magnetic_field, zfs,
                                 timespace,
-                                gyro_e=ELECTRON_GYRO, states=None,
-                                imap=None, map_error=None):
+                                gyro_e=ELECTRON_GYRO, states=None):
     """
     Decorated function to compute noise correlation with gCCE (without mean field).
 
@@ -160,12 +153,6 @@ def decorated_noise_correlation(cluster, allspin, dm0, magnetic_field, zfs,
             central spin.
         states (ndarray):
             Array of bath states in any accepted format.
-        imap (InteractionMap):
-            Optional. Instance of InteractionMap
-            Which contains interaction tensors between bath spins.
-        map_error (bool):
-            True if treat absence of the interaction between bath spins in imap as an error.
-            False if not.
     Returns:
         ndarray with shape (t,): Autocorrelation of the bath spin noise along z-axis.
 
@@ -177,7 +164,7 @@ def decorated_noise_correlation(cluster, allspin, dm0, magnetic_field, zfs,
     central_spin = (dm0.shape[0] - 1) / 2
 
     totalh = total_hamiltonian(nspin, magnetic_field, zfs, central_gyro=gyro_e, central_spin=central_spin,
-                               imap=imap, map_error=map_error)
+                               )
     time_propagator = propagator(timespace, totalh)
     dmtotal0 = generate_dm0(dm0, totalh.dimensions, states=states)
 
@@ -189,7 +176,7 @@ def decorated_noise_correlation(cluster, allspin, dm0, magnetic_field, zfs,
                              removal_operator=operator.isub,
                              addition_operator=np.sum)
 def mean_field_noise_correlation(cluster, allspin, dm0, magnetic_field, zfs, timespace, bath_state,
-                                 gyro_e=ELECTRON_GYRO, imap=None, map_error=None):
+                                 gyro_e=ELECTRON_GYRO):
     """
     Decorated function to compute noise autocorrelation function with gCCE and MC sampling of the bath states.
 
@@ -214,11 +201,6 @@ def mean_field_noise_correlation(cluster, allspin, dm0, magnetic_field, zfs, tim
             **OR**
 
             Tensor corresponding to interaction between magnetic field and central spin.
-        imap (InteractionMap): Optional. Instance of InteractionMap
-            which contains interaction tensors between bath spins.
-        map_error (bool):
-            True if treat absence of the interaction between bath spins in imap as an error.
-            False if not.
 
     Returns:
         ndarray with shape (t,): Autocorrelation of the bath spin noise along z-axis.
@@ -227,8 +209,8 @@ def mean_field_noise_correlation(cluster, allspin, dm0, magnetic_field, zfs, tim
     nspin = allspin[cluster]
     central_spin = (dm0.shape[0] - 1) / 2
 
-    if imap is not None:
-        imap = imap.subspace(cluster)
+    # if imap is not None:
+    #     imap = imap.subspace(cluster)
 
     others_mask = np.ones(allspin.shape, dtype=bool)
     others_mask[cluster] = False
@@ -239,9 +221,7 @@ def mean_field_noise_correlation(cluster, allspin, dm0, magnetic_field, zfs, tim
 
     totalh = mean_field_hamiltonian(nspin, magnetic_field, others, others_state, zfs,
                                     central_gyro=gyro_e,
-                                    central_spin=central_spin,
-                                    imap=imap,
-                                    map_error=map_error)
+                                    central_spin=central_spin)
     time_propagator = propagator(timespace, totalh)
 
     dmtotal0 = generate_dm0(dm0, totalh.dimensions, states)
@@ -250,7 +230,7 @@ def mean_field_noise_correlation(cluster, allspin, dm0, magnetic_field, zfs, tim
 
 
 def noise_sampling(clusters, bath, dm0, timespace, magnetic_field, zfs,
-                   gyro_e=ELECTRON_GYRO, imap=None, map_error=None,
+                   gyro_e=ELECTRON_GYRO,
                    nbstates=100, seed=None, parallel_states=False,
                    direct=False, parallel=False):
     """
@@ -272,12 +252,6 @@ def noise_sampling(clusters, bath, dm0, timespace, magnetic_field, zfs,
         gyro_e (float or ndarray with shape (3, 3)):
             gyromagnetic ratio of the central spin OR
             tensor corresponding to interaction between magnetic field and central spin.
-        imap (InteractionMap):
-            Optional. Instance of InteractionMap
-            which contains interaction tensors between bath spins.
-        map_error (bool):
-            True if treat absence of the interaction between bath spins in imap as an error.
-            False if not
         nbstates (int):
             Number of random bath states to sample.
         seed (int):
@@ -325,8 +299,7 @@ def noise_sampling(clusters, bath, dm0, timespace, magnetic_field, zfs,
 
         corr = mean_field_noise_correlation(clusters, bath, dm0, magnetic_field, zfs,
                                             timespace, bath_state,
-                                            gyro_e=gyro_e, direct=direct, parallel=parallel,
-                                            imap=imap, map_error=map_error)
+                                            gyro_e=gyro_e, direct=direct, parallel=parallel)
 
         averaged_corr += corr
 

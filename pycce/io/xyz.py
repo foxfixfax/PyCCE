@@ -11,7 +11,7 @@ from .base import set_isotopes
 # MHZ_TO_RADKHZ = 2 * np.pi * 1000
 
 
-def read_xyz(xyz, skiprows: int = 2, spin_types=None, isotopes=None):
+def read_xyz(xyz, skiprows: int = 2, spin_types=None, isotopes=None, imap=None):
     """
     Read positions of bath spins from xyz file.
 
@@ -45,6 +45,11 @@ def read_xyz(xyz, skiprows: int = 2, spin_types=None, isotopes=None):
                 atoms.add_type(**spin_types)
             except TypeError:
                 atoms.add_type(*spin_types)
+        if imap is not None:
+            if atoms.imap is None:
+                atoms.imap = imap
+            else:
+                atoms.imap = atoms.imap + imap
         return atoms
 
     elif isinstance(xyz, np.ndarray):
@@ -54,8 +59,7 @@ def read_xyz(xyz, skiprows: int = 2, spin_types=None, isotopes=None):
         dataset = np.loadtxt(xyz, dtype=dt_read, skiprows=skiprows)
 
     with warnings.catch_warnings(record=True) as w:
-        atoms = BathArray(array=dataset,
-                          types=spin_types)
+        atoms = BathArray(array=dataset, types=spin_types, imap=imap)
     if w:
         set_isotopes(atoms, isotopes=isotopes)
 

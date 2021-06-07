@@ -135,8 +135,8 @@ def compute_dm(dm0, H, alpha, beta, timespace, pulse_sequence=None, as_delay=Fal
     Function to compute density matrix of the central spin, given Hamiltonian H.
 
     Args:
-        dm0 (ndarray): Initial density matrix of nuclear spin.
-        H (ndarray): Cluster Hamiltonian
+        dm0 (ndarray): Initial density matrix of central spin.
+        H (ndarray): Cluster Hamiltonian.
         alpha (ndarray with shape (2s+1,)):
             Vector representation of the alpha qubit state in :math:`\hat{S}_z` basis.
         beta (ndarray with shape (2s+1,)):
@@ -240,7 +240,7 @@ def gen_density_matrix(states=None, dimensions=None):
             Array of bath spin states. If None, assume completely random state.
             Can have the following forms:
 
-                - array of the Iz projections for each spin.
+                - array of the :math:`\hat{I}_z` projections for each spin.
                   Assumes that each bath spin is in the pure eigenstate of :math:`\hat{I}_z`.
 
                 - array of the diagonal elements of the density matrix for each spin.
@@ -288,7 +288,7 @@ def gen_density_matrix(states=None, dimensions=None):
 @cluster_expansion_decorator
 def decorated_density_matrix(cluster, allspin, dm0, alpha, beta, magnetic_field, zfs, timespace, pulse_sequence,
                              gyro_e=ELECTRON_GYRO, as_delay=False, zeroth_cluster=None,
-                             bath_state=None, eta=None, imap=None, map_error=None):
+                             bath_state=None, eta=None):
     """
     Decorated function to compute electron density matrix with gCCE (without mean field).
 
@@ -334,22 +334,14 @@ def decorated_density_matrix(cluster, allspin, dm0, alpha, beta, magnetic_field,
 
         eta (float): Value of eta (see eta_hamiltonian)
 
-        imap (InteractionMap):
-            Optional. Instance of InteractionMap
-            which contains interaction tensors between bath spins.
-
-        map_error (bool):
-            True if treat absence of the interaction between bath spins in imap as an error.
-            False if not.
-
     Returns:
         ndarray: Array of central spin density matricies at each time point.
     """
 
     nspin = allspin[cluster]
 
-    if imap is not None:
-        imap = imap.subspace(cluster)
+    # if imap is not None:
+    #     imap = imap.subspace(cluster)
 
     central_spin = (alpha.size - 1) / 2
     if bath_state is not None:
@@ -364,7 +356,7 @@ def decorated_density_matrix(cluster, allspin, dm0, alpha, beta, magnetic_field,
         zeroth_cluster = ma.masked_array(zeroth_cluster, mask=(zeroth_cluster == 0))
 
     H = total_hamiltonian(nspin, magnetic_field, zfs, central_spin=central_spin,
-                          central_gyro=gyro_e, imap=imap, map_error=map_error)
+                          central_gyro=gyro_e)
     if eta is not None:
         H += eta_hamiltonian(nspin, alpha, beta, eta)
 
@@ -375,8 +367,8 @@ def decorated_density_matrix(cluster, allspin, dm0, alpha, beta, magnetic_field,
 
 @cluster_expansion_decorator
 def mean_field_density_matrix(cluster, allspin, dm0, alpha, beta, magnetic_field, zfs, timespace, pulse_sequence,
-                              bath_state, gyro_e=ELECTRON_GYRO, as_delay=False, zeroth_cluster=None, imap=None,
-                              map_error=None, projected_bath_state=None):
+                              bath_state, gyro_e=ELECTRON_GYRO, as_delay=False, zeroth_cluster=None,
+                              projected_bath_state=None):
     """
     Decorated function to compute electron density matrix with gCCE with mean field.
 
@@ -419,12 +411,6 @@ def mean_field_density_matrix(cluster, allspin, dm0, alpha, beta, magnetic_field
 
         zeroth_cluster (ndarray): Density matrix of isolated central spin at all time points.
 
-        imap (InteractionMap): Optional. Instance of InteractionMap
-            which contains interaction tensors between bath spins.
-
-        map_error (bool): True if treat absence of the interaction between bath spins in imap as an error.
-            False if not.
-
         projected_bath_state (ndarray): Array of ``shape = len(allspin)``
             containing z-projections of the bath spins states.
 
@@ -434,8 +420,8 @@ def mean_field_density_matrix(cluster, allspin, dm0, alpha, beta, magnetic_field
     nspin = allspin[cluster]
     central_spin = (alpha.size - 1) / 2
 
-    if imap is not None:
-        imap = imap.subspace(cluster)
+    # if imap is not None:
+    #     imap = imap.subspace(cluster)
 
     others_mask = np.ones(allspin.shape, dtype=bool)
     others_mask[cluster] = False
@@ -455,8 +441,7 @@ def mean_field_density_matrix(cluster, allspin, dm0, alpha, beta, magnetic_field
         zeroth_cluster = ma.masked_array(zeroth_cluster, mask=(zeroth_cluster == 0))
 
     H = mean_field_hamiltonian(nspin, magnetic_field, others, others_state, zfs,
-                               central_spin=central_spin, central_gyro=gyro_e,
-                               imap=imap, map_error=map_error)
+                               central_spin=central_spin, central_gyro=gyro_e)
 
     dms = compute_dm(dm0, H, alpha, beta, timespace, pulse_sequence,
                      as_delay=as_delay, states=states) / zeroth_cluster
@@ -464,18 +449,18 @@ def mean_field_density_matrix(cluster, allspin, dm0, alpha, beta, magnetic_field
 
 
 def generate_bath_state(bath, nbstates, seed=None, fixstates=None, parallel=False):
-    """
-    Generator of the random bath states.
+    r"""
+    Generator of the random *pure* :math:`\hat{I}_z` bath eigenstates.
 
     Args:
         bath (BathArray): Array of bath spins.
         nbstates (int): Number of random bath states to generate.
         seed (int): Optional. Seed for RNG.
         fixstates (dict): Optional. dict of which bath states to fix. Each key is the index of bath spin,
-            value - fixed Sz projection of the mixed state of nuclear spin.
+            value - fixed :math:`\hat{I}_z` projection of the mixed state of nuclear spin.
 
     Yields:
-        ndarray: Array of ``shape = len(bath)`` containing z-projections of the bath spins states.
+        random_state (ndarray): Array of ``shape = len(bath)`` containing z-projections of the bath spins states.
     """
     rgen = np.random.default_rng(seed)
     rank = 0
@@ -509,7 +494,7 @@ def generate_bath_state(bath, nbstates, seed=None, fixstates=None, parallel=Fals
 
 
 def monte_carlo_dm(clusters, bath, dm0, alpha, beta, magnetic_field, zfs, timespace, pulse_sequence,
-                   central_gyro=ELECTRON_GYRO, as_delay=False, imap=None, map_error=None,
+                   central_gyro=ELECTRON_GYRO, as_delay=False,
                    nbstates=100, seed=None, masked=True,
                    normalized=None, parallel_states=False,
                    fixstates=None, direct=False, parallel=False):
@@ -558,12 +543,6 @@ def monte_carlo_dm(clusters, bath, dm0, alpha, beta, magnetic_field, zfs, timesp
             central spin.
 
         as_delay (bool): True if time points are delay between pulses, False if time points are total time.
-
-        imap (InteractionMap): Optional.
-            Instance of InteractionMap which contains interaction tensors between bath spins.
-
-        map_error (bool): True if treat absence of the interaction between bath spins in imap as an error.
-            False if not.
 
         nbstates (int): Number of random bath states to sample.
 
@@ -631,7 +610,7 @@ def monte_carlo_dm(clusters, bath, dm0, alpha, beta, magnetic_field, zfs, timesp
 
         dms = mean_field_density_matrix(clusters, bath, dm0, alpha, beta, magnetic_field,
                                         zfs, timespace, pulse_sequence, bath_state, as_delay=as_delay,
-                                        zeroth_cluster=dmzero, imap=imap, map_error=map_error,
+                                        zeroth_cluster=dmzero,
                                         direct=direct, parallel=parallel) * dmzero
         if masked:
             dms = dms.filled()

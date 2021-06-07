@@ -3,6 +3,7 @@ from pycce.constants import HBAR, ELECTRON_GYRO
 from pycce.utilities import *
 import numpy as np
 
+
 def expanded_single(ivec, gyro, mfield, self_tensor, detuning=.0):
     """
     Function to compute the single bath spin term.
@@ -33,25 +34,27 @@ def expanded_single(ivec, gyro, mfield, self_tensor, detuning=.0):
     return hself + hzeeman
 
 
-def bath_single(bath, vectors, mfield):
-    """
-    Compute isolated bath spin terms for all spins in the bath
-    Args:
-        bath (BathArray): Array of the bath spins in the given cluster.
-        vectors (array-like): array of expanded spin vectors, each with shape (3, n, n).
-        mfield (ndarray wtih shape (3,): Magnetic field of type ``mfield = np.array([Bx, By, Bz])``.
+# def bath_single(bath, vectors, mfield):
+#     """
+#     Compute isolated bath spin terms for all spins in the bath
+#
+#     Args:
+#         bath (BathArray): Array of the bath spins in the given cluster.
+#         vectors (array-like): array of expanded spin vectors, each with shape (3, n, n).
+#         mfield (ndarray wtih shape (3,): Magnetic field of type ``mfield = np.array([Bx, By, Bz])``.
+#
+#     Returns:
+#         ndarray with shape (n, n): All single bath spin terms.
+#
+#     """
+#     hsingle = 0
+#
+#     for j, n in enumerate(bath):
+#         ivec = vectors[j]
+#         hsingle += expanded_single(ivec, n.gyro, mfield, n['Q'], n.detuning)
+#
+#     return hsingle
 
-    Returns:
-        ndarray with shape (n, n): All single bath spin terms.
-
-    """
-    hsingle = 0
-
-    for j, n in enumerate(bath):
-        ivec = vectors[j]
-        hsingle += expanded_single(ivec, n.gyro, mfield, n['Q'], n.detuning)
-
-    return hsingle
 
 def dipole_dipole(coord_1, coord_2, g1, g2, ivec_1, ivec_2):
     """
@@ -86,16 +89,13 @@ def dipole_dipole(coord_1, coord_2, g1, g2, ivec_1, ivec_2):
     return hdd
 
 
-def bath_interactions(nspin, ivectors, imap=None, raise_error=False):
+def bath_interactions(nspin, ivectors):
     """
     Compute interactions between bath spins.
 
     Args:
         nspin (BathArray): Array of the bath spins in the given cluster.
         ivectors (array-like): array of expanded spin vectors, each with shape (3, n, n).
-        imap (InteractionMap): Optional. dictionary-like object containing tensors for all bath spin pairs.
-        raise_error (bool): Optional. If true and imap is not None,
-            raises error when cannot find pair of nuclear spins in imap. Default False.
 
     Returns:
         ndarray with shape (n, n): All intrabath interactions of bath spins in the cluster.
@@ -103,7 +103,7 @@ def bath_interactions(nspin, ivectors, imap=None, raise_error=False):
     """
 
     nnuclei = nspin.shape[0]
-
+    imap = nspin.imap
     dd = 0
     if imap is None:
         for i in range(nnuclei):
@@ -130,52 +130,11 @@ def bath_interactions(nspin, ivectors, imap=None, raise_error=False):
                                             dtype=np.complex128)  # p_ivec = Ptensor @ Ivector
                     dd += np.einsum('lij,ljk->ik', ivec_1, tensor_ivec, dtype=np.complex128)
                 except KeyError:
-                    if raise_error:
-                        raise KeyError("InteractionMap doesn't contain all spin pairs."
-                                       " You might try setting raise_error=False instead")
-                    else:
-                        dd += dipole_dipole(n1['xyz'], n2['xyz'], n1.gyro, n2.gyro, ivec_1, ivec_2)
+                    dd += dipole_dipole(n1['xyz'], n2['xyz'], n1.gyro, n2.gyro, ivec_1, ivec_2)
     return dd
 
 
-# def hyperfine_mediated(atensor_1, atensor_2, ivec_1, ivec_2, energy, projections_state_others, others_energies):
-#     """
-#     Compute hyperfine-mediated (second order perturbation theory) pairwise bath interactions between two bath spins.
-#
-#     Args:
-#         atensor_1 (ndarray with shape (3, 3)): Hyperfine tensor of the first bath spin.
-#         atensor_2 (ndarray with shape (3, 3)): Hyperfine tensor of the second bath spin.
-#         ivec_1 (ndarray with shape (3, n, n)): Spin vector of the first spin in the full Hilbert space of the cluster.
-#         ivec_2 (ndarray with shape (3, n, n)):
-#             Spin vector of the second spin in the full Hilbert space of the cluster.
-#         energy (float): Energy of the qubit state on which the interaction is conditioned.
-#         projections_state_others (ndarray with shape (2s-2, 3)):
-#             Array of vectors of the central spin matrix elements of form:
-#             [<state|Sx|other>, <state|Sy|other>, <state|Sz|other>],
-#             where |state> is the qubit state on which the interaction is conditioned,
-#             and |other> are all other states.
-#         others_energies (ndarray with shape (2s-2,)): Array of other states energies.
-#
-#     Returns:
-#         hamiltonian (ndarray with shape (n, n)): hyperfine-mediated pair interaction.
-#
-#     """
-#     hamil = 0
-#
-#     for energy_j, s_ij in zip(others_energies, projections_state_others):
-#         first = np.einsum('i,ijk->jk', s_ij @ atensor_1, ivec_1)
-#         second = np.einsum('i,ijk->jk', s_ij.conj() @ atensor_2, ivec_2)
-#         hamil += first @ second / (energy - energy_j)
-#
-#         first = np.einsum('i,ijk->jk', s_ij @ atensor_2, ivec_2)
-#         second = np.einsum('i,ijk->jk', s_ij.conj() @ atensor_1, ivec_1)
-#         hamil += first @ second / (energy - energy_j)
-#
-#     return hamil
-
-
-def bath_mediated(nspin, ivectors, energy_state,
-                  energies, projections):
+def bath_mediated(nspin, ivectors, energy_state, energies, projections):
     r"""
     Compute all hyperfine-mediated interactions between bath spins.
 

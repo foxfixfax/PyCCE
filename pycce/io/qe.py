@@ -1,12 +1,84 @@
 import warnings
 
 import numpy as np
-from pycce.utilities import transform
 from pycce.io.base import DFTCoordinates, fortran_value, find_first_index, set_isotopes
-from pycce.bath.array import BathArray
+from pycce.bath.array import BathArray, transform
 from pycce.constants import MHZ_TO_RADKHZ, BOHR_TO_ANGSTROM, EFG_CONVERSION
 
 qe_coord_types = ['crystal', 'bohr', 'angstrom', 'alat']
+
+
+
+def read_qe(pwfile, hyperfine=None, efg=None, s=1, pwtype=None, types=None, isotopes=None,
+            center=None, center_type=None, rotation_matrix=None, rm_style='col', find_isotopes=True):
+    """
+    Function to read PW/GIPAW output from Quantum Espresso into BathArray.
+
+    Changes the names of the atoms to the most abundant isotopes if ``find_isotopes`` set to True.
+    If that is not the desired outcome, user can define which isotopes to use using keyword isotopes.
+    If ``find_isotopes`` is False, then keep the original names even when ``isotopes`` argument is provided.
+
+    Args:
+        pwfile (str):
+            Name of PW input or output file.
+            If the file doesn't have proper extension, parameter pw_type should indicate the type.
+        hyperfine (str): name of the GIPAW hyperfine output.
+        efg (str): Name of the gipaw electric field tensor output.
+        s (float): Spin of the central spin. Default 1.
+        pwtype (str): Type of the coord_f. if not listed, will be inferred from extension of pwfile.
+        types (SpinDict or list of tuples): SpinDict containing SpinTypes of isotopes or input to make one.
+        isotopes (dict): Optional.
+            Dictionary with entries: {"element" : "isotope"}, where "element" is the name of the element
+            in DFT output, "isotope" is the name of the isotope.
+        center (ndarray of shape (3,)): Position of (0, 0, 0) point in input coordinates.
+        center_type (str): Type of the coordinates provided in center argument.
+            Possible value include: 'bohr', 'angstrom', 'crystal', 'alat'. Default assumes the same as in PW file.
+        rotation_matrix (ndarray of shape (3,3)):
+            Rotation matrix to rotate basis. For details see utilities.transform.
+        rm_style (str):
+            Indicates how rotation matrix should be interpreted.
+            Can take values "col" or "row". Default "col"
+        find_isotopes (bool): If true, sets isotopes instead of names of the atoms.
+
+    Returns:
+        BathArray:
+            BathArray containing atoms with hyperfine couplings and quadrupole tensors from QE output.
+
+    """
+
+    couplings = None
+    gradients = None
+
+    if hyperfine is not None:
+        contact, dipolar = read_hyperfine(hyperfine, spin=s)
+        couplings = dipolar + np.eye(3)[np.newaxis, :, :] * contact[:, np.newaxis, np.newaxis]
+
+    if efg is not None:
+        gradients = read_efg(efg)
+
+    pwoutput = PWCoordinates(pwfile, pwtype=pwtype)
+
+    if center is not None and center_type is None:
+        center_type = pwoutput.coordinates_units
+
+    pwoutput.to_angstrom(inplace=True)
+    coord, names = pwoutput.coordinates, pwoutput.names
+
+    with warnings.catch_warnings(record=True) as w:
+        atoms = BathArray(array=coord, names=names,
+                          hyperfines=couplings,
+                          types=types)
+
+    if find_isotopes:
+        set_isotopes(atoms, isotopes=isotopes, spin_types=types)
+
+    if gradients is not None:
+        atoms.from_efg(gradients)
+
+    if center is not None:
+        center = pwoutput.get_angstrom(center, center_type)
+    atoms = transform(atoms, center, rotation_matrix=rotation_matrix, style=rm_style)
+    return atoms
 
 
 class PWCoordinates(DFTCoordinates):
@@ -26,6 +98,7 @@ class PWCoordinates(DFTCoordinates):
     """
 
     def __init__(self, filename, pwtype=None, to_angstrom=False):
+        super().__init__()
 
         if not pwtype:
             pwtype = filename.split('.')[-1]
@@ -371,79 +444,6 @@ def celldms_from_abc(ibrav, abc_list):
         celldm[5] = 0.0
 
     return celldm
-
-
-def read_qe(pwfile, hyperfine=None, efg=None, s=1, pwtype=None, types=None, isotopes=None,
-            center=None, center_type=None, rotation_matrix=None, rm_style='col', find_isotopes=True):
-    """
-    Function to read PW/GIPAW output from Quantum Espresso into BathArray.
-
-    Changes the names of the atoms to the most abundant isotopes if ``find_isotopes`` set to True.
-    If that is not the desired outcome, user can define which isotopes to use using keyword isotopes.
-    If ``find_isotopes`` is False, then keep the original names even when ``isotopes`` argument is provided.
-
-    Args:
-        pwfile (str):
-            Name of PW input or output file.
-            If the file doesn't have proper extension, parameter pw_type should indicate the type.
-        hyperfine (str): name of the GIPAW hyperfine output.
-        efg (str): Name of the gipaw electric field tensor output.
-        s (float): Spin of the central spin. Default 1.
-        pwtype (str): Type of the coord_f. if not listed, will be inferred from extension of pwfile.
-        types (SpinDict or list of tuples): SpinDict containing SpinTypes of isotopes or input to make one.
-        isotopes (dict): Optional.
-            Dictionary with entries: {"element" : "isotope"}, where "element" is the name of the element
-            in DFT output, "isotope" is the name of the isotope.
-        center (ndarray of shape (3,)): Position of (0, 0, 0) point in input coordinates.
-        center_type (str): Type of the coordinates provided in center argument.
-            Possible value include: 'bohr', 'angstrom', 'crystal', 'alat'. Default assumes the same as in PW file.
-        rotation_matrix (ndarray of shape (3,3)):
-            Rotation matrix to rotate basis. For details see utilities.transform.
-        rm_style (str):
-            Indicates how rotation matrix should be interpreted.
-            Can take values "col" or "row". Default "col"
-        find_isotopes (bool): If true, sets isotopes instead of names of the atoms.
-
-    Returns:
-        BathArray:
-            BathArray containing atoms with hyperfine couplings and quadrupole tensors from QE output.
-
-    """
-
-    couplings = None
-    gradients = None
-
-    if hyperfine is not None:
-        contact, dipolar = read_hyperfine(hyperfine, spin=s)
-        couplings = dipolar + np.eye(3)[np.newaxis, :, :] * contact[:, np.newaxis, np.newaxis]
-
-    if efg is not None:
-        gradients = read_efg(efg)
-
-    pwoutput = PWCoordinates(pwfile, pwtype=pwtype)
-
-    if center is not None and center_type is None:
-        center_type = pwoutput.coordinates_units
-
-    pwoutput.to_angstrom(inplace=True)
-    coord, names = pwoutput.coordinates, pwoutput.names
-
-    with warnings.catch_warnings(record=True) as w:
-        atoms = BathArray(array=coord, names=names,
-                          hyperfines=couplings,
-                          types=types)
-
-    if find_isotopes:
-        set_isotopes(atoms, isotopes=isotopes, spin_types=types)
-
-    if gradients is not None:
-        atoms.from_efg(gradients)
-
-    if center is not None:
-        center = pwoutput.get_angstrom(center, center_type)
-    atoms = transform(atoms, center, rotation_matrix=rotation_matrix, style=rm_style)
-    return atoms
-
 
 def read_gipaw_tensors(lines, keyword=None, start=None, conversion=1):
     """

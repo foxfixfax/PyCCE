@@ -5,9 +5,6 @@ Welcome to pyCCE's documentation!
 of the spin qubit dynamics interacting with spin bath
 by the means of Cluster Correlation Expansion (CCE) method.
 
-**pyCCE** inherently supports parallelization with **mpi4py** package, which requires existing
-MPI implementation to be installed on the system.
-However, for serial implementation the **mpi4py** is not required.
 
 Installation
 ----------------
@@ -30,6 +27,10 @@ or run the python install command::
     $ python setup.py install
 
 
+**pyCCE** inherently supports parallelization with **mpi4py** package, which requires existing
+MPI implementation to be installed on the system.
+However, for serial implementation the **mpi4py** is not required.
+
 .. toctree::
    :maxdepth: 2
    :caption: Getting Started
@@ -43,8 +44,16 @@ or run the python install command::
 
    bath
    simulator
+   parameters
+   dft
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Additional Documentation
+
    calculators
    hamiltonian
+   utilities
 
 
 

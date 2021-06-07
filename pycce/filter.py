@@ -40,6 +40,7 @@ def _integrand(args):
 def filterfunc(ts, tau, npulses):
     """
     Time-domain filter function for the given CPMG sequence.
+
     Args:
         ts (ndarray with shape (n,)): Time points at which filter function will be computed.
         tau (float): Delay between pulses.
@@ -77,6 +78,7 @@ def filterfunc(ts, tau, npulses):
 def gaussian_phase(timespace, corr, npulses):
     """
     Compute average random phase squared assuming Gaussian noise.
+
     Args:
         timespace (ndarray with shape (n,)): Time points at which correlation function was computed.
         corr (ndarray with shape (n,)): Noise autocorrelation function.
