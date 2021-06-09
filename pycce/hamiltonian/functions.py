@@ -1,5 +1,5 @@
 from pycce.sm import _smc
-from pycce.constants import HBAR, ELECTRON_GYRO
+from pycce.constants import HBAR, PI2, ELECTRON_GYRO
 from pycce.utilities import *
 import numpy as np
 
@@ -20,17 +20,21 @@ def expanded_single(ivec, gyro, mfield, self_tensor, detuning=.0):
 
     """
     if isinstance(gyro, (float, int)):
-        hzeeman = -gyro * (mfield[0] * ivec[0] + mfield[1] * ivec[1] + mfield[2] * ivec[2])
+        hzeeman = -gyro / PI2 * (mfield[0] * ivec[0] + mfield[1] * ivec[1] + mfield[2] * ivec[2])
     # else assume tensor
     else:
-        gsvec = np.einsum('ij,jkl->ikl', gyro, ivec, dtype=np.complex128)
+        gsvec = np.einsum('ij,jkl->ikl', gyro / PI2, ivec, dtype=np.complex128)
         hzeeman = np.einsum('lij,ljk->ik', mfield, gsvec, dtype=np.complex128)
+
     hself = 0
+
     if ivec[2, 0, 0] > 0.5:
         v_ivec = np.einsum('ij,jkl->ikl', self_tensor, ivec, dtype=np.complex128)
         hself = np.einsum('lij,ljk->ik', ivec, v_ivec, dtype=np.complex128)
+
     if detuning:
         hself += detuning * ivec[2]
+
     return hself + hzeeman
 
 
@@ -73,7 +77,7 @@ def dipole_dipole(coord_1, coord_2, g1, g2, ivec_1, ivec_2):
 
     """
 
-    pre = g1 * g2 * HBAR
+    pre = g1 * g2 * HBAR / PI2
 
     pos = coord_1 - coord_2
     r = np.linalg.norm(pos)
@@ -257,8 +261,8 @@ def hyperfine(hyperfine_tensor, svec, ivec):
     """
     aivec = np.einsum('ij,jkl->ikl', hyperfine_tensor, ivec)  # AIvec = Atensor @ Ivector
     # HF = SPI = SxPxxIx + SxPxyIy + ..
-    H_HF = np.einsum('lij,ljk->ik', svec, aivec)
-    return H_HF
+    h_hf = np.einsum('lij,ljk->ik', svec, aivec)
+    return h_hf
 
 
 def self_central(svec, mfield, zfs=None, gyro=ELECTRON_GYRO):
@@ -287,10 +291,10 @@ def self_central(svec, mfield, zfs=None, gyro=ELECTRON_GYRO):
 
     # if gyro is number
     if isinstance(gyro, (np.floating, float, int)):
-        H1 = -gyro * (mfield[0] * svec[0] + mfield[1] * svec[1] + mfield[2] * svec[2])
+        H1 = -gyro / PI2 * (mfield[0] * svec[0] + mfield[1] * svec[1] + mfield[2] * svec[2])
     # else assume tensor
     else:
-        gsvec = np.einsum('ij,jkl->ikl', gyro, svec,
+        gsvec = np.einsum('ij,jkl->ikl', gyro / PI2, svec,
                           dtype=np.complex128)  # AIvec = Atensor @ Ivector
         # H0 = SDS = SxDxxSx + SxDxySy + ..
         H1 = np.einsum('lij,ljk->ik', mfield, gsvec, dtype=np.complex128)
@@ -313,10 +317,13 @@ def overhauser_central(svec, others_hyperfines, others_state):
         ndarray with shape (n, n): Central spin Overhauser term.
 
     """
+
     if len(others_state.shape) > 1:
-        zfield = np.sum(others_hyperfines[:, 2, 2] * others_state[:, 2])
+        zfield = np.sum(others_hyperfines[..., 2, 2] * others_state[..., 2])
+
     else:
-        zfield = np.sum(others_hyperfines[:, 2, 2] * others_state)
+        zfield = np.sum(others_hyperfines[..., 2, 2] * others_state)
+
     return zfield * svec[2]
 
 
@@ -340,7 +347,7 @@ def overhauser_bath(ivec, position, gyro,
         ndarray with shape (n, n): Bath spin Overhauser term.
 
     """
-    pre = np.asarray(gyro * other_gyros * HBAR)
+    pre = np.asarray(gyro * other_gyros * HBAR / PI2)
 
     pos = position - others_position
     r = np.linalg.norm(pos, axis=1)
@@ -354,10 +361,10 @@ def overhauser_bath(ivec, position, gyro,
     else:
         posxpos = np.einsum('ki,kj->kij', pos, pos)
 
-        r = r[:, np.newaxis, np.newaxis]
-        pre = pre[:, np.newaxis, np.newaxis]
+        r = r[..., np.newaxis, np.newaxis]
+        pre = pre[..., np.newaxis, np.newaxis]
         identity = np.eye(3, dtype=np.float64)
-        dd = -(3 * posxpos - identity[np.newaxis, :, :] * r ** 2) / (r ** 5) * pre
+        dd = -(3 * posxpos - identity[np.newaxis, ...] * r ** 2) / (r ** 5) * pre
 
         field = np.einsum('ij,ijk->k', others_state, dd)
 

@@ -5,8 +5,8 @@ Default Units:
 - Time: Millisecond, ms
 - Magnetic Field: Gaussian, G = 1e-4 Tesla
 - Gyromagnetic Ratio: rad * kHz / Gauss
-- Quadrupole moment: millibarn
-- Couplings: rad * kHz
+- Quadrupole moment: barn
+- Couplings: kHz
 
 """
 import warnings
@@ -24,8 +24,8 @@ from .calculators.correlation_function import decorated_noise_correlation, \
 from .calculators.density_matrix import decorated_density_matrix, compute_dm
 from .constants import ELECTRON_GYRO
 from .find_clusters import generate_clusters
-from .hamiltonian import total_hamiltonian, mean_field_hamiltonian, generate_projections
-from .utilities import zfs_tensor, project_bath_states
+from .hamiltonian import total_hamiltonian, mean_field_hamiltonian
+from .utilities import zfs_tensor, project_bath_states, generate_projections
 
 
 class Environment:
@@ -249,7 +249,7 @@ class Environment:
             bath.from_function(self._hyperfine, gyro_e=self.gyro)
 
         if external_bath is not None:
-            bath.update(external_bath, error_range=error_range, ignore_isotopes=True,
+            bath.update(external_bath, error_range=self._error_range, ignore_isotopes=True,
                         inplace=True)
 
         self._bath = bath
@@ -282,6 +282,7 @@ class Simulator(Environment):
         3. Compute the desired property with ``Simulator.compute`` method.
 
     .. note::
+
         Directly setting up the attribute values will rerun ``Simulator.read_bath``
         and/or ``Simulator.generate_clusters`` to reflect updated value of the given attribute.
 
@@ -292,11 +293,12 @@ class Simulator(Environment):
     arguments.
 
     Notes:
+
         Depending on the number of provided arguments, in the initialization process will call the following methods
         to setup the calculation engine.
 
-        - if ``bath`` is provided, ``Simulator.read_bath`` is called with additional keywords in ``**bath_kw``.
-        - if both ``r_dipole`` and ``order`` are provided and ``bath`` is not None,
+        - If ``bath`` is provided, ``Simulator.read_bath`` is called with additional keywords in ``**bath_kw``.
+        - If both ``r_dipole`` and ``order`` are provided and ``bath`` is not None,
           the ``Simulator.generate_clusters`` is called.
 
     Examples::
@@ -330,6 +332,7 @@ class Simulator(Environment):
 
 
     Args:
+
         spin (float): Total spin of the central spin.
 
         position (ndarray): Cartesian coordinates in Angstrom of the central spin. Default (0., 0., 0.).
@@ -348,7 +351,7 @@ class Simulator(Environment):
             and :math:`s` is the total spin if no information of central spin Hamiltonian is provided.
             Otherwise second lowest energy eigenstate of the central spin Hamiltonian.
 
-        gyro (float or ndarray with shape (3,3)): Gyromagnetic ratio of central spin in rad / (ms * G).
+        gyro (float or ndarray with shape (3,3)): Gyromagnetic ratio of central spin in rad * kHz / G.
 
             *OR*
 
@@ -357,13 +360,13 @@ class Simulator(Environment):
             Default -17608.597050 kHz * rad / G - gyromagnetic ratio of the free electron spin.
 
         D (float or ndarray with shape (3, 3)): D (longitudinal splitting) parameter of central spin
-            in ZFS tensor of central spin in rad * kHz.
+            in ZFS tensor of central spin in kHz.
 
             *OR*
 
             Total ZFS tensor. Default 0.
 
-        E (float): E (transverse splitting) parameter of central spin in ZFS tensor of central spin in rad * kHz.
+        E (float): E (transverse splitting) parameter of central spin in ZFS tensor of central spin in kHz.
              Default 0. Ignored if ``D`` is None or tensor.
 
         bath (ndarray or str): First positional argument of the ``Simulator.read_bath`` method.
@@ -384,6 +387,7 @@ class Simulator(Environment):
         **bath_kw: Additional keyword arguments for the ``Simulator.read_bath`` method.
 
     Attributes:
+
         spin (float): Value of the central spin s.
 
         position (ndarray with shape (3, 3)): Position of the central spin in Cartesian coordinates.
@@ -545,13 +549,13 @@ class Simulator(Environment):
 
         Args:
             D (float or ndarray with shape (3, 3)): D (longitudinal splitting) parameter of central spin
-                in ZFS tensor of central spin in rad * kHz.
+                in ZFS tensor of central spin in kHz.
 
                 *OR*
 
                 Total ZFS tensor. Default 0.
 
-            E (float): E (transverse splitting) parameter of central spin in ZFS tensor of central spin in rad * kHz.
+            E (float): E (transverse splitting) parameter of central spin in ZFS tensor of central spin in kHz.
                  Default 0. Ignored if ``D`` is None or tensor.
         """
 
@@ -639,8 +643,8 @@ class Simulator(Environment):
                 Index of the state to be considered as 1 (beta) qubit state.
             magnetic_field (ndarray with shape (3,)): Array containing external magnetic field as (Sx, By, Bz).
             D (float or ndarray with shape (3, 3)): D (longitudinal splitting) parameter of central spin
-                in rad * kHz *OR* total ZFS tensor.
-            E (float): E (transverse splitting) parameter of central spin in rad * kHz.
+                inkHz *OR* total ZFS tensor.
+            E (float): E (transverse splitting) parameter of central spin in kHz.
                 Ignored if ``D`` is None or tensor.
             return_eigen (bool): If true, returns eigenvalues and eigenvectors of the central spin Hamiltonian.
 
@@ -753,7 +757,17 @@ class Simulator(Environment):
 
         The :math:`\hat H_{SB}` is the Hamiltonian describing interactions between central spin and the bath.
         The hyperfine coupling tensors :math:`\mathbf{A}_i` are read from the ``BathArray`` stored in
-        ``Simulator.bath['A']``. They can be generated using point dipole approximation
+        ``Simulator.bath['A']``. They can be generated using point dipole approximation or provided
+        by the user (see ``Simulator.read_bath`` for details).
+
+        The :math:`\hat H_{B}` is the Hamiltonian describing interactions between the bath spins.
+        The self interaction tensors :math:`\mathbf{P}_i` are read from the ``BathArray`` stored in
+        ``Simulator.bath['Q']`` and have to be provided by the user.
+        The gyromagnetic ratios :math:`\mathbf{\gamma}_i` are read from the ``BathArray.gyros`` attribuite,
+        which is generated from the properties of the types of bath spins, stored in ``BathArray.types``. They can
+        either be provided by user or read from the ``pycce.common_isotopes`` object.
+        The interaction tensors :math:`\mathbf{J}_{ij}` are assumed from point dipole approximation
+        or can be provided  in ``BathArray.imap`` attrubite.
 
         Examples:
             First set up Simulator object using random bath of 1000 13C nuclear spins.
@@ -1010,13 +1024,13 @@ class Simulator(Environment):
             magnetic_field (ndarray with shape (3,)): Magnetic field vector of form (Bx, By, Bz).
 
             D (float or ndarray with shape (3,3)):
-                D (longitudinal splitting) parameter of central spin in ZFS tensor of central spin in rad * kHz.
+                D (longitudinal splitting) parameter of central spin in ZFS tensor of central spin in kHz.
 
                 **OR**
 
                 Total ZFS tensor.
 
-            E (float): E (transverse splitting) parameter of central spin in ZFS tensor of central spin in rad * kHz.
+            E (float): E (transverse splitting) parameter of central spin in ZFS tensor of central spin in kHz.
                 Ignored if ``D`` is None or tensor.
             pulses (list or int): Number of pulses in CPMG sequence.
 
@@ -1154,7 +1168,7 @@ class Simulator(Environment):
                 Default False.
 
         Returns:
-            ndarray with shape (n,): Autocorrelation function of the noise, in (kHz*rad)^2.
+            ndarray with shape (n,): Autocorrelation function of the noise, in kHz^2.
         """
         if parallel:
             self._broadcast()
@@ -1185,10 +1199,10 @@ class Simulator(Environment):
             magnetic_field (ndarray with shape (3,)): Magnetic field vector of form (Bx, By, Bz).
 
             D (float or ndarray with shape (3,3)):
-                D (longitudinal splitting) parameter of central spin in ZFS tensor of central spin in rad * kHz
+                D (longitudinal splitting) parameter of central spin in ZFS tensor of central spin in kHz
                 *OR* total ZFS tensor.
 
-            E (float): E (transverse splitting) parameter of central spin in ZFS tensor of central spin in rad * kHz.
+            E (float): E (transverse splitting) parameter of central spin in ZFS tensor of central spin in kHz.
 
             state (ndarray with shape (2s+1,)): Initial state of the central spin.
                 Defaults to :math:`1 / \sqrt{2} * (\ket{0} + \ket{1})` if not set.
@@ -1213,7 +1227,7 @@ class Simulator(Environment):
                 True if parallelize calculation of cluster contributions over different mpi processes.
                 Default False.
         Returns:
-            ndarray with shape (n,): Autocorrelation function of the noise, in (kHz*rad)^2.
+            ndarray with shape (n,): Autocorrelation function of the noise, in (kHz)^2.
         """
         if parallel or parallel_states:
             self._broadcast()

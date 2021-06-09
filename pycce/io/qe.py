@@ -162,7 +162,7 @@ class PWCoordinates(DFTCoordinates):
                 except (IndexError, ValueError):
                     break
 
-        except StopIteration:
+        except KeyError:
             coord_units = 'alat'
 
             coord_kw = 'Cartesian axes'

@@ -3,7 +3,7 @@ import numpy as np
 PI2 = 2 * np.pi
 
 # Energy
-MHZ_TO_KHZ = PI2 * 1000
+MHZ_TO_KHZ = 1000
 
 joule_to_khz = 1.50919E+30
 hartree_to_khz = 6.57968E+12

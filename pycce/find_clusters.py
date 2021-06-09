@@ -37,6 +37,42 @@ class _Clusters(MutableMapping):
         return self._data.keys()
 
 
+def generate_clusters(bath, r_dipole, order, r_inner=0, ignore=None, strong=False):
+    """
+    Generate clusters for the bath spins.
+
+    Args:
+        bath (BathArray): Array of bath spins.
+        r_dipole (float): Maximum connectivity distance.
+        order (int): Maximum size of the clusters to find.
+
+        r_inner (float): Minimum connectivity distance.
+        ignore (list or str, optional):
+            If not None, includes the names of bath spins which are ignored in the cluster generation.
+
+        strong (bool): Whether to find only completely interconnected clusters (default False).
+
+    Returns:
+        dict:
+            Dictionary with keys corresponding to size of the cluster,
+            and value corresponds to ndarray of shape (matrix, N).
+            Here matrix is the number of clusters of given size, N is the size of the cluster.
+            Each row contains indexes of the bath spins included in the given cluster.
+    """
+    graph = make_graph(bath, r_dipole, r_inner=r_inner, ignore=ignore, max_size=5000)
+    n_components, labels = connected_components(csgraph=graph, directed=False, return_labels=True)
+    clusters = find_subclusters(order, graph, labels, n_components, strong=strong)
+
+    if ignore is not None and order > 0:
+        if isinstance(ignore, (str, np.str)):
+            clusters[1] = clusters[1][bath[clusters[1]]['N'] != ignore].reshape(-1, 1)
+        else:
+            for n in ignore:
+                clusters[1] = clusters[1][bath[clusters[1]]['N'] != n].reshape(-1, 1)
+
+    return clusters
+
+
 def make_graph(bath, r_dipole, r_inner=0, ignore=None, max_size=5000):
     """
     Make a connectivity matrix for bath spins.
@@ -241,41 +277,6 @@ def find_subclusters(maximum_order, graph, labels, n_components, strong=False):
 
     return clusters
 
-
-def generate_clusters(bath, r_dipole, order, r_inner=0, ignore=None, strong=False):
-    """
-    Generate clusters for the bath spins.
-
-    Args:
-        bath (BathArray): Array of bath spins.
-        r_dipole (float): Maximum connectivity distance.
-        order (int): Maximum size of the clusters to find.
-
-        r_inner (float): Minimum connectivity distance.
-        ignore (list or str, optional):
-            If not None, includes the names of bath spins which are ignored in the cluster generation.
-
-        strong (bool): Whether to find only completely interconnected clusters (default False).
-
-    Returns:
-        dict:
-            Dictionary with keys corresponding to size of the cluster,
-            and value corresponds to ndarray of shape (matrix, N).
-            Here matrix is the number of clusters of given size, N is the size of the cluster.
-            Each row contains indexes of the bath spins included in the given cluster.
-    """
-    graph = make_graph(bath, r_dipole, r_inner=r_inner, ignore=ignore, max_size=5000)
-    n_components, labels = connected_components(csgraph=graph, directed=False, return_labels=True)
-    clusters = find_subclusters(order, graph, labels, n_components, strong=strong)
-
-    if ignore is not None and order > 0:
-        if isinstance(ignore, (str, np.str)):
-            clusters[1] = clusters[1][bath[clusters[1]]['N'] != ignore].reshape(-1, 1)
-        else:
-            for n in ignore:
-                clusters[1] = clusters[1][bath[clusters[1]]['N'] != n].reshape(-1, 1)
-
-    return clusters
 
 
 def combine_clusters(cs1, cs2):

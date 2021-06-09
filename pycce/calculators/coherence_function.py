@@ -2,7 +2,7 @@ import numpy as np
 import numpy.ma as ma
 from pycce.cluster_expansion import cluster_expansion_decorator
 from pycce.hamiltonian import projected_hamiltonian
-
+from pycce.constants import PI2
 from .density_matrix import gen_density_matrix, generate_bath_state
 
 
@@ -35,8 +35,8 @@ def propagators(timespace, H0, H1, N, as_delay=False):
     if not as_delay and N:
         timespace = timespace / (2 * N)
 
-    eval0, evec0 = np.linalg.eigh(H0)
-    eval1, evec1 = np.linalg.eigh(H1)
+    eval0, evec0 = np.linalg.eigh(H0 * PI2)
+    eval1, evec1 = np.linalg.eigh(H1 * PI2)
 
     eigen_exp0 = np.exp(-1j * np.tensordot(timespace,
                                            eval0, axes=0), dtype=np.complex128)
@@ -94,7 +94,7 @@ def compute_coherence(H0, H1, timespace, N, as_delay=False, states=None):
     """
     # if timespace was given not as delay between pulses,
     # divide to obtain the delay
-    U0, U1 = propagators(timespace, H0, H1, N, as_delay=as_delay)
+    U0, U1 = propagators(timespace, H0.data, H1.data, N, as_delay=as_delay)
 
     # coherence_function = np.trace(np.matmul(U0, np.transpose(
     #     U1.conj(), axes=(0, 2, 1))), axis1=1, axis2=2) / U0.shape[1]
@@ -113,8 +113,7 @@ def compute_coherence(H0, H1, timespace, N, as_delay=False, states=None):
 
 @cluster_expansion_decorator
 def decorated_coherence_function(cluster, allspin, projections_alpha, projections_beta, magnetic_field, timespace, N,
-                                 as_delay=False, states=None, projected_states=None,
-                                 **kwargs):
+                                 as_delay=False, states=None, projected_states=None, **kwargs):
     """
     Overarching decorated function to compute coherence function in conventional CCE.
 

@@ -5,7 +5,7 @@ from collections import UserDict, Mapping
 from numpy.lib.recfunctions import repack_fields
 
 from .map import InteractionMap
-from ..constants import HBAR, ELECTRON_GYRO, HBAR_SI, NUCLEAR_MAGNETON
+from ..constants import HBAR, ELECTRON_GYRO, HBAR_SI, NUCLEAR_MAGNETON, PI2
 
 HANDLED_FUNCTIONS = {}
 
@@ -579,12 +579,12 @@ class BathArray(np.ndarray):
         r = np.linalg.norm(pos, axis=1)[:, np.newaxis, np.newaxis]
 
         if isinstance(gyro_e, (np.floating, float, int)):
-            pref = (gyro_e * array.gyro * HBAR)[:, np.newaxis, np.newaxis]
+            pref = np.asarray(gyro_e * array.gyro * HBAR / PI2)[..., np.newaxis, np.newaxis]
 
-            array['A'] = -(3 * posxpos[np.newaxis, :] - identity[np.newaxis, :] * r ** 2) / (r ** 5) * pref
+            array['A'] = -(3 * posxpos[np.newaxis, ...] - identity[np.newaxis, ...] * r ** 2) / (r ** 5) * pref
 
         else:
-            pref = (gyro_e[np.newaxis, :, :] * array.gyro[:, np.newaxis, np.newaxis] * HBAR)
+            pref = (gyro_e[np.newaxis, :, :] * np.asarray(array.gyro)[..., np.newaxis, np.newaxis] * HBAR / PI2)
             postf = -(3 * posxpos[np.newaxis, :] - identity[np.newaxis, :] * r ** 2) / (r ** 5)
             np.matmul(pref, postf, out=array['A'])
 
@@ -959,7 +959,7 @@ class SpinType:
         name (str): Name of the bath spin.
         s (float): Total spin of the bath spin. Default 0.
         gyro (float): Gyromagnetic ratio in rad/(ms * G). Default 0.
-        q (float): Quadrupole moment in millibarn (for s > 1/2). Default 0.
+        q (float): Quadrupole moment in barn (for s > 1/2). Default 0.
         detuning (float): Energy detuning from the zeeman splitting in rad/(ms). Default 0.
 
     Attributes:
@@ -967,7 +967,7 @@ class SpinType:
         name (str): Name of the bath spin.
         s (float): Total spin of the bath spin.
         gyro (float): Gyromagnetic ratio in rad/(ms * G).
-        q (float): Quadrupole moment in millibarn (for s > 1/2).
+        q (float): Quadrupole moment in barn (for s > 1/2).
         detuning (float): Energy detuning from the zeeman splitting in rad/(ms).
 
     """
@@ -990,13 +990,24 @@ class SpinType:
         return checks
 
     def __repr__(self):
-        base_message = f'({self.name}, {self.s}, {self.gyro}'
+        try:
+            base_message = f'{self.name}: ({self.s:.1f}, {self.gyro:.4f}'
+        except TypeError:
+            base_message = f'{self.name}: ({self.s}, {self.gyro}'
 
         if np.asarray(self.q).any():
-            base_message += f', {self.q}'
+            try:
+                m = f', {self.q:.4f}'
+            except TypeError:
+                m = f', {self.q}'
+            base_message += m
 
         if np.asarray(self.detuning).any():
-            base_message += f', {self.detuning}'
+            try:
+                m = f', {self.detuning:.4f}'
+            except TypeError:
+                m = f', {self.detuning}'
+            base_message += m
 
         base_message += ')'
 
@@ -1112,12 +1123,12 @@ class SpinDict(UserDict):
 
                 if unique_names.size == 1:
                     n = unique_names[0]
-                    ones = np.ones(key.shape, dtype=np.float64)
+                    # ones = np.ones(key.shape, dtype=np.float64)
 
-                    spins = self._super_get_item(n).s * ones
-                    gyros = self._super_get_item(n).gyro * ones
-                    quads = self._super_get_item(n).q * ones
-                    detus = self._super_get_item(n).detuning * ones
+                    spins = self._super_get_item(n).s  # * ones
+                    gyros = self._super_get_item(n).gyro  # * ones
+                    quads = self._super_get_item(n).q  # * ones
+                    detus = self._super_get_item(n).detuning  # * ones
 
                 else:
                     spins = np.empty(key.shape, dtype=np.float64)
@@ -1173,8 +1184,8 @@ class SpinDict(UserDict):
     def __repr__(self):
         message = f"{type(self).__name__}("
         for k in self.data:
-            message += f"{k}: {self.data[k]}, "
-            if len(message) > 150:
+            message += f"{self.data[k]}, "
+            if len(message) > 75:
                 message += '..., '
                 break
 
@@ -1257,10 +1268,17 @@ def _check_key_spintype(k, v):
 _spin_not_found_message = lambda x: 'Spin type for {} was not provided and was not found in common isotopes.'.format(x)
 
 import pandas as pd
-
-url = 'https://raw.githubusercontent.com/StollLab/EasySpin/main/easyspin/private/isotopedata.txt'
-all_spins = pd.read_csv(url, delim_whitespace=True, header=None, comment='%',
-                        names=['protons', 'nucleons', 'radioactive', 'symbol', 'name', 'spin', 'g', 'conc', 'q'])
+try:
+    url = 'https://raw.githubusercontent.com/StollLab/EasySpin/main/easyspin/private/isotopedata.txt'
+    all_spins = pd.read_csv(url, delim_whitespace=True, header=None, comment='%',
+                            names=['protons', 'nucleons', 'radioactive', 'symbol', 'name', 'spin', 'g', 'conc', 'q'])
+except:
+    import os
+    __location__ = os.path.realpath(
+        os.path.join(os.getcwd(), os.path.dirname(__file__)))
+    filepath = os.path.join(__location__, 'isotopes.txt')
+    all_spins = pd.read_csv(filepath, delim_whitespace=True, header=None, comment='%',
+                            names=['protons', 'nucleons', 'radioactive', 'symbol', 'name', 'spin', 'g', 'conc', 'q'])
 
 stable_spins = all_spins[(all_spins['spin'] > 0) & (all_spins['conc'] > 0)]
 
@@ -1273,6 +1291,9 @@ _mi = pd.MultiIndex.from_arrays([stable_spins['symbol'], _names])
 _ser = pd.Series((stable_spins['conc'] / 100).values, index=_mi)
 
 common_concentrations = {level: _ser.xs(level).to_dict() for level in _ser.index.levels[0]}
+"""
+dict: Nested dict containing natural concentrations of the stable nuclear isotopes.  
+"""
 
 # Dictionary of the common isotopes. Placed in this file to avoid circular dependency
 common_isotopes = SpinDict(*zip(_names, _spins, _gyros, _quads))

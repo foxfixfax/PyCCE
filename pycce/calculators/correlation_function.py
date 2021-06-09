@@ -165,7 +165,7 @@ def decorated_noise_correlation(cluster, allspin, dm0, magnetic_field, zfs,
 
     totalh = total_hamiltonian(nspin, magnetic_field, zfs, central_gyro=gyro_e, central_spin=central_spin,
                                )
-    time_propagator = propagator(timespace, totalh)
+    time_propagator = propagator(timespace, totalh.data)
     dmtotal0 = generate_dm0(dm0, totalh.dimensions, states=states)
 
     return compute_correlations(nspin, dmtotal0, time_propagator, central_spin=central_spin)
@@ -222,7 +222,7 @@ def mean_field_noise_correlation(cluster, allspin, dm0, magnetic_field, zfs, tim
     totalh = mean_field_hamiltonian(nspin, magnetic_field, others, others_state, zfs,
                                     central_gyro=gyro_e,
                                     central_spin=central_spin)
-    time_propagator = propagator(timespace, totalh)
+    time_propagator = propagator(timespace, totalh.data)
 
     dmtotal0 = generate_dm0(dm0, totalh.dimensions, states)
 

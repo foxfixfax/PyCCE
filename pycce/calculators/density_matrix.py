@@ -5,7 +5,7 @@ from numpy import ma as ma
 from pycce.bath.array import BathArray
 from pycce.cluster_expansion import cluster_expansion_decorator
 from pycce.hamiltonian import total_hamiltonian, expand, eta_hamiltonian, mean_field_hamiltonian
-from pycce.constants import ELECTRON_GYRO
+from pycce.constants import ELECTRON_GYRO, PI2
 
 
 def propagator(timespace, hamiltonian, dimensions=None,
@@ -38,7 +38,7 @@ def propagator(timespace, hamiltonian, dimensions=None,
     Returns:
         ndarray: array of propagators, evaluated at each time point in timespace.
     """
-    evalues, evec = np.linalg.eigh(hamiltonian)
+    evalues, evec = np.linalg.eigh(hamiltonian * PI2)
 
     if not pulse_sequence:
 
@@ -198,7 +198,7 @@ def full_dm(dm0, H, alpha, beta, timespace, pulse_sequence=None, as_delay=False)
         ndarray: Array of density matrices of the cluster, evaluated at the time points from timespace.
     """
 
-    U = propagator(timespace, H, H.dimensions, pulse_sequence, alpha, beta, as_delay=as_delay)
+    U = propagator(timespace, H.data, H.dimensions, pulse_sequence, alpha, beta, as_delay=as_delay)
 
     dmUdagger = np.matmul(dm0, np.transpose(U.conj(), axes=(0, 2, 1)))
     dm = np.matmul(U, dmUdagger)

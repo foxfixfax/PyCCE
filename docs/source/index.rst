@@ -1,10 +1,19 @@
+
+
+
+
+
 Welcome to pyCCE's documentation!
-=================================
+==================================================================
+
+.. figure:: logo.svg
+  :scale: 100%
+  :align: left
+  :target: index.html
 
 **pyCCE** is an open source Python library for conducting the simulations
 of the spin qubit dynamics interacting with spin bath
 by the means of Cluster Correlation Expansion (CCE) method.
-
 
 Installation
 ----------------
@@ -36,6 +45,7 @@ However, for serial implementation the **mpi4py** is not required.
    :caption: Getting Started
 
    theory
+   quickstart
    tutorial
 
 .. toctree::
@@ -54,6 +64,4 @@ However, for serial implementation the **mpi4py** is not required.
    calculators
    hamiltonian
    utilities
-
-
 

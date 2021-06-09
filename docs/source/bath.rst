@@ -26,7 +26,7 @@ Documentation for the ``pycce.BathArray`` - central class, containing properties
 
 .. automodule:: pycce.bath.array
    :members:
-   :exclude-members: concatenate, implements, update_bath, transform, SpinType, SpinDict, common_isotopes
+   :exclude-members: concatenate, implements, update_bath, transform, SpinType, SpinDict, common_isotopes, common_concentrations
 
 .. automethod:: pycce.utilities.rotmatrix
    :noindex:
@@ -54,6 +54,7 @@ the properties of the different types of the spins in the bath.
 .. autoclass:: pycce.SpinType
    :members:
 
-.. automodule:: pycce.bath.array
-   :noindex:
-   :members: common_isotopes
+.. autodata:: pycce.bath.array.common_isotopes
+
+.. autodata:: pycce.bath.array.common_concentrations
+   :annotation: = {element ('H', 'He',...) : { isotope ('1H', '2H', ..) : concentration}}

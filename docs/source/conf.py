@@ -40,6 +40,7 @@ extensions = [
     'IPython.sphinxext.ipython_console_highlighting',
     'sphinx_rtd_theme',
     'sphinx.ext.napoleon',
+    'sphinx_panels',
 ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -60,6 +61,7 @@ mathjax_config = {
 # a list of builtin themes.
 #
 html_theme = 'sphinx_rtd_theme'
+html_favicon = 'favicon.png'
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
@@ -68,5 +70,13 @@ html_static_path = ['_static']
 # The name of the Pygments (syntax highlighting) style to use.
 pygments_style = 'sphinx'
 
+
 autodoc_member_order = 'bysource'
 add_module_names = False
+
+html_logo = 'logo_white.svg'
+html_theme_options = {
+    'logo_only': True,
+    'display_version': False,
+#    'style_nav_header_background': '#800000'
+}

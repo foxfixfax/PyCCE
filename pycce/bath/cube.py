@@ -3,7 +3,7 @@ import warnings
 import numpy as np
 from numba import jit
 from .array import BathArray
-from ..constants import BOHR_TO_ANGSTROM, HBAR, ELECTRON_GYRO
+from ..constants import BOHR_TO_ANGSTROM, HBAR, ELECTRON_GYRO, PI2
 
 # Copied from ASE
 chemical_symbols = [
@@ -209,7 +209,7 @@ def _cube_integrate(data, grid, voxel, spin, position, gyro_n, gyro_e=ELECTRON_G
 
     dist = np.sqrt(np.sum(pos ** 2, axis=-1))
 
-    pre = gyro_e * gyro_n * HBAR / (2 * spin) * np.linalg.det(voxel)
+    pre = gyro_e * gyro_n * HBAR / (2 * spin * PI2) * np.linalg.det(voxel)
 
     hyperfine = np.zeros((3, 3), dtype=np.float64)
     for i in range(3):

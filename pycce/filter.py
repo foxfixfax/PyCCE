@@ -1,5 +1,5 @@
 """
-Module with helper functions for obtaining CPMG coherence from the noise autocorrelation function.
+Module with helper functions to obtain CPMG coherence from the noise autocorrelation function.
 """
 import numba
 import numpy as np
@@ -7,7 +7,7 @@ import scipy.integrate
 from numba import cfunc, carray, jit
 from numba.types import intc, CPointer, float64, int32
 from scipy import LowLevelCallable
-
+from .constants import PI2
 
 def _jit_integrand_function(integrand_function):
     jitted_function = numba.jit(integrand_function, nopython=True)
@@ -75,7 +75,7 @@ def filterfunc(ts, tau, npulses):
     return fs
 
 
-def gaussian_phase(timespace, corr, npulses):
+def gaussian_phase(timespace, corr, npulses, units='khz'):
     """
     Compute average random phase squared assuming Gaussian noise.
 
@@ -83,10 +83,12 @@ def gaussian_phase(timespace, corr, npulses):
         timespace (ndarray with shape (n,)): Time points at which correlation function was computed.
         corr (ndarray with shape (n,)): Noise autocorrelation function.
         npulses (int): Number of pulses in CPMG sequence.
-
+        units (str): If units contain frequency or angular frequency ('rad' in ``units``).
     Returns:
         ndarray with shape (n,): Random phase accumulated by the qubit.
     """
+    if 'rad' not in units:
+        corr *= PI2**2
     timespace = np.asarray(timespace)
     chis = np.zeros(timespace.shape)
     for i, tau in enumerate(timespace):

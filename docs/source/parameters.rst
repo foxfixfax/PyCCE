@@ -32,7 +32,9 @@ The central spin Hamiltonian is provided as attributes of the ``Simulator`` obje
 
 - :math:`\mathbf{D}` is set with ``Simulator.set_zfs`` method or during the initialization of the
   ``Simulator`` object either from observables *D* and *E* of the zero field
-  splitting **OR** directly as tensor for the interaction :math:`\mathbf{SDS}`. By default is zero.
+  splitting **OR** directly as tensor for the interaction :math:`\mathbf{SDS}` in  :math:`\mathrm{kHz}.
+  By default is zero.
+
   Examples::
 
     >>> c = Simulator(1)
@@ -70,6 +72,13 @@ The central spin Hamiltonian is provided as attributes of the ``Simulator`` obje
     >>> print(c.gyro)
     -17608.59705
 
+
+.. note::
+
+    While all other coupling parameters are given in the units of frequency, the gyromagnetic ratio
+    (and therefore tensors coupling magnetic field with the spin)
+    are conventionally given in the units of **angular** frequency and differ by :math:`2\pi`.
+
 The magnetic field is set with  with ``Simulator.set_magnetic_field`` method or during the initialization of the
 ``Simulator`` object in :math:`\mathrm{G}`.
 
@@ -77,11 +86,11 @@ Spin-Bath Hamiltonian
 ........................................
 
 The interactions between central spin and bath spins and are provided
-in the ``['A']`` namefield of the ``BathArray`` object in :math:`\mathrm{rad}\cdot\mathrm{kHz}`.
+in the ``['A']`` namefield of the ``BathArray`` object in :math:`\mathrm{kHz}`.
 
 Interaction tensors can be either:
 
-- Directly provided by setting the values of ``bath['A']`` in :math:`\mathrm{rad}\cdot\mathrm{kHz}`
+- Directly provided by setting the values of ``bath['A']`` in :math:`\mathrm{kHz}`
   for each bath spin.
 - Approximated from magnetic point dipole–dipole interactions by calling ``BathArray.from_point_dipole`` method.
   Then the tensors are computed as:
@@ -98,34 +107,34 @@ Interaction tensors can be either:
 
   Examples::
 
-    >>> bath = random_bath('13C', size=100, number=5)
+    >>> bath = random_bath('13C', size=100, number=5, seed=1)
     >>> print(bath)
-    [('13C', [-27.301,  41.65 ,  11.875], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]])
-     ('13C', [ 35.592, -49.73 , -12.323], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]])
-     ('13C', [ -4.312,  25.681,  20.731], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]])
-     ('13C', [ 21.515, -42.781,  -8.355], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]])
-     ('13C', [-25.785,  12.88 ,  17.051], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]])]
+    [('13C', [  1.182,  45.046, -35.584], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]])
+     ('13C', [ 44.865, -18.817,  -7.667], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]])
+     ('13C', [ 32.77 ,  -9.08 ,   4.959], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]])
+     ('13C', [-47.244,  25.351,   3.814], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]])
+     ('13C', [-17.027,  28.843, -19.681], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]])]
     >>> bath['A'] = 1
     >>> print(bath)
-    [('13C', [ -8.642,  -7.911,  35.306], [[1., 1., 1.], [1., 1., 1.], [1., 1., 1.]], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]])
-     ('13C', [ 48.173,  18.067, -18.275], [[1., 1., 1.], [1., 1., 1.], [1., 1., 1.]], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]])
-     ('13C', [  9.065,  34.015,  12.759], [[1., 1., 1.], [1., 1., 1.], [1., 1., 1.]], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]])
-     ('13C', [-31.95 ,  -9.597, -11.963], [[1., 1., 1.], [1., 1., 1.], [1., 1., 1.]], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]])
-     ('13C', [-22.77 ,  47.308,   0.334], [[1., 1., 1.], [1., 1., 1.], [1., 1., 1.]], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]])]
+    [('13C', [  1.182,  45.046, -35.584], [[1., 1., 1.], [1., 1., 1.], [1., 1., 1.]], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]])
+     ('13C', [ 44.865, -18.817,  -7.667], [[1., 1., 1.], [1., 1., 1.], [1., 1., 1.]], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]])
+     ('13C', [ 32.77 ,  -9.08 ,   4.959], [[1., 1., 1.], [1., 1., 1.], [1., 1., 1.]], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]])
+     ('13C', [-47.244,  25.351,   3.814], [[1., 1., 1.], [1., 1., 1.], [1., 1., 1.]], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]])
+     ('13C', [-17.027,  28.843, -19.681], [[1., 1., 1.], [1., 1., 1.], [1., 1., 1.]], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]])]
     >>> bath.from_point_dipole([0, 0, 0])
     >>> print(bath)
-    [('13C', [-24.766, -40.571,  21.094], [[-0.284,  0.99 , -0.515], [ 0.99 ,  0.734, -0.843], [-0.515, -0.843, -0.45 ]], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]])
-     ('13C', [-21.571, -35.516,  22.077], [[-0.443,  1.245, -0.774], [ 1.245,  0.85 , -1.274], [-0.774, -1.274, -0.407]], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]])
-     ('13C', [-29.012,  41.195,  47.466], [[-0.178, -0.282, -0.325], [-0.282,  0.024,  0.461], [-0.325,  0.461,  0.155]], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]])
-     ('13C', [-48.929, -43.779,  19.717], [[ 0.205,  0.53 , -0.239], [ 0.53 ,  0.087, -0.214], [-0.239, -0.214, -0.292]], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]])
-     ('13C', [-46.998,  24.897,  43.546], [[ 0.155, -0.286, -0.5  ], [-0.286, -0.233,  0.265], [-0.5  ,  0.265,  0.078]], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]])]
+    [('13C', [  1.182,  45.046, -35.584], [[-0.659,  0.032, -0.025], [ 0.032,  0.559, -0.963], [-0.025, -0.963,  0.1  ]], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]])
+     ('13C', [ 44.865, -18.817,  -7.667], [[ 1.558, -1.092, -0.445], [-1.092, -0.588,  0.187], [-0.445,  0.187, -0.97 ]], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]])
+     ('13C', [ 32.77 ,  -9.08 ,   4.959], [[ 5.32 , -2.327,  1.271], [-2.327, -2.434, -0.352], [ 1.271, -0.352, -2.886]], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]])
+     ('13C', [-47.244,  25.351,   3.814], [[ 1.06 , -1.   , -0.151], [-1.   , -0.268,  0.081], [-0.151,  0.081, -0.792]], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]])
+     ('13C', [-17.027,  28.843, -19.681], [[-0.903, -2.081,  1.42 ], [-2.081,  1.393, -2.405], [ 1.42 , -2.405, -0.49 ]], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]])]
 
 Bath Hamiltonian
 ..................................
 The self interaction tensors of the bath spins ae stored in the ``['Q']`` namefield of the ``BathArray`` object.
 By default they are set to 0. They can be either:
 
-- Directly provided by setting the values of ``bath['Q']`` in :math:`\mathrm{rad}\cdot\mathrm{kHz}`
+- Directly provided by setting the values of ``bath['Q']`` in :math:`\mathrm{kHz}`
   for each bath spin.
 - Computed from the electric field gradient (EFG) tensors at each bath spin position,
   using ``BathArray.from_efg`` method.
@@ -151,7 +160,7 @@ This can be achieved by:
 Examples::
 
     >>> import numpy as np
-    >>> bath = random_bath('13C', size=100, number=5)
+    >>> bath = random_bath('13C', size=100, number=5, seed=1)
     >>> print(bath.types)
     SpinDict(13C: (13C, 0.5, 6.7283))
     >>> test_tensor = np.random.random((3, 3))
