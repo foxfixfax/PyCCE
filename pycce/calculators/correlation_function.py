@@ -2,11 +2,10 @@ import numpy as np
 import operator
 
 from pycce.cluster_expansion import cluster_expansion_decorator
-from pycce.hamiltonian import total_hamiltonian, mean_field_hamiltonian, bath_interactions, expanded_single, \
-    conditional_hyperfine, \
+from pycce.hamiltonian import total_hamiltonian, bath_interactions, expanded_single, conditional_hyperfine, \
     dimensions_spinvectors
 from pycce.constants import ELECTRON_GYRO
-from .density_matrix import propagator, generate_dm0, gen_density_matrix, generate_bath_state
+from .density_matrix import propagator, generate_dm0, gen_density_matrix, generate_bath_state, _check_projected_states
 from ..sm import _smc
 
 
@@ -209,19 +208,10 @@ def mean_field_noise_correlation(cluster, allspin, dm0, magnetic_field, zfs, tim
     nspin = allspin[cluster]
     central_spin = (dm0.shape[0] - 1) / 2
 
-    # if imap is not None:
-    #     imap = imap.subspace(cluster)
+    states, others, other_states = _check_projected_states(cluster, allspin, bath_state, bath_state)
 
-    others_mask = np.ones(allspin.shape, dtype=bool)
-    others_mask[cluster] = False
-    others = allspin[others_mask]
-    others_state = bath_state[others_mask]
-
-    states = bath_state[~others_mask]
-
-    totalh = mean_field_hamiltonian(nspin, magnetic_field, others, others_state, zfs,
-                                    central_gyro=gyro_e,
-                                    central_spin=central_spin)
+    totalh = total_hamiltonian(nspin, magnetic_field, zfs, others=others, other_states=other_states,
+                               central_gyro=gyro_e, central_spin=central_spin)
     time_propagator = propagator(timespace, totalh.data)
 
     dmtotal0 = generate_dm0(dm0, totalh.dimensions, states)

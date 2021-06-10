@@ -3,7 +3,7 @@ import numpy.ma as ma
 from pycce.cluster_expansion import cluster_expansion_decorator
 from pycce.hamiltonian import projected_hamiltonian
 from pycce.constants import PI2
-from .density_matrix import gen_density_matrix, generate_bath_state
+from .density_matrix import gen_density_matrix, generate_bath_state, _check_projected_states
 
 
 def propagators(timespace, H0, H1, N, as_delay=False):
@@ -149,18 +149,7 @@ def decorated_coherence_function(cluster, allspin, projections_alpha, projection
     """
     nspin = allspin[cluster]
 
-    others = None
-    other_states = None
-
-    if states is not None:
-        states = states[cluster]
-
-    if projected_states is not None:
-        others_mask = np.ones(allspin.shape, dtype=bool)
-        others_mask[cluster] = False
-        others = allspin[others_mask]
-        other_states = projected_states[others_mask]
-
+    states, others, other_states = _check_projected_states(cluster, allspin, states, projected_states)
     # if imap is not None:
     #     imap = imap.subspace(cluster)
 

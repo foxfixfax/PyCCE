@@ -13,7 +13,6 @@ import warnings
 
 import numpy as np
 import numpy.ma as ma
-from pycce import mean_field_density_matrix, monte_carlo_dm
 from pycce.io.xyz import read_xyz
 
 from .bath.array import BathArray, SpinDict
@@ -21,10 +20,10 @@ from .bath.cube import Cube
 from .calculators.coherence_function import decorated_coherence_function, monte_carlo_coherence
 from .calculators.correlation_function import decorated_noise_correlation, \
     projected_noise_correlation, noise_sampling
-from .calculators.density_matrix import decorated_density_matrix, compute_dm
+from .calculators.density_matrix import monte_carlo_dm, compute_cce_dm
 from .constants import ELECTRON_GYRO
 from .find_clusters import generate_clusters
-from .hamiltonian import total_hamiltonian, mean_field_hamiltonian
+from .hamiltonian import total_hamiltonian
 from .utilities import zfs_tensor, project_bath_states, generate_projections
 
 
@@ -1116,39 +1115,23 @@ class Simulator(Environment):
 
         dm0 = np.tensordot(state, state, axes=0)
 
-        if not mean_field or (bath_states is None and not nbstates):
-            H0 = total_hamiltonian(BathArray((0,)), self.magnetic_field, self.zfs,
-                                   central_spin=self.spin, central_gyro=self.gyro)
-
-            dms = compute_dm(dm0, H0, self.alpha, self.beta, timespace, pulses, as_delay=self.as_delay)
-            dms = ma.masked_array(dms, mask=(dms == 0), fill_value=0j, dtype=np.complex128)
-
-            dms *= decorated_density_matrix(self.clusters, self.bath, dm0, self.alpha, self.beta, self.magnetic_field,
-                                            self.zfs, timespace, pulses, gyro_e=self.gyro, as_delay=self.as_delay,
-                                            zeroth_cluster=dms, bath_state=bath_states,
-                                            direct=direct, parallel=parallel)
+        if bath_states is not None and mean_field:
+            proj_bath_states = project_bath_states(bath_states)
 
         else:
-            if bath_states is not None:
-                proj_bath_states = project_bath_states(bath_states)
-                H0 = mean_field_hamiltonian(BathArray((0,)), self.magnetic_field, self.bath, bath_states, D=self.zfs,
-                                            central_gyro=self.gyro)
+            proj_bath_states = None
 
-                dms = compute_dm(dm0, H0, self.alpha, self.beta, timespace, pulses, as_delay=self.as_delay)
-                dms = ma.masked_array(dms, mask=(dms == 0), fill_value=0j, dtype=np.complex128)
-
-                dms *= mean_field_density_matrix(self.clusters, self.bath, dm0, self.alpha, self.beta,
-                                                 self.magnetic_field, self.zfs, timespace,
-                                                 pulses, bath_states, projected_bath_state=proj_bath_states,
-                                                 gyro_e=self.gyro, as_delay=self.as_delay, zeroth_cluster=dms,
-                                                 parallel=parallel, direct=direct)
-
-            else:
-                dms = monte_carlo_dm(self.clusters, self.bath, dm0, self.alpha, self.beta, self.magnetic_field,
-                                     self.zfs, timespace, pulses, central_gyro=self.gyro,
-                                     as_delay=self.as_delay, nbstates=nbstates, seed=seed,
-                                     masked=masked, normalized=normalized, parallel_states=parallel_states,
-                                     fixstates=fixstates, direct=direct, parallel=parallel)
+        if not nbstates:
+            dms = compute_cce_dm(self.clusters, self.bath, dm0,
+                                 self.alpha, self.beta, self.magnetic_field, self.zfs, timespace, pulses,
+                                 bath_state=bath_states, gyro_e=self.gyro, as_delay=self.as_delay,
+                                 projected_bath_state=proj_bath_states, parallel=parallel, direct=direct)
+        else:
+            dms = monte_carlo_dm(self.clusters, self.bath, dm0, self.alpha, self.beta, self.magnetic_field,
+                                 self.zfs, timespace, pulses, central_gyro=self.gyro,
+                                 as_delay=self.as_delay, nbstates=nbstates, seed=seed,
+                                 masked=masked, normalized=normalized, parallel_states=parallel_states,
+                                 fixstates=fixstates, direct=direct, parallel=parallel)
         return dms
 
     def cce_noise(self, timespace, magnetic_field=None, state=None, parallel=False, direct=False):
@@ -1242,6 +1225,7 @@ class Simulator(Environment):
             state = np.sqrt(1 / 2) * (self.alpha + self.beta)
 
         dm0 = np.tensordot(state, state, axes=0)
+
         if mean_field:
             corr = noise_sampling(self.clusters, self.bath, dm0, timespace, self.magnetic_field, self.zfs,
                                   gyro_e=self.gyro,

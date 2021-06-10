@@ -291,6 +291,7 @@ def self_central(svec, mfield, zfs=None, gyro=ELECTRON_GYRO):
 
     # if gyro is number
     if isinstance(gyro, (np.floating, float, int)):
+        # print(svec, mfield)
         H1 = -gyro / PI2 * (mfield[0] * svec[0] + mfield[1] * svec[1] + mfield[2] * svec[2])
     # else assume tensor
     else:

@@ -137,7 +137,7 @@ def projected_hamiltonian(bath, vectors, projections_alpha, projections_beta, mf
 
 
 @hamiltonian_wrapper
-def total_hamiltonian(bath, vectors, mfield, zfs, central_gyro=ELECTRON_GYRO):
+def total_hamiltonian_old(bath, vectors, mfield, zfs, central_gyro=ELECTRON_GYRO):
     r"""
     Total hamiltonian for cluster including central spin.
     Wrapped function so the actual call does not follow the one above!
@@ -173,7 +173,7 @@ def total_hamiltonian(bath, vectors, mfield, zfs, central_gyro=ELECTRON_GYRO):
 
 
 @hamiltonian_wrapper
-def mean_field_hamiltonian(bath, vectors, mfield, others, others_state, zfs=None, central_gyro=ELECTRON_GYRO):
+def total_hamiltonian(bath, vectors, mfield, zfs=None, others=None, other_states=None, central_gyro=ELECTRON_GYRO):
     """
     Compute total Hamiltonian for the given cluster including mean field effect of all bath spins.
     Wrapped function so the actual call does not follow the one above!
@@ -199,14 +199,19 @@ def mean_field_hamiltonian(bath, vectors, mfield, others, others_state, zfs=None
 
     """
 
-    totalh = self_central(vectors[-1], mfield, zfs, central_gyro) + overhauser_central(vectors[-1], others['A'],
-                                                                                       others_state)
+    totalh = self_central(vectors[-1], mfield, zfs, central_gyro)
+
+    if others is not None and other_states is not None:
+        totalh += overhauser_central(vectors[-1], others['A'], other_states)
 
     for j, n in enumerate(bath):
         ivec = vectors[j]
 
-        mfbath = overhauser_bath(ivec, n['xyz'], n.gyro, others.gyro, others['xyz'], others_state)
-        hsingle = expanded_single(ivec, n.gyro, mfield, n['Q'], n.detuning) + mfbath
+        hsingle = expanded_single(ivec, n.gyro, mfield, n['Q'], n.detuning)
+
+        if others is not None and other_states is not None:
+            hsingle += overhauser_bath(ivec, n['xyz'], n.gyro, others.gyro, others['xyz'], other_states)
+
         hhyperfine = hyperfine(n['A'], vectors[-1], ivec)
 
         totalh += hsingle + hhyperfine

@@ -675,14 +675,21 @@ class BathArray(np.ndarray):
 
         efg = np.asarray(efg).reshape((-1, 3, 3))
 
-        spins = array.s
-        qmoments = array.q
+        spins = np.asarray(array.s)
+        qmoments = np.asarray(array.q)
 
         where = spins > 0.5
-        pref = np.zeros(spins.shape, dtype=np.float64)
-        pref[where] = qmoments[where] / (2 * spins[where] * (2 * spins[where] - 1))
+        if not where.shape:
+            if where:
+                pref = qmoments / (2 * spins * (2 * spins - 1))
+            else:
+                pref = 0
+        else:
+            pref = np.zeros(efg.shape[0], dtype=np.float64)
+            pref[where] = qmoments[where] / (2 * spins[where] * (2 * spins[where] - 1))
+            pref = pref[..., np.newaxis, np.newaxis]
 
-        array['Q'] = pref[:, np.newaxis, np.newaxis] * efg
+        array['Q'] = pref * efg
         return array
 
     def dist(self, position=None):
