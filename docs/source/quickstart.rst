@@ -45,7 +45,8 @@ The simplest example includes the following steps:
    The first required argument is the total spin of the central spin,
    ``r_bath``, ``r_dipole`` and ``order`` are convergence parameters,
    ``magnetic_field`` is the external applied magnetic field along z-axis,
-   and ``pulses`` is number of decoupling :math:`\pi` pulses.
+   and ``pulses`` is number of decoupling :math:`\pi` pulses in CPMG sequence
+   (0 - FID, 1 - Hahn-echo, 2 - Carr Purcell etc.).
 
    .. literalinclude:: tutorials/nv_simple.py
       :language: python

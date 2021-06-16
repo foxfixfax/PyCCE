@@ -5,8 +5,9 @@ from pycce.cluster_expansion import cluster_expansion_decorator
 from pycce.hamiltonian import total_hamiltonian, bath_interactions, expanded_single, conditional_hyperfine, \
     dimensions_spinvectors
 from pycce.constants import ELECTRON_GYRO
-from .density_matrix import propagator, generate_dm0, gen_density_matrix, generate_bath_state, _check_projected_states
-from ..sm import _smc
+from .density_matrix import propagator, generate_dm0, gen_density_matrix, _check_projected_states
+
+from .monte_carlo import monte_carlo_decorator
 
 
 def correlation_it_j0(operator_i, operator_j, dm0_expanded, U):
@@ -76,7 +77,7 @@ def compute_correlations(nspin, dm0_expanded, U, central_spin=None):
 
 
 @cluster_expansion_decorator(result_operator=operator.iadd, contribution_operator=operator.imul)
-def projected_noise_correlation(cluster, allspin, projections_state, magnetic_field, timespace, states=None,
+def projected_noise_correlation(allspin, cluster, projections_state, magnetic_field, timespace, states=None,
                                 ):
     """
     Decorated function to compute autocorrelation function with conventional CCE.
@@ -128,56 +129,11 @@ def projected_noise_correlation(cluster, allspin, projections_state, magnetic_fi
                              contribution_operator=operator.imul,
                              removal_operator=operator.isub,
                              addition_operator=np.sum)
-def decorated_noise_correlation(cluster, allspin, dm0, magnetic_field, zfs,
-                                timespace,
-                                gyro_e=ELECTRON_GYRO, states=None):
+def decorated_noise_correlation(allspin, cluster, dm0, magnetic_field, zfs, timespace, bath_state=None,
+                                projected_bath_state=None,
+                                gyro_e=ELECTRON_GYRO):
     """
-    Decorated function to compute noise correlation with gCCE (without mean field).
-
-    Args:
-        cluster (dict):
-            Clusters included in different CCE orders of structure {int order: ndarray([[i,j],[i,j]])}.
-        allspin (BathArray):
-            Array of all bath spins.
-        dm0 (ndarray with shape (2s+1, 2s+1)):
-            density matrix of the initial state of the central spin.
-        magnetic_field (ndarray with shape (3,)):
-            Magnetic field of type mfield = np.array([Bx, By, Bz]).
-        zfs (ndarray with shape (3, 3)):
-            Zero Field Splitting tensor of the central spin.
-        timespace (ndarray with shape (t,)):
-            Time points at which to compute autocorrelation.
-        gyro_e (float or ndarray with shape (3, 3)):
-            Gyromagnetic ratio of the central spin OR tensor corresponding to interaction between magnetic field and
-            central spin.
-        states (ndarray):
-            Array of bath states in any accepted format.
-    Returns:
-        ndarray with shape (t,): Autocorrelation of the bath spin noise along z-axis.
-
-    """
-    nspin = allspin[cluster]
-    if states is not None:
-        states = states[cluster]
-
-    central_spin = (dm0.shape[0] - 1) / 2
-
-    totalh = total_hamiltonian(nspin, magnetic_field, zfs, central_gyro=gyro_e, central_spin=central_spin,
-                               )
-    time_propagator = propagator(timespace, totalh.data)
-    dmtotal0 = generate_dm0(dm0, totalh.dimensions, states=states)
-
-    return compute_correlations(nspin, dmtotal0, time_propagator, central_spin=central_spin)
-
-
-@cluster_expansion_decorator(result_operator=operator.iadd,
-                             contribution_operator=operator.imul,
-                             removal_operator=operator.isub,
-                             addition_operator=np.sum)
-def mean_field_noise_correlation(cluster, allspin, dm0, magnetic_field, zfs, timespace, bath_state,
-                                 gyro_e=ELECTRON_GYRO):
-    """
-    Decorated function to compute noise autocorrelation function with gCCE and MC sampling of the bath states.
+    Decorated function to compute noise autocorrelation function with gCCE.
 
     Args:
         cluster (dict):
@@ -192,7 +148,9 @@ def mean_field_noise_correlation(cluster, allspin, dm0, magnetic_field, zfs, tim
             Zero Field Splitting tensor of the central spin.
         timespace (ndarray with shape (t,)):
             Time points at which to compute autocorrelation.
-        states (ndarray):
+        bath_state (ndarray):
+            Array of bath states in any accepted format.
+        projected_bath_state (ndarray):
             Array of bath states in z-projections format.
         gyro_e (float or ndarray with shape (3,3)):
             Gyromagnetic ratio of the central spin.
@@ -208,10 +166,11 @@ def mean_field_noise_correlation(cluster, allspin, dm0, magnetic_field, zfs, tim
     nspin = allspin[cluster]
     central_spin = (dm0.shape[0] - 1) / 2
 
-    states, others, other_states = _check_projected_states(cluster, allspin, bath_state, bath_state)
+    states, others, other_states = _check_projected_states(cluster, allspin, bath_state, projected_bath_state)
 
     totalh = total_hamiltonian(nspin, magnetic_field, zfs, others=others, other_states=other_states,
                                central_gyro=gyro_e, central_spin=central_spin)
+
     time_propagator = propagator(timespace, totalh.data)
 
     dmtotal0 = generate_dm0(dm0, totalh.dimensions, states)
@@ -219,18 +178,19 @@ def mean_field_noise_correlation(cluster, allspin, dm0, magnetic_field, zfs, tim
     return compute_correlations(nspin, dmtotal0, time_propagator, central_spin=central_spin)
 
 
-def noise_sampling(clusters, bath, dm0, timespace, magnetic_field, zfs,
-                   gyro_e=ELECTRON_GYRO,
-                   nbstates=100, seed=None, parallel_states=False,
-                   direct=False, parallel=False):
+@monte_carlo_decorator
+def monte_carlo_noise(bath, clusters, dm0, timespace, magnetic_field, zfs,
+                      gyro_e=ELECTRON_GYRO, bath_state=None, parallel=False, direct=False):
     """
     Compute noise auto correlation function using generalized CCE with Monte-Carlo bath state sampling.
+    Note that because the function is decorated, the actual call differs from the one above by virtue of adding
+    several additional keywords (see ``monte_carlo_decorator`` for details).
 
     Args:
-        cluster (dict):
-            Clusters included in different CCE orders of structure {int order: ndarray([[i,j],[i,j]])}.
         bath (BathArray):
             Array of all bath spins.
+        clusters (dict):
+            Clusters included in different CCE orders of structure {int order: ndarray([[i,j],[i,j]])}.
         dm0 (ndarray with shape (2s+1, 2s+1)):
             Density matrix of the initial state of the central spin.
         timespace (ndarray with shape (t,)):
@@ -258,51 +218,7 @@ def noise_sampling(clusters, bath, dm0, timespace, magnetic_field, zfs,
         ndarray with shape (t,): Autocorrelation of the bath spin noise along z-axis.
 
     """
-
-    if parallel_states:
-        try:
-            from mpi4py import MPI
-        except ImportError:
-            print('Parallel states failed: mpi4py is not found. Running serial')
-            parallel_states = False
-
-    root_divider = nbstates
-
-    if parallel_states:
-        comm = MPI.COMM_WORLD
-
-        size = comm.Get_size()
-        rank = comm.Get_rank()
-
-        remainder = nbstates % size
-        add = int(rank < remainder)
-        nbstates = nbstates // size + add
-
-        if seed:
-            seed = seed + rank
-    else:
-        rank = 0
-
-    averaged_corr = 0
-
-    for bath_state in generate_bath_state(bath, nbstates, seed=seed, parallel=parallel):
-
-        corr = mean_field_noise_correlation(clusters, bath, dm0, magnetic_field, zfs,
-                                            timespace, bath_state,
-                                            gyro_e=gyro_e, direct=direct, parallel=parallel)
-
-        averaged_corr += corr
-
-    if parallel_states:
-        root_corr = np.array(np.zeros(averaged_corr.shape), dtype=np.complex128)
-        comm.Reduce(averaged_corr, root_corr, MPI.SUM, root=0)
-
-    else:
-        root_corr = averaged_corr
-
-    if rank == 0:
-        root_corr /= root_divider
-        _smc.clear()
-        return root_corr
-    else:
-        return
+    corr = decorated_noise_correlation(bath, clusters, dm0, magnetic_field, zfs,
+                                       timespace, bath_state, projected_bath_state=bath_state,
+                                       gyro_e=gyro_e, direct=direct, parallel=parallel)
+    return corr

@@ -106,7 +106,7 @@ def bath_interactions(nspin, ivectors):
 
     """
 
-    nnuclei = nspin.shape[0]
+    nnuclei = len(nspin)
     imap = nspin.imap
     dd = 0
     if imap is None:

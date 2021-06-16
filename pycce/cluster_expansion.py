@@ -35,9 +35,9 @@ def cluster_expansion_decorator(_func=None, *,
 
     **Additional parameters**:
 
+        * **allspin** (*BathArray*) -- Array of all bath spins.
         * **subclusters** (*dict*) -- Clusters included in different CCE orders of structure
           {int order: ndarray([[i,j],[i,j]])}.
-        * **allspin** (*BathArray*) -- Array of all bath spins.
         * **parallel** (*bool*) -- True if parallelize calculation of cluster contributions
           over different mpi threads using mpi4py.Default False.
         * **direct** (*bool*) -- True if use direct approach (requires way more memory
@@ -64,16 +64,16 @@ def cluster_expansion_decorator(_func=None, *,
     def inner_cluster_expansion_decorator(function):
 
         @functools.wraps(function)
-        def cluster_expansion(subclusters, allspin, *arg, parallel=False, direct=False, **kwarg):
+        def cluster_expansion(allspin, subclusters, *arg, parallel=False, direct=False, **kwarg):
 
             if direct:
-                return direct_approach(function, subclusters, allspin, *arg, parallel=parallel,
+                return direct_approach(function, allspin, subclusters, *arg, parallel=parallel,
                                        result_operator=result_operator,
                                        removal_operator=removal_operator,
                                        addition_operator=addition_operator,
                                        **kwarg)
             else:
-                return optimized_approach(function, subclusters, allspin, *arg, parallel=parallel,
+                return optimized_approach(function, allspin, subclusters, *arg, parallel=parallel,
                                           result_operator=result_operator,
                                           contribution_operator=contribution_operator,
                                           **kwarg)
@@ -86,7 +86,7 @@ def cluster_expansion_decorator(_func=None, *,
         return inner_cluster_expansion_decorator(_func)
 
 
-def optimized_approach(function, subclusters, allspin, *arg, parallel=False,
+def optimized_approach(function, allspin, subclusters, *arg, parallel=False,
                        result_operator=operator.imul,
                        contribution_operator=operator.ipow,
                        **kwarg):
@@ -135,7 +135,7 @@ def optimized_approach(function, subclusters, allspin, *arg, parallel=False,
     # Then for this subcluster nelements < maximum CCE order
     if norders == 1 and subclusters[revorders[0]].shape[0] == 1:
         verticles = subclusters[revorders[0]][0]
-        return function(verticles, allspin, *arg, **kwarg)
+        return function(allspin, verticles, *arg, **kwarg)
 
     result = 1
     result = contribution_operator(result, 0)
@@ -180,7 +180,7 @@ def optimized_approach(function, subclusters, allspin, *arg, parallel=False,
                 # As all of them have to be divided by v
                 current_power[index] -= np.sum(power[higherorder][containv], dtype=np.int32)
 
-            vcalc = function(v, allspin, *arg, **kwarg)
+            vcalc = function(allspin, v, *arg, **kwarg)
             vcalc = contribution_operator(vcalc, current_power[index])
 
             result = result_operator(result, vcalc)
@@ -215,7 +215,7 @@ def optimized_approach(function, subclusters, allspin, *arg, parallel=False,
     return root_result
 
 
-def direct_approach(function, subclusters, allspin, *arg, parallel=False,
+def direct_approach(function, allspin, subclusters, *arg, parallel=False,
                     result_operator=operator.imul,
                     removal_operator=operator.itruediv,
                     addition_operator=np.prod,
@@ -271,7 +271,7 @@ def direct_approach(function, subclusters, allspin, *arg, parallel=False,
     if norders == 1 and subclusters[orders[0]].shape[0] == 1:
         verticles = subclusters[orders[0]][0]
 
-        return function(verticles, allspin, *arg, **kwarg)
+        return function(allspin, verticles,  *arg, **kwarg)
 
         # print(zero_power)
     # The Highest possible L will have all powers of 1
@@ -297,7 +297,7 @@ def direct_approach(function, subclusters, allspin, *arg, parallel=False,
         for index in range(start, start + block):
 
             v = subclusters[order][index]
-            vcalc = function(v, allspin, *arg, **kwarg)
+            vcalc = function(allspin, v,  *arg, **kwarg)
 
             for lowerorder in orders[:visited]:
                 contained_in_v = np.all(np.isin(subclusters[lowerorder], v), axis=1)

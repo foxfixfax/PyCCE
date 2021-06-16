@@ -9,22 +9,184 @@ Default Units:
 - Couplings: kHz
 
 """
-import warnings
 
 import numpy as np
-import numpy.ma as ma
 from pycce.io.xyz import read_xyz
 
 from .bath.array import BathArray, SpinDict
 from .bath.cube import Cube
-from .calculators.coherence_function import decorated_coherence_function, monte_carlo_coherence
+from .calculators.coherence_function import monte_calro_cce, compute_cce_coherence
 from .calculators.correlation_function import decorated_noise_correlation, \
-    projected_noise_correlation, noise_sampling
+    projected_noise_correlation, monte_carlo_noise
 from .calculators.density_matrix import monte_carlo_dm, compute_cce_dm
 from .constants import ELECTRON_GYRO
 from .find_clusters import generate_clusters
 from .hamiltonian import total_hamiltonian
 from .utilities import zfs_tensor, project_bath_states, generate_projections
+
+
+def _add_args(after):
+    def prepare_with_args(func):
+        func.__doc__ = func.__doc__ + after
+        return func
+
+    return prepare_with_args
+
+
+_returns = r"""
+
+            Returns:
+    
+                ndarray: Computed property."""
+
+_args = r"""
+            magnetic_field (ndarray with shape (3,)): Magnetic field vector of form (Bx, By, Bz). 
+    
+                Default is **None**. Overrides  ``Simulator.magnetic_field`` if provided.
+
+            D (float or ndarray with shape (3,3)):
+                D (longitudinal splitting) parameter of central spin in ZFS tensor of central spin in kHz.
+    
+                **OR**
+    
+                Total ZFS tensor.
+                
+                Default is **None**. Overrides``Simulator.zfs`` if provided.
+    
+            E (float): E (transverse splitting) parameter of central spin in ZFS tensor of central spin in kHz.
+                Ignored if ``D`` is None or tensor.
+                
+                Default is 0.
+    
+            pulses (list or int): Number of pulses in CPMG sequence.
+    
+                *OR*
+    
+                Sequence of the instantaneous ideal control pulses.
+                ``pulses`` should have format of list with tuples,
+                each tuple contains can contain two or three entries:
+    
+                1. axis the rotation is about;
+                2. angle of rotation;
+                3. (optional) fraction of the total time before this pulse is applied.
+                   If not provided, assumes even delay of CPMG sequence. Then total experiment is assumed to be:
+    
+                       tau -- pulse -- 2tau -- pulse -- ... -- 2tau -- pulse -- tau
+    
+                   Where tau is the delay between pulses.
+    
+                E.g. for Hahn-Echo the ``pulses`` can be defined as ``[('x', np.pi)]`` or ``[('x', np.pi, 0.5)]``.
+                Note, that if fraction is provided the computation becomes less effective than without it.
+                
+                In the calculations of noise autocorrelation this parameter is ignored.
+                
+                Default is **None**. Overrides``Simulator.pulses`` if provided.
+                
+    
+            alpha (int or ndarray with shape (2s+1, )): :math:`\ket{0}` state of the qubit in :math:`S_z`
+                basis or the index of eigenstate to be used as one.
+    
+                Default is **None**. Overrides``Simulator.alpha`` if provided.
+
+    
+            beta (int or ndarray with shape (2s+1, )): :math:`\ket{1}` state of the qubit in :math:`S_z` basis
+                or the index of the eigenstate to be used as one.
+
+                Default is **None**. Overrides``Simulator.beta`` if provided.
+                    
+            as_delay (bool): True if time points are delay between pulses (for equispaced pulses),
+                False if time points are total time. Ignored in gCCE if ``pulses`` contains the time fractions.
+                Conventional CCE calculations do not support custom time fractions.
+                
+                Default is **False**.
+                
+            state (ndarray with shape (2s+1,)):
+                Initial state of the central spin, used in gCCE and noise autocorrelation calculations.
+                
+                Defaults to :math:`\frac{1}{N}(\ket{0} + \ket{1})` if not set.
+    
+            bath_state (array-like):
+                List of bath spin states. If ``len(shape) == 1``, contains
+                :math:`I_z` projections of :math:`I_z` eigenstates.
+                Otherwise, contains array of initial density matrices of bath spins.
+    
+                Default is **None**. If not set, the code assumes completely random spin bath
+                (density matrix of each nuclear spin is proportional to identity, :math:`\hat {\mathbb{1}}/N`).
+    
+            mean_field (bool):
+                If True, and ``bath_states`` keyword is provided, then compute only for
+                the given state with mean field corrections.
+                
+                Default is **True**.
+    
+            nbstates (int): Number or random bath states to sample over.
+                If provided, sampling of random states is carried and ``mean_field`` and ``bath_states`` values are
+                ignored.
+                    
+                Default is 0.
+
+            seed (int): Seed for random number generator, used in random bath states sampling.
+                
+                Default is **None**.
+
+            masked (bool):
+                True if mask numerically unstable points (with coherence > 1)
+                in the averaging over bath states. It is up to user to check whether the
+                instability is due to numerical error or unphysical system.
+
+                Default is **True**.
+
+            
+            parallel_states (bool):
+                True if to use MPI to parallelize the calculations of density matrix equally over
+                present mpi processes for random bath state sampling calculations. Compared to ``parallel`` keyword,
+                when this argument is True each process is given a fraction of random bath states.
+                This makes the implementation faster. Works best when the
+                number of bath states is divisible by the number of processes, ``nbstates % size == 0``.
+    
+                Default is **False**.
+
+            fixstates (dict): If not None, shows which bath states to fix in random bath states.
+                Each key is the index of bath spin,
+                value - fixed :math:`\hat S_z` projection of the mixed state of nuclear spin.
+
+                Default is **None**.
+
+            second_order (bool):
+                True if add second order perturbation theory correction to the cluster Hamiltonian in conventional CCE.
+                Relevant only for conventional CCE calculations.
+                
+                If set to True sets the qubit states as eigenstates of central spin Hamiltonian from the following
+                procedure. If qubit states are provided as vectors in :math:`S_z` basis,
+                for each qubit state compute the fidelity of the qubit state and
+                all eigenstates of the central spin and chose the one with fidelity higher than ``level_confidence``.
+                If such state is not found, raises an error.
+    
+                .. warning::
+    
+                    Second order corrections are not implemented as mean field.
+                    
+                    I.e., setting ``second_order=True``
+                    and ``nbstates != 0`` leads to the calculation, when mean field effect is accounted only from
+                    dipolar interactions with the bath.
+    
+                Default is **False**.
+    
+            level_confidence (float): Maximum fidelity of the qubit state to be considered eigenstate of the
+                central spin Hamiltonian. 
+                
+                Default is 0.95.
+    
+            direct (bool):
+                True if use direct approach (requires way more memory but might be more numerically stable).
+                False if use memory efficient approach.
+                
+                Default is **False**.
+    
+            parallel (bool):
+                True if parallelize calculation of cluster contributions over different mpi processes.
+
+                Default is **False**."""
 
 
 class Environment:
@@ -259,7 +421,7 @@ class Environment:
 
 # TODO unit conversion
 class Simulator(Environment):
-    """
+    r"""
     The main class for CCE calculations.
 
     The typical usage includes:
@@ -403,25 +565,8 @@ class Simulator(Environment):
             where m is the number of clusters of given size, n is the size of the cluster.
             Each row  of this array contains indexes of the bath spins included in the given cluster.
 
-        pulses (list or int): Number of pulses in CPMG sequence.
-
-            *OR*
-
-            Sequence of the instantaneous ideal control pulses.
-            ``pulses`` should have format of list with tuples,
-            each tuple contains can contain two or three entries:
-
-            1. axis the rotation is about;
-            2. angle of rotation;
-            3. (optional) fraction of the total time before this pulse is applied.
-               If not provided, assumes even delay of CPMG sequence. Then total experiment is assumed to be:
-
-                   tau -- pulse -- 2tau -- pulse -- ... -- 2tau -- pulse -- tau
-
-               Where tau is the delay between pulses.
-
-            E.g. for Hahn-Echo the ``pulses`` can be defined as ``[('x', np.pi)]`` or ``[('x', np.pi, 0.5)]``.
-            Note, that if fraction is provided the computation becomes less effective than without it.
+        state (ndarray): Innitial state of the qubit in gCCE simulations.
+            Assumed to be :math:`1/\sqrt{2}(\ket{0} + \ket{1}` unless provided during ``Simulator.compute`` call.
 
         as_delay (bool): True if time points are delay between pulses (for equispaced pulses),
             False if time points are total time. Ignored if ``pulses`` contains the time fractions.
@@ -455,7 +600,7 @@ class Simulator(Environment):
         # Parameters of the calculations
         self.pulses = pulses
         self.as_delay = as_delay
-
+        self.state = None
         # Parameters of MC states
         self.nbstates = None
         self.fixstates = None
@@ -489,25 +634,39 @@ class Simulator(Environment):
 
     @property
     def alpha(self):
-        """
-        ndarray: :math:`\ket{0}` qubit state of the central spin in Sz basis.
+        r"""
+        ndarray or int: :math:`\ket{0}` qubit state of the central spin in Sz basis **OR** index of the energy state
+            to be considered as one.
         """
         return self._alpha
 
     @alpha.setter
     def alpha(self, alpha_state):
-        self._alpha = np.asarray(alpha_state, dtype=np.complex128)
+        try:
+            if len(alpha_state) > 1:
+                self._alpha = np.asarray(alpha_state, dtype=np.complex128)
+            else:
+                self._alpha = np.asarray(alpha_state, dtype=np.int32)
+        except TypeError:
+            self._alpha = np.asarray(alpha_state, dtype=np.int32)
 
     @property
     def beta(self):
-        """
-        ndarray: :math:`\ket{1}` qubit state of the central spin in Sz basis.
+        r"""
+        ndarray or int: :math:`\ket{1}` qubit state of the central spin in Sz basis **OR** index of the energy state
+            to be considered as one.
         """
         return self._beta
 
     @beta.setter
     def beta(self, beta_state):
-        self._beta = np.asarray(beta_state, dtype=np.complex128)
+        try:
+            if len(beta_state) > 1:
+                self._beta = np.asarray(beta_state, dtype=np.complex128)
+            else:
+                self._beta = np.int(beta_state)
+        except TypeError:
+            self._beta = np.int(beta_state)
 
     @property
     def magnetic_field(self):
@@ -541,6 +700,42 @@ class Simulator(Environment):
     @r_dipole.setter
     def r_dipole(self, r_dipole):
         self.generate_clusters(r_dipole=r_dipole)
+
+    @property
+    def pulses(self):
+        """
+        list or int: Number of pulses in CPMG sequence.
+
+            *OR*
+
+            Sequence of the instantaneous ideal control pulses.
+            ``pulses`` should have format of list with tuples,
+            each tuple contains can contain two or three entries:
+
+            1. axis the rotation is about;
+            2. angle of rotation;
+            3. (optional) fraction of the total time before this pulse is applied.
+               If not provided, assumes even delay of CPMG sequence. Then total experiment is assumed to be:
+
+                   tau -- pulse -- 2tau -- pulse -- ... -- 2tau -- pulse -- tau
+
+               Where tau is the delay between pulses.
+
+            E.g. for Hahn-Echo the ``pulses`` can be defined as ``[('x', np.pi)]`` or ``[('x', np.pi, 0.5)]``.
+            Note, that if fraction is provided the computation becomes less effective than without it.
+
+        """
+        return self._pulses
+
+    @pulses.setter
+    def pulses(self, pulses):
+
+        try:
+            pulses = ([('x', np.pi), ('y', np.pi)] * ((pulses + 1) // 2))[:pulses]
+        except TypeError:
+            pulses = pulses
+
+        self._pulses = pulses
 
     def set_zfs(self, D=None, E=0):
         """
@@ -592,18 +787,16 @@ class Simulator(Environment):
             alpha (float or ndarray with shape (2s+1, )): :math:`\ket{0}` state of the qubit in :math:`S_z`
                 basis or the index of eigenstate to be used as one.
 
-                Default: state with :math:`m_s = +s` where :math:`m_s` is the z-projection of the spin
+                Default: Lowest energy eigenstate of the central spin Hamiltonian.
+                Otherwise state with :math:`m_s = +s` where :math:`m_s` is the z-projection of the spin
                 and :math:`s` is the total spin if no information of central spin Hamiltonian is provided.
-                Otherwise lowest energy eigenstate of the central spin Hamiltonian.
 
             beta (float or ndarray with shape (2s+1, )): :math:`\ket{1}` state of the qubit in :math:`S_z` basis
                 or the index of the eigenstate to be used as one.
 
-                Default: state with :math:`m_s = +s - 1` where :math:`m_s` is the z-projection of the spin
+                Default: Second lowest energy eigenstate of the central spin Hamiltonian.
+                Otherwise state with :math:`m_s = +s - 1` where :math:`m_s` is the z-projection of the spin
                 and :math:`s` is the total spin if no information of central spin Hamiltonian is provided.
-                Otherwise second lowest energy eigenstate of the central spin Hamiltonian.
-
-        Returns:
 
         """
         if alpha is None:
@@ -614,7 +807,8 @@ class Simulator(Environment):
 
         if np.asarray(alpha).size == 1 or np.asarray(beta).size == 1:
             if self.zfs.any() or self.magnetic_field.any():
-                self.eigenstates(alpha, beta)
+                self.alpha = alpha
+                self.beta = beta
 
             else:
                 self.alpha = np.zeros(round(self.spin * 2 + 1))
@@ -737,7 +931,8 @@ class Simulator(Environment):
 
     read_bath.__doc__ = Environment.read_bath.__doc__
 
-    def compute(self, *arg, quantity='coherence', method='cce', **kwarg):
+    @_add_args(_args + _returns)
+    def compute(self, timespace, quantity='coherence', method='cce', **kwarg):
         r"""
         General interface for computing properties with CCE.
 
@@ -748,7 +943,8 @@ class Simulator(Environment):
             &\hat H_S = \mathbf{SDS} + \mathbf{B\gamma}_{S}\mathbf{S} \\
             &\hat H_{SB} = \sum_i \mathbf{S}\mathbf{A}_i\mathbf{I}_i \\
             &\hat H_{B} = \sum_i{\mathbf{I}_i\mathbf{P}_i \mathbf{I}_i +
-                           \mathbf{B}\mathbf{\gamma}_i\mathbf{I}_i} + \sum_{i>j} \mathbf{I}_i\mathbf{J}_{ij}\mathbf{I}_j
+                           \mathbf{B}\mathbf{\gamma}_i\mathbf{I}_i} +
+                           \sum_{i>j} \mathbf{I}_i\mathbf{J}_{ij}\mathbf{I}_j
 
         Here :math:`\hat H_S` is the central spin Hamiltonian with Zero Field splitting tensor :math:`\mathbf{D}` and
         gyromagnetic ratio tensor :math:`\mathbf{\gamma_S} = \mu_S \mathbf{g}`
@@ -810,7 +1006,7 @@ class Simulator(Environment):
                 >>> calc.compute(ts, method='gcce', nbstates=10)
 
         Args:
-            *arg: Position arguments for the function to be used.
+            timespace (ndarray with shape (n,)): Time points at which compute the desired property.
 
             quantity (str): Which quantity to compute. Case insensitive.
 
@@ -825,416 +1021,136 @@ class Simulator(Environment):
                 Possible values:
 
                     - 'CCE': conventional CCE, where interactions are mapped on 2 level pseudospin.
-                    - 'gCCE': generalized CCE with or without random bath state sampling
-                      (given by ``mean_field`` keyword).
-
-            **kwarg: Keyword arguments for the function to be used.
-
-        Returns:
-            ndarray: Computed property.
+                    - 'gCCE': Generalized CCE where central spin is included in each cluster.
         """
 
         func = getattr(self, self._compute_func[method.lower()][quantity.lower()])
-        result = func(*arg, **kwarg)
-        try:
-            check = len(result.shape) != 1
-        except AttributeError:
-            return result
-
-        if (quantity == 'coherence') and check:
-            try:
-                result = result.filled(0j)
-            except AttributeError:
-                pass
-
-            dm0 = result[0]
-            state = np.sqrt(1 / 2) * (self.alpha + self.beta)
-            dm0expected = np.tensordot(state, state, axes=0).astype(np.complex128)
-
-            if not np.isclose(dm0, dm0expected).all():
-                warnings.warn('Initial qubit state is not superposition of alpha and beta states. '
-                              'The coherence might yield unexpected results')
-            result = self.alpha @ result @ self.beta
-            result = result / result[0]
+        result = func(timespace, **kwarg)
 
         return result
 
-    def cce_coherence(self, timespace, pulses=None, magnetic_field=None, as_delay=None, states=None,
-                      mean_field=True, nbstates=None, seed=None, masked=True,
-                      parallel_states=False, fixstates=None, second_order=False, level_confidence=0.95,
-                      direct=False, parallel=False):
+    def cce_coherence(self, timespace, **kwargs):
         r"""
-        Compute coherence function with conventional CCE.
+        Compute coherence :math:`\bra{0}\hat\rho\ket{1}` with conventional CCE.
 
         Args:
             timespace (ndarray with shape (n,)): Time points at which compute coherence function.
-
-            magnetic_field (ndarray with shape (3,)): Magnetic field vector of form (Bx, By, Bz).
-
-            pulses(int): Number of pulses in CPMG sequence.
-
-            as_delay (bool): True if time points are delay between pulses (for equispaced pulses),
-                False if time points are total time. Ignored if pulse_sequence contains the time fractions.
-
-            states (array-like):
-                List of bath spin states. if ``len(shape) == 1``, contains
-                :math:`I_z` projections of :math:`I_z` eigenstates.
-                Otherwise, contains array of initial dms of bath spins.
-                If not set, the code assumes completely random spin bath
-                (density matrix of each nuclear spin is proportional to identity, :math:`\hat {\mathbb{1}}/N`).
-
-            mean_field (bool):
-                If True, add mean field corrections.
-                If ``bath_states`` keyword is provided, then compute only for
-                the given state with mean field corrections. Default True.
-                If ``nbstates`` is provided then sample over random bath states.
-
-            nbstates (int): Number of *pure* random bath states to sample over.
-                Takes effect only if ``mean_field = True``.
-
-            seed (int): Seed for random number generator, used in random bath states sampling.
-
-            masked (bool):
-                True if mask numerically unstable points (with density matrix elements > 1)
-                in the averaging over bath states. Default True.
-
-            parallel_states (bool):
-                True if to use MPI to parallelize the calculations of coherence function for different
-                bath states equally over present mpi processes. Compared to ``parallel`` keyword,
-                when this argument is True each process is given a fraction of random bath states.
-                This makes the implementation faster. Works best when the
-                number of bath states is divisible by the number of processes, ``nbstates % size == 0``.
-
-            fixstates (dict): Shows which bath states to fix if sampling over bath states.
-                Each key is the index of bath spin,
-                value - fixed :math:`S_z` projection of the mixed state of nuclear spin.
-
-            second_order (bool):
-                True if add second order perturbation theory correction to the cluster Hamiltonian.
-                If set to True sets the qubit states as eigenstates of central spin Hamiltonian from the following
-                procedure. For each qubit state provided compute the fidelity of the qubit state and
-                all eigenstates of the central spin and chose the one with fidelity higher than ``level_confidence``.
-                If such state is not found, raises an error.
-
-            level_confidence (float): Maximum fidelity of the qubit state to be considered eigenstate of the
-                central spin Hamiltonian.
-
-            direct (bool):
-                True if use direct approach (requires way more memory but might be more numerically stable).
-                False if use memory efficient approach. Default False.
-
-            parallel (bool):
-                True if parallelize calculation of cluster contributions over different mpi processes.
-                Default False.
+            **kwargs: Additional keyword arguments for the simulation (see ``Simulator.compute`` for details)
 
         Returns:
             ndarray with shape (n,):
-                Coherence function computed at the time points in listed in the ``timespace``.
+                Coherence function computed at the time points listed in the ``timespace``.
 
         """
-        if magnetic_field is not None:
-            self.set_magnetic_field(magnetic_field)
+        self._prepare(**kwargs)
+        if not self.nbstates:
 
-        if parallel or parallel_states:
-            self._broadcast()
-
-        if pulses is not None:
-            self.pulses = pulses
-
-        if as_delay is not None:
-            self.as_delay = as_delay
-
-        try:
-            pulses = len(self.pulses)
-        except TypeError:
-            pulses = self.pulses
-
-        if second_order:
-            en, eiv = self.eigenstates()
-
-            ai = _close_state_index(self.alpha, eiv, level_confidence=level_confidence)
-            bi = _close_state_index(self.beta, eiv, level_confidence=level_confidence)
-
-            self.alpha = eiv[:, ai]
-            self.beta = eiv[:, bi]
-
-            energy_alpha = en[ai]
-            energy_beta = en[bi]
-
-            energies = en
-
-            projections_alpha_all = np.array([generate_projections(self.alpha, s) for s in eiv.T])
-            projections_beta_all = np.array([generate_projections(self.beta, s) for s in eiv.T])
+            coherence = compute_cce_coherence(self.bath, self.clusters, timespace, self.alpha, self.beta,
+                                              self.magnetic_field, len(self.pulses),
+                                              self.spin, as_delay=self.as_delay,
+                                              bath_state=self.bath_state, projected_bath_state=self.proj_bath_states,
+                                              zfs=self.zfs, gyro_e=self.gyro,
+                                              direct=self.direct, parallel=self.parallel,
+                                              second_order=self.second_order,
+                                              level_confidence=self.level_confidence)
 
         else:
-            energy_alpha = None
-            energy_beta = None
-            energies = None
-
-            projections_alpha_all = None
-            projections_beta_all = None
-
-        projections_alpha = generate_projections(self.alpha)
-        projections_beta = generate_projections(self.beta)
-
-        if states is not None and mean_field:
-            proj_states = project_bath_states(states)
-
-        else:
-            proj_states = None
-
-        if not nbstates:
-            coherence = decorated_coherence_function(self.clusters, self.bath, projections_alpha, projections_beta,
-                                                     self.magnetic_field, timespace, pulses, as_delay=self.as_delay,
-                                                     states=states,
-                                                     projected_states=proj_states,
-                                                     parallel=parallel, direct=direct,
-                                                     energy_alpha=energy_alpha, energy_beta=energy_beta,
-                                                     energies=energies,
-                                                     projections_alpha_all=projections_alpha_all,
-                                                     projections_beta_all=projections_beta_all
-                                                     )
-        else:
-            coherence = monte_carlo_coherence(self.clusters, self.bath, projections_alpha, projections_beta,
-                                              self.magnetic_field, timespace, pulses,
-                                              as_delay=self.as_delay,
-                                              nbstates=nbstates, seed=seed, masked=masked,
-                                              parallel_states=parallel_states,
-                                              fixstates=fixstates, direct=direct, parallel=parallel,
-                                              energy_alpha=energy_alpha, energy_beta=energy_beta,
-                                              energies=energies,
-                                              projections_alpha_all=projections_alpha_all,
-                                              projections_beta_all=projections_beta_all
-                                              )
+            coherence = monte_calro_cce(self.bath, self.clusters, timespace,
+                                        len(self.pulses), self.alpha, self.beta, self.magnetic_field,
+                                        self.spin, zfs=self.zfs, central_gyro=self.gyro,
+                                        as_delay=self.as_delay,
+                                        bath_state=self.bath_state, direct=self.direct, parallel=self.parallel,
+                                        second_order=self.second_order, level_confidence=self.level_confidence,
+                                        fixstates=self.fixstates, nbstates=self.nbstates, masked=self.masked,
+                                        parallel_states=self.parallel_states, seed=self.seed)
 
         return coherence
 
-    def gcce_dm(self, timespace, magnetic_field=None,
-                D=None, E=0, pulses=None, as_delay=None, state=None,
-                bath_states=None, mean_field=True, nbstates=None, seed=None, masked=True,
-                normalized=None, parallel_states=False,
-                fixstates=None, direct=False, parallel=False) -> np.ndarray:
-        """
-        Compute density matrix of the central spin using generalized CCE.
+    def gcce_coherence(self, timespace, **kwargs) -> np.ndarray:
+        r"""
+        Compute coherence :math:`\bra{0}\hat\rho\ket{1}` of the central spin using generalized CCE.
 
         Args:
             timespace (ndarray with shape (n,)): Time points at which compute density matrix.
-
-            magnetic_field (ndarray with shape (3,)): Magnetic field vector of form (Bx, By, Bz).
-
-            D (float or ndarray with shape (3,3)):
-                D (longitudinal splitting) parameter of central spin in ZFS tensor of central spin in kHz.
-
-                **OR**
-
-                Total ZFS tensor.
-
-            E (float): E (transverse splitting) parameter of central spin in ZFS tensor of central spin in kHz.
-                Ignored if ``D`` is None or tensor.
-            pulses (list or int): Number of pulses in CPMG sequence.
-
-                *OR*
-
-                Sequence of the instantaneous ideal control pulses.
-                ``pulses`` should have format of list with tuples,
-                each tuple contains can contain two or three entries:
-
-                1. axis the rotation is about;
-                2. angle of rotation;
-                3. (optional) fraction of the total time before this pulse is applied.
-                   If not provided, assumes even delay of CPMG sequence. Then total experiment is assumed to be:
-
-                       tau -- pulse -- 2tau -- pulse -- ... -- 2tau -- pulse -- tau
-
-                   Where tau is the delay between pulses.
-
-                E.g. for Hahn-Echo the ``pulses`` can be defined as ``[('x', np.pi)]`` or ``[('x', np.pi, 0.5)]``.
-                Note, that if fraction is provided the computation becomes less effective than without it.
-
-            as_delay (bool): True if time points are delay between pulses (for equispaced pulses),
-                False if time points are total time. Ignored if ``pulses`` contains the time fractions.
-            state (ndarray with shape (2s+1,)):
-                Initial state of the central spin. Defaults to sqrt(1 / 2) * (state + beta) if not set.
-            bath_states (array-like):
-                List of bath spin states. if len(shape) == 1, contains Iz projections of Iz eigenstates.
-                Otherwise, contains array of initial dms of bath spins.
-            mean_field (bool):
-                If True, add mean field corrections and sample over random bath states.
-                If ``bath_states`` keyword is provided, then compute only for
-                the given state with mean field corrections. Default True.
-            nbstates (int): Number or random bath states to sample over.
-            seed (int): Seed for random number generator, used in random bath states sampling.
-            masked (bool):
-                True if mask numerically unstable points (with density matrix elements > 1)
-                in the averaging over bath states. Default True.
-            normalized (array-like of bool):
-                Which diagonal elements to renormalize, so the total sum of the diagonal elements is 1.
-            parallel_states (bool):
-                True if to use MPI to parallelize the calculations of density matrix equally over
-                present mpi processes. Compared to ``parallel`` keyword,
-                when this argument is True each process is given a fraction of random bath states.
-                This makes the implementation faster. Works best when the
-                number of bath states is divisible by the number of processes, ``nbstates % size == 0``.
-            fixstates (dict): Shows which bath states to fix. Each key is the index of bath spin,
-                value - fixed Sz projection of the mixed state of nuclear spin.
-            direct (bool):
-                True if use direct approach (requires way more memory but might be more numerically stable).
-                False if use memory efficient approach. Default False.
-            parallel (bool):
-                True if parallelize calculation of cluster contributions over different mpi processes.
-                Default False.
+            **kwargs: Additional keyword arguments for the simulation (see ``Simulator.compute`` for details)
 
         Returns:
-            ndarray with shape(n, 2s + 1, 2s + 1):
-                array of density matrix, where first dimension corresponds to the time space size and last two -
-                density matrix dimensions.
+            ndarray with shape(n, ):
+                array of coherence computed at each time point.
 
         """
-        if parallel or parallel_states:
-            self._broadcast()
+        self._prepare(**kwargs)
 
-        if as_delay is not None:
-            self.as_delay = as_delay
-
-        if D is not None:
-            self.zfs = zfs_tensor(D, E)
-
-        if state is None:
-            state = np.sqrt(1 / 2) * (self.alpha + self.beta)
-
-        if pulses is not None:
-            self.pulses = pulses
-
-        try:
-            pulses = ([('x', np.pi), ('y', np.pi)] * ((self.pulses + 1) // 2))[:self.pulses]
-        except TypeError:
-            pulses = self.pulses
-
-        if magnetic_field is not None:
-            self.set_magnetic_field(magnetic_field)
-
-        dm0 = np.tensordot(state, state, axes=0)
-
-        if bath_states is not None and mean_field:
-            proj_bath_states = project_bath_states(bath_states)
-
+        if not self.nbstates:
+            dms = compute_cce_dm(self.bath, self.clusters, timespace,
+                                 self.alpha, self.beta, self.magnetic_field, self.zfs,
+                                 self.pulses, self.density_matrix, bath_state=self.bath_state,
+                                 gyro_e=self.gyro, as_delay=self.as_delay,
+                                 projected_bath_state=self.proj_bath_states,
+                                 parallel=self.parallel, direct=self.direct,
+                                 central_spin=self.spin)
         else:
-            proj_bath_states = None
 
-        if not nbstates:
-            dms = compute_cce_dm(self.clusters, self.bath, dm0,
-                                 self.alpha, self.beta, self.magnetic_field, self.zfs, timespace, pulses,
-                                 bath_state=bath_states, gyro_e=self.gyro, as_delay=self.as_delay,
-                                 projected_bath_state=proj_bath_states, parallel=parallel, direct=direct)
-        else:
-            dms = monte_carlo_dm(self.clusters, self.bath, dm0, self.alpha, self.beta, self.magnetic_field,
-                                 self.zfs, timespace, pulses, central_gyro=self.gyro,
-                                 as_delay=self.as_delay, nbstates=nbstates, seed=seed,
-                                 masked=masked, normalized=normalized, parallel_states=parallel_states,
-                                 fixstates=fixstates, direct=direct, parallel=parallel)
+            dms = monte_carlo_dm(self.bath, self.clusters, timespace,
+                                 self.pulses, self.state, self.alpha, self.beta,
+                                 self.magnetic_field, self.zfs, central_gyro=self.gyro,
+                                 as_delay=self.as_delay, nbstates=self.nbstates, seed=self.seed,
+                                 masked=self.masked, parallel_states=self.parallel_states,
+                                 fixstates=self.fixstates, direct=self.direct, parallel=self.parallel,
+                                 central_spin=self.spin)
         return dms
 
-    def cce_noise(self, timespace, magnetic_field=None, state=None, parallel=False, direct=False):
-        """
+    def cce_noise(self, timespace, **kwargs):
+        r"""
         Compute noise autocorrelation function of the noise with conventional CCE.
 
         Args:
             timespace (ndarray with shape (n,)): Time points at which compute correlation.
-            magnetic_field (ndarray with shape (3,)): Magnetic field vector of form (Bx, By, Bz).
-            state (ndarray with shape (2s+1,)):
-                Initial state of the central spin. Defaults to sqrt(1 / 2) * (state + beta) if not set.
-            direct (bool):
-                True if use direct approach (requires way more memory but might be more numerically stable).
-                False if use memory efficient approach. Default False.
-            parallel (bool):
-                True if parallelize calculation of cluster contributions over different mpi processes.
-                Default False.
+            **kwargs: Additional keyword arguments for the simulation (see ``Simulator.compute`` for details)
 
         Returns:
             ndarray with shape (n,): Autocorrelation function of the noise, in kHz^2.
         """
-        if parallel:
-            self._broadcast()
 
-        if magnetic_field is not None:
-            self.set_magnetic_field(magnetic_field)
+        self._prepare(**kwargs)
 
-        if state is None:
-            state = np.sqrt(1 / 2) * (self.alpha + self.beta)
-        else:
-            state = np.asarray(state)
-
-        projections_state = generate_projections(state)
-        corr = projected_noise_correlation(self.clusters, self.bath, projections_state, self.magnetic_field, timespace,
-                                           parallel=parallel, direct=direct)
+        projections_state = generate_projections(self.state)
+        corr = projected_noise_correlation(self.bath, self.clusters, projections_state,
+                                           self.magnetic_field, timespace,
+                                           parallel=self.parallel, direct=self.direct)
 
         return corr
 
-    def gcce_noise(self, timespace, magnetic_field=None, D=None, E=0, state=None,
-                   nbstates=100, seed=None, parallel_states=False, mean_field=False,
-                   direct=False, parallel=False):
-        """
+    def gcce_noise(self, timespace, **kwargs):
+        r"""
         Compute noise auto correlation function
-        using generalized CCE with Monte-Carlo bath state sampling.
+        using generalized CCE with or without Monte-Carlo bath state sampling.
 
         Args:
             timespace (ndarray with shape (n,)): Time points at which compute correlation.
-            magnetic_field (ndarray with shape (3,)): Magnetic field vector of form (Bx, By, Bz).
+            **kwargs: Additional keyword arguments for the simulation (see ``Simulator.compute`` for details)
 
-            D (float or ndarray with shape (3,3)):
-                D (longitudinal splitting) parameter of central spin in ZFS tensor of central spin in kHz
-                *OR* total ZFS tensor.
-
-            E (float): E (transverse splitting) parameter of central spin in ZFS tensor of central spin in kHz.
-
-            state (ndarray with shape (2s+1,)): Initial state of the central spin.
-                Defaults to :math:`1 / \sqrt{2} * (\ket{0} + \ket{1})` if not set.
-
-            nbstates (int): Number or random bath states to sample over.
-
-            seed (int): Seed for random number generator, used in random bath states sampling.
-
-            parallel_states (bool):
-                True if to use MPI to parallelize the calculations of correlations equally over
-                present mpi processes. Compared to ``parallel`` keyword,
-                when this argument is True each process is given a fraction of random bath states.
-                This makes the implementation faster. Works best when the
-                number of bath states is divisible by the number of processes, ``nbstates % size == 0``.
-
-            mean_field (bool): If True, add mean field corrections and sample over random bath states.
-
-            direct (bool):
-                True if use direct approach (requires way more memory but might be more numerically stable).
-                False if use memory efficient approach. Default False.
-            parallel (bool):
-                True if parallelize calculation of cluster contributions over different mpi processes.
-                Default False.
         Returns:
             ndarray with shape (n,): Autocorrelation function of the noise, in (kHz)^2.
         """
-        if parallel or parallel_states:
-            self._broadcast()
+        self._prepare(**kwargs)
+        # TODO add eigenstates here as well
+        if self.density_matrix is None:
+            self.eigenstates(self.alpha, self.beta)
+            self._gen_state()
 
-        if magnetic_field is not None:
-            self.set_magnetic_field(magnetic_field)
+        if self.nbstates:
 
-        if D is not None:
-            self.zfs = zfs_tensor(D, E)
-
-        if state is None:
-            state = np.sqrt(1 / 2) * (self.alpha + self.beta)
-
-        dm0 = np.tensordot(state, state, axes=0)
-
-        if mean_field:
-            corr = noise_sampling(self.clusters, self.bath, dm0, timespace, self.magnetic_field, self.zfs,
-                                  gyro_e=self.gyro,
-                                  nbstates=nbstates, seed=seed, parallel_states=parallel_states,
-                                  direct=direct, parallel=parallel)
+            corr = monte_carlo_noise(self.bath, self.clusters, self.density_matrix,
+                                     timespace, self.magnetic_field, self.zfs,
+                                     gyro_e=self.gyro, masked=self.masked, fixstates=self.fixstates,
+                                     nbstates=self.nbstates, seed=self.seed, parallel_states=self.parallel_states,
+                                     direct=self.direct, parallel=self.parallel)
         else:
-            corr = decorated_noise_correlation(self.clusters, self.bath, dm0, self.magnetic_field, self.zfs, timespace,
-                                               gyro_e=self.gyro,
-                                               parallel=parallel, direct=direct)
+            corr = decorated_noise_correlation(self.bath, self.clusters, self.density_matrix,
+                                               self.magnetic_field, self.zfs, timespace,
+                                               gyro_e=self.gyro, projected_bath_state=self.proj_bath_states,
+                                               parallel=self.parallel, direct=self.direct)
         return corr
 
     def _broadcast(self):
@@ -1243,32 +1159,9 @@ class Simulator(Environment):
         """
         calc = _broadcast_simulator(self)
         dict_with_attr = vars(calc)
+
         for key in dict_with_attr:
             setattr(self, key, dict_with_attr[key])
-        # self.spin = calc.spin
-        # self.gyro = calc.gyro
-        #
-        # self.alpha = calc.alpha
-        # self.beta = calc.beta
-        #
-        # self.position = calc.position
-        #
-        # self.zfs = calc.zfs
-        # self.magnetic_field = calc.magnetic_field
-        #
-        # self.total_bath = calc.total_bath
-        # self._r_bath = calc.r_bath
-        # self._bath = calc.bath
-        # self._external_bath = calc.external_bath
-        # self._ext_r_bath = calc.ext_r_bath
-        #
-        # self._hyperfine = calc.hyperfine
-        #
-        # self._error_range = calc.error_range
-        #
-        # self._r_dipole = calc.r_dipole
-        # self._order = calc.order
-        # self.clusters = calc.clusters
 
     _compute_func = {
         'cce': {
@@ -1276,34 +1169,88 @@ class Simulator(Environment):
             'noise': 'cce_noise'
         },
         'gcce': {
-            'coherence': 'gcce_dm',
-            'dm': 'gcce_dm',
+            'coherence': 'gcce_coherence',
             'noise': 'gcce_noise',
         }
     }
 
+    def _gen_state(self, state=None):
+        if state is None:
+            if not (self.alpha.shape and self.beta.shape):
+                self.state = None
+            else:
+                self.state = (self.alpha + self.beta) / np.linalg.norm((self.alpha + self.beta))
+        else:
+            self.state = state
 
-def _close_state_index(state, eiv, level_confidence=0.95):
-    """
-    Get index of the eigenstate stored in eiv,
-    which has fidelity higher than ``level_confidence`` with the provided ``state``.
+        if self.state is not None:
+            self.density_matrix = np.tensordot(self.state, self.state, axes=0)
+        else:
+            self.density_matrix = None
 
-    Args:
-        state (ndarray with shape (2s+1,)): State for which to find the analogous eigen state.
-        eiv (ndarray with shape (2s+1, 2s+1)): Matrix of eigenvectors as columns.
-        level_confidence (float): Threshold fidelity. Default 0.95.
+    @_add_args(_args)
+    def _prepare(self, state=None,
+                 pulses=None,
+                 D=None, E=0,
+                 magnetic_field=None,
+                 as_delay=False,
+                 alpha=None,
+                 beta=None,
+                 bath_state=None,
+                 mean_field=True,
+                 nbstates=None,
+                 seed=None,
+                 masked=True,
+                 parallel_states=False,
+                 fixstates=None,
+                 second_order=False,
+                 level_confidence=0.95,
+                 direct=False,
+                 parallel=False):
+        """
 
-    Returns:
-        int: Index of the eigenstate.
-    """
-    indexes = np.argwhere((eiv.T @ state) ** 2 > level_confidence).flatten()
+        Args:
 
-    if not indexes.size:
-        raise ValueError(f"Initial qubit state is below F = {level_confidence} "
-                         f"to the eigenstate of central spin Hamiltonian.\n"
-                         f"Qubit level:\n{repr(state)}"
-                         f"Eigenstates (rows):\n{repr(eiv.T)}")
-    return indexes[0]
+        """
+
+        if D is not None:
+            self.zfs = zfs_tensor(D, E)
+
+        if alpha is not None:
+            self.alpha = alpha
+
+        if beta is not None:
+            self.beta = beta
+
+        self._gen_state(state)
+
+        if pulses is not None:
+            self.pulses = pulses
+        if magnetic_field is not None:
+            self.set_magnetic_field(magnetic_field)
+
+        self.parallel = parallel
+        self.parallel_states = parallel_states
+        self.as_delay = as_delay
+        self.mean_field = mean_field
+        self.direct = direct
+        self.bath_state = np.asarray(bath_state)
+        self.second_order = second_order
+        self.level_confidence = level_confidence
+        self.fixstates = fixstates
+
+        self.nbstates = nbstates
+        self.seed = seed
+        self.masked = masked
+
+        if parallel or parallel_states:
+            self._broadcast()
+
+        if bath_state is not None and mean_field:
+            self.proj_bath_states = project_bath_states(bath_state)
+
+        else:
+            self.proj_bath_states = None
 
 
 def _broadcast_simulator(simulator=None, root=0):

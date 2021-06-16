@@ -261,8 +261,27 @@ def _gen_sm(dim):
     return x, y, z
 
 
-#TODO Implement partial inner product instead of trace when MC bath state sampling.
-def _partial_inner_product(a, total, dimensions, index=-1):
-    matrix = np.moveaxis(total.reshape(dimensions), index, -1)
-    matrix = matrix.reshape([np.prod(np.delete(dimensions, index)), dimensions[index]])
-    return a @ matrix
+def partial_inner_product(avec, total, dimensions, index=-1):
+    r"""
+    Returns partial inner product :math:`\ket{b}=\bra{a}\ket{\psi}`, where :math:`\ket{a}` provided by
+    ``avec`` contains degrees of freedom to be "traced out" and :math:`\ket{\psi}` provided by ``total``
+    is the total statevector.
+
+    Args:
+        avec (ndarray with shape (a,)):
+        total (ndarray with shape (a*b,)):
+        dimensions (ndarray with shape (n,)):
+        index ():
+
+    Returns:
+
+    """
+    if len(total.shape) == 1:
+        matrix = np.moveaxis(total.reshape(dimensions), index, -1)
+        matrix = matrix.reshape([np.prod(np.delete(dimensions, index)), dimensions[index]])
+    else:
+        total = total.reshape(total.shape[0], *dimensions)
+        matrix = np.moveaxis(total, index, -1)
+        matrix = matrix.reshape([total.shape[0], np.prod(np.delete(dimensions, index)), dimensions[index]])
+    return avec @ matrix
+

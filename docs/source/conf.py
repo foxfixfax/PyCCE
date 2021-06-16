@@ -74,7 +74,7 @@ pygments_style = 'sphinx'
 autodoc_member_order = 'bysource'
 add_module_names = False
 
-html_logo = 'logo_white.svg'
+html_logo = 'logo_white.png'
 html_theme_options = {
     'logo_only': True,
     'display_version': False,

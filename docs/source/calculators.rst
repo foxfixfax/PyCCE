@@ -4,7 +4,7 @@ CCE Calculators
 
 Documentation for the calculator functions called by ``Simulator`` object.
 
-Cluster-correlation expansion decorator
+Cluster-correlation Expansion Decorator
 ------------------------------------------
 
 The way we find cluster in the code.
@@ -30,8 +30,13 @@ Generalized CCE
 .. automodule:: pycce.calculators.density_matrix
    :members:
 
-Noise autocorrelation
+Noise Autocorrelation
 -----------------------------------------------
 
 .. automodule:: pycce.calculators.correlation_function
+   :members:
+
+Monte Carlo Bath State Sampling
+-----------------------------------------------
+.. automodule:: pycce.calculators.monte_carlo
    :members:

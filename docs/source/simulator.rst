@@ -1,4 +1,3 @@
-
 Running the simulations
 =========================
 
@@ -9,7 +8,7 @@ Documentation for the ``pycce.Simulator`` - main class for conducting CCE Simula
 .. autoclass:: pycce.main.Simulator
    :members: set_magnetic_field, set_states, eigenstates, read_bath, generate_clusters
    :inherited-members: Environment
-   :exclude-members: compute, cce_coherence, gcce_dm, cce_noise, gcce_noise
+   :exclude-members: compute, cce_coherence, gcce_coherence, cce_noise, gcce_noise
 
 Calculate properties with Simulator
 -------------------------------------
@@ -18,7 +17,7 @@ the interface to run calculations with **pyCCE**.
 
 .. automethod:: pycce.main.Simulator.compute
 .. automethod:: pycce.main.Simulator.cce_coherence
-.. automethod:: pycce.main.Simulator.gcce_dm
+.. automethod:: pycce.main.Simulator.gcce_coherence
 .. automethod:: pycce.main.Simulator.cce_noise
 .. automethod:: pycce.main.Simulator.gcce_noise
 

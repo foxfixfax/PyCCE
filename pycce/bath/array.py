@@ -573,10 +573,12 @@ class BathArray(np.ndarray):
 
         identity = np.eye(3, dtype=np.float64)
         pos = array['xyz'] - position
+        try:
+            posxpos = np.einsum('ki,kj->kij', pos, pos)
+        except ValueError:
+            posxpos = np.tensordot(pos,pos, axes=0)
 
-        posxpos = np.einsum('ki,kj->kij', pos, pos)
-
-        r = np.linalg.norm(pos, axis=1)[:, np.newaxis, np.newaxis]
+        r = np.linalg.norm(pos, axis=-1)[..., np.newaxis, np.newaxis]
 
         if isinstance(gyro_e, (np.floating, float, int)):
             pref = np.asarray(gyro_e * array.gyro * HBAR / PI2)[..., np.newaxis, np.newaxis]

@@ -137,42 +137,6 @@ def projected_hamiltonian(bath, vectors, projections_alpha, projections_beta, mf
 
 
 @hamiltonian_wrapper
-def total_hamiltonian_old(bath, vectors, mfield, zfs, central_gyro=ELECTRON_GYRO):
-    r"""
-    Total hamiltonian for cluster including central spin.
-    Wrapped function so the actual call does not follow the one above!
-
-    Args:
-        bath (BathArray):
-            array of all bath spins.
-        mfield (ndarray with shape (3,)):
-            Magnetic field of type ``mfield = np.array([Bx, By, Bz])``.
-        zfs (ndarray with shape (3,3)):
-            Zero Field Splitting tensor of the central spin.
-        central_gyro(float or ndarray with shape (3,3)):
-            gyromagnetic ratio of the central spin OR tensor corresponding to interaction between magnetic field and
-            central spin.
-        central_spin (float): value of the central spin.
-
-    Returns:
-        Hamiltonian: hamiltonian of the given cluster, including central spin.
-    """
-
-    totalh = self_central(vectors[-1], mfield, zfs, central_gyro)
-
-    for j, n in enumerate(bath):
-        ivec = vectors[j]
-
-        hsingle = expanded_single(ivec, n.gyro, mfield, n['Q'], n.detuning)
-
-        hhyperfine = hyperfine(n['A'], vectors[-1], ivec)
-
-        totalh += hsingle + hhyperfine
-
-    return totalh
-
-
-@hamiltonian_wrapper
 def total_hamiltonian(bath, vectors, mfield, zfs=None, others=None, other_states=None, central_gyro=ELECTRON_GYRO):
     """
     Compute total Hamiltonian for the given cluster including mean field effect of all bath spins.

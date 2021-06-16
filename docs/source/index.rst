@@ -6,8 +6,8 @@
 Welcome to pyCCE's documentation!
 ==================================================================
 
-.. figure:: logo.svg
-  :scale: 100%
+.. figure:: logo.png
+  :scale: 50%
   :align: left
   :target: index.html
 
