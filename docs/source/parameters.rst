@@ -18,7 +18,7 @@ with
 
 Where :math:`\hat H_S` is the Hamiltonian of the free central spin,
 :math:`\hat H_{SB}` denotes interactions between central spin and bath spin,
-nd :math:`\hat H_B1` are intrinsic bath spin interactions.
+nd :math:`\hat H_B` are intrinsic bath spin interactions.
 
 Each of this terms can be defined within **pyCCE** framework as following.
 
@@ -32,7 +32,7 @@ The central spin Hamiltonian is provided as attributes of the ``Simulator`` obje
 
 - :math:`\mathbf{D}` is set with ``Simulator.set_zfs`` method or during the initialization of the
   ``Simulator`` object either from observables *D* and *E* of the zero field
-  splitting **OR** directly as tensor for the interaction :math:`\mathbf{SDS}` in  :math:`\mathrm{kHz}.
+  splitting **OR** directly as tensor for the interaction :math:`\mathbf{SDS}` in  :math:`\mathrm{kHz}`.
   By default is zero.
 
   Examples::
@@ -71,7 +71,6 @@ The central spin Hamiltonian is provided as attributes of the ``Simulator`` obje
     >>> c = Simulator(1)
     >>> print(c.gyro)
     -17608.59705
-
 
 .. note::
 

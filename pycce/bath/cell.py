@@ -4,6 +4,7 @@ import re
 import warnings
 import numpy as np
 from pycce.utilities import rotmatrix
+from collections import defaultdict
 
 from .array import BathArray
 from .array import common_concentrations
@@ -121,8 +122,8 @@ class BathCell:
 
         self._zdir = zdr
 
-        self.atoms = {}
-        self.isotopes = {}
+        self.atoms = defaultdict(list)
+        self.isotopes = defaultdict(dict)
 
     @property
     def zdir(self):
@@ -236,13 +237,17 @@ class BathCell:
         for tup in args:
             if type == 'cell':
                 coord = np.asarray(tup[1])
+
             elif type == 'angstrom':
                 coord = self.to_cell(tup[1])
+
             else:
-                raise ValueError('Unknown coordinates type.Supported:'
+                raise ValueError('Unknown coordinates type. Supported:'
                                  '\n'.join(str(x) for x in self._coord_types))
+
             if tup[0] in self.atoms:
                 self.atoms[tup[0]].append(coord)
+
             else:
                 self.atoms[tup[0]] = [coord]
 

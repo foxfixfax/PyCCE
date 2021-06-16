@@ -1,6 +1,9 @@
-Interfacing with DFT output
+Electronic Structure Output
 ====================================================================
 
+Each of the interfaces includes the function that should be used to read
+electronic structure calculations output and subclass of the ``DFTCoordinates`` class, used
+to parse the output.
 
 Quantum Espresso interface
 -----------------------------------------------------------------------

@@ -168,7 +168,7 @@ _args = r"""
                     
                     I.e., setting ``second_order=True``
                     and ``nbstates != 0`` leads to the calculation, when mean field effect is accounted only from
-                    dipolar interactions with the bath.
+                    dipolar interactions within the bath.
     
                 Default is **False**.
     
@@ -600,13 +600,20 @@ class Simulator(Environment):
         # Parameters of the calculations
         self.pulses = pulses
         self.as_delay = as_delay
+        # Initial entangled state of the qubit
         self.state = None
+        self.density_matrix = None
         # Parameters of MC states
+        self.seed = None
         self.nbstates = None
         self.fixstates = None
-        self.second_order = None
         self.masked = None
-        self.normalized = None
+        # Parameters of conventional CCE
+        self.second_order = None
+        self.level_confidence = None
+
+        self.projected_bath_state = None
+        self.bath_state = None
 
     def __repr__(self):
         bm = (f"Simulator for spin-{self.spin}.\n"
@@ -1048,7 +1055,7 @@ class Simulator(Environment):
             coherence = compute_cce_coherence(self.bath, self.clusters, timespace, self.alpha, self.beta,
                                               self.magnetic_field, len(self.pulses),
                                               self.spin, as_delay=self.as_delay,
-                                              bath_state=self.bath_state, projected_bath_state=self.proj_bath_states,
+                                              bath_state=self.bath_state, projected_bath_state=self.projected_bath_state,
                                               zfs=self.zfs, gyro_e=self.gyro,
                                               direct=self.direct, parallel=self.parallel,
                                               second_order=self.second_order,
@@ -1086,7 +1093,7 @@ class Simulator(Environment):
                                  self.alpha, self.beta, self.magnetic_field, self.zfs,
                                  self.pulses, self.density_matrix, bath_state=self.bath_state,
                                  gyro_e=self.gyro, as_delay=self.as_delay,
-                                 projected_bath_state=self.proj_bath_states,
+                                 projected_bath_state=self.projected_bath_state,
                                  parallel=self.parallel, direct=self.direct,
                                  central_spin=self.spin)
         else:
@@ -1113,10 +1120,13 @@ class Simulator(Environment):
         """
 
         self._prepare(**kwargs)
+        if self.density_matrix is None:
+            self.eigenstates(self.alpha, self.beta)
+            self._gen_state()
 
         projections_state = generate_projections(self.state)
         corr = projected_noise_correlation(self.bath, self.clusters, projections_state,
-                                           self.magnetic_field, timespace,
+                                           self.magnetic_field, timespace, bath_state=self.bath_state,
                                            parallel=self.parallel, direct=self.direct)
 
         return corr
@@ -1149,7 +1159,8 @@ class Simulator(Environment):
         else:
             corr = decorated_noise_correlation(self.bath, self.clusters, self.density_matrix,
                                                self.magnetic_field, self.zfs, timespace,
-                                               gyro_e=self.gyro, projected_bath_state=self.proj_bath_states,
+                                               bath_state=self.bath_state,
+                                               gyro_e=self.gyro, projected_bath_state=self.projected_bath_state,
                                                parallel=self.parallel, direct=self.direct)
         return corr
 
@@ -1234,7 +1245,12 @@ class Simulator(Environment):
         self.as_delay = as_delay
         self.mean_field = mean_field
         self.direct = direct
-        self.bath_state = np.asarray(bath_state)
+
+        if bath_state is not None:
+            self.bath_state = np.asarray(bath_state)
+        else:
+            self.bath_state = None
+
         self.second_order = second_order
         self.level_confidence = level_confidence
         self.fixstates = fixstates
@@ -1247,10 +1263,10 @@ class Simulator(Environment):
             self._broadcast()
 
         if bath_state is not None and mean_field:
-            self.proj_bath_states = project_bath_states(bath_state)
+            self.projected_bath_state = project_bath_states(bath_state)
 
         else:
-            self.proj_bath_states = None
+            self.projected_bath_state = None
 
 
 def _broadcast_simulator(simulator=None, root=0):

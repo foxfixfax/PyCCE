@@ -77,7 +77,7 @@ def compute_correlations(nspin, dm0_expanded, U, central_spin=None):
 
 
 @cluster_expansion_decorator(result_operator=operator.iadd, contribution_operator=operator.imul)
-def projected_noise_correlation(allspin, cluster, projections_state, magnetic_field, timespace, states=None,
+def projected_noise_correlation(allspin, cluster, projections_state, magnetic_field, timespace, bath_state=None,
                                 ):
     """
     Decorated function to compute autocorrelation function with conventional CCE.
@@ -93,7 +93,7 @@ def projected_noise_correlation(allspin, cluster, projections_state, magnetic_fi
             Magnetic field of type mfield = np.array([Bx, By, Bz]).
         timespace (ndarray with shape (t,)):
             Time points at which to compute autocorrelation.
-        states (ndarray):
+        bath_state (ndarray):
             Array of bath states in any accepted format.
 
     Returns:
@@ -101,8 +101,8 @@ def projected_noise_correlation(allspin, cluster, projections_state, magnetic_fi
 
     """
     bath = allspin[cluster]
-    if states is not None:
-        states = states[cluster]
+    if bath_state is not None:
+        bath_state = bath_state[cluster]
 
     ntype = bath.types
 
@@ -120,7 +120,7 @@ def projected_noise_correlation(allspin, cluster, projections_state, magnetic_fi
     totalh += bath_interactions(bath, ivectors)
     time_propagator = propagator(timespace, totalh)
 
-    dm0_expanded = gen_density_matrix(states, dimensions=dimensions)
+    dm0_expanded = gen_density_matrix(bath_state, dimensions=dimensions)
 
     return compute_correlations(bath, dm0_expanded, time_propagator)
 

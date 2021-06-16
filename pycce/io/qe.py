@@ -11,7 +11,7 @@ qe_coord_types = ['crystal', 'bohr', 'angstrom', 'alat']
 
 def read_qe(pwfile, hyperfine=None, efg=None, s=1, pwtype=None, types=None, isotopes=None,
             center=None, center_type=None, rotation_matrix=None, rm_style='col', find_isotopes=True):
-    """
+    r"""
     Function to read PW/GIPAW output from Quantum Espresso into BathArray.
 
     Changes the names of the atoms to the most abundant isotopes if ``find_isotopes`` set to True.
@@ -25,7 +25,7 @@ def read_qe(pwfile, hyperfine=None, efg=None, s=1, pwtype=None, types=None, isot
         hyperfine (str): name of the GIPAW hyperfine output.
         efg (str): Name of the gipaw electric field tensor output.
         s (float): Spin of the central spin. Default 1.
-        pwtype (str): Type of the coord_f. if not listed, will be inferred from extension of pwfile.
+        pwtype (str): Type of the ``pwfile``. if not listed, will be inferred from extension of pwfile.
         types (SpinDict or list of tuples): SpinDict containing SpinTypes of isotopes or input to make one.
         isotopes (dict): Optional.
             Dictionary with entries: {"element" : "isotope"}, where "element" is the name of the element
@@ -77,6 +77,7 @@ def read_qe(pwfile, hyperfine=None, efg=None, s=1, pwtype=None, types=None, isot
 
     if center is not None:
         center = pwoutput.get_angstrom(center, center_type)
+
     atoms = transform(atoms, center, rotation_matrix=rotation_matrix, style=rm_style)
     return atoms
 
@@ -246,6 +247,7 @@ class PWCoordinates(DFTCoordinates):
         coords = []
 
         for i in range(index + 1, index + 1 + namelists['system']['nat']):
+
             row_split = lines[i].split()
             names.append(row_split[0])
             coords.append([float(x) for x in row_split[1:]])
@@ -266,8 +268,9 @@ def cell_from_system(sdict):
         sdict (dict): Dictinary generated from namelist SYSTEM of PW input.
 
     Returns:
-        cell (ndarray with shape (3,3)):
-            cell is 3x3 matrix with entries::
+        ndarray with shape (3,3):
+            Cell is 3x3 matrix with entries::
+
                 [[a_x b_x c_x]
                  [a_y b_y c_y]
                  [a_z b_z c_z]],

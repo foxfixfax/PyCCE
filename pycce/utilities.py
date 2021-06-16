@@ -2,7 +2,7 @@ import numpy as np
 from pycce.sm import _smc
 from numba import jit
 from numba.typed import List
-
+import warnings
 
 def rotmatrix(initial_vector, final_vector):
     r"""
@@ -190,7 +190,8 @@ def project_bath_states(states):
         projected_bath_state[:, 2] = np.trace(np.matmul(ndstates, _smc[spin].z), axis1=1, axis2=2)
 
     elif ndstates.dtype == object:
-        projected_bath_state = _loop_trace(list(states))
+        with warnings.catch_warnings(record=True) as w:
+            projected_bath_state = _loop_trace(list(states))
 
     else:
         projected_bath_state = ndstates
