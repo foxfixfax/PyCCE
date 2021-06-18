@@ -120,6 +120,7 @@ _args = r"""
                 Default is **True**.
     
             nbstates (int): Number or random bath states to sample over.
+
                 If provided, sampling of random states is carried and ``mean_field`` and ``bath_states`` values are
                 ignored.
                     
@@ -131,15 +132,21 @@ _args = r"""
 
             masked (bool):
                 True if mask numerically unstable points (with coherence > 1)
-                in the averaging over bath states. It is up to user to check whether the
-                instability is due to numerical error or unphysical system.
+                in the averaging over bath states. 
+                
+                .. note::
+                
+                    It is up to user to check whether the possible instability is due to numerical error
+                    or unphysical assumptions of the calculations.
 
                 Default is **True**.
 
-            
+
             parallel_states (bool):
                 True if to use MPI to parallelize the calculations of density matrix equally over
-                present mpi processes for random bath state sampling calculations. Compared to ``parallel`` keyword,
+                present mpi processes for random bath state sampling calculations.
+                
+                Compared to ``parallel`` keyword,
                 when this argument is True each process is given a fraction of random bath states.
                 This makes the implementation faster. Works best when the
                 number of bath states is divisible by the number of processes, ``nbstates % size == 0``.
@@ -224,7 +231,7 @@ class Environment:
     @property
     def external_bath(self):
         """
-        BathArray: Array with spins read from DFT output (see ``pycce.io``)
+        BathArray: Array with spins read from DFT output (see ``pycce.io``).
         """
         return self._external_bath
 
@@ -328,8 +335,11 @@ class Environment:
 
             hyperfine (str, func, or Cube instance, optional):
                 This argument tells the code how to generate hyperfine couplings.
+
                 If (``hyperfine = None`` and all A in provided bath are 0) or (``hyperfine = 'pd'``),
-                use point dipole approximation. Otherwise can be an instance of ``Cube`` object,
+                use point dipole approximation.
+
+                Otherwise can be an instance of ``Cube`` object,
                 or callable with signature:
                 ``func(coord, gyro, central_gyro)``, where coord is array of the bath spin coordinate,
                 gyro is the gyromagnetic ratio of bath spin,
@@ -337,6 +347,7 @@ class Environment:
 
             types (SpinDict): SpinDict or input to create one.
                 Contains either SpinTypes of the bath spins or tuples which will initialize those.
+
                 See ``pycce.bath.SpinDict`` documentation for details.
 
             error_range (float, optional): Maximum distance between positions in bath and external
@@ -528,7 +539,7 @@ class Simulator(Environment):
             Total ZFS tensor. Default 0.
 
         E (float): E (transverse splitting) parameter of central spin in ZFS tensor of central spin in kHz.
-             Default 0. Ignored if ``D`` is None or tensor.
+            Default 0. Ignored if ``D`` is None or tensor.
 
         bath (ndarray or str): First positional argument of the ``Simulator.read_bath`` method.
 
@@ -791,14 +802,14 @@ class Simulator(Environment):
         Set :math:`\ket{0}` and :math:`\ket{1}` Qubit states of the ``Simulator`` object.
 
         Args:
-            alpha (float or ndarray with shape (2s+1, )): :math:`\ket{0}` state of the qubit in :math:`S_z`
+            alpha (int or ndarray with shape (2s+1, )): :math:`\ket{0}` state of the qubit in :math:`S_z`
                 basis or the index of eigenstate to be used as one.
 
                 Default: Lowest energy eigenstate of the central spin Hamiltonian.
                 Otherwise state with :math:`m_s = +s` where :math:`m_s` is the z-projection of the spin
                 and :math:`s` is the total spin if no information of central spin Hamiltonian is provided.
 
-            beta (float or ndarray with shape (2s+1, )): :math:`\ket{1}` state of the qubit in :math:`S_z` basis
+            beta (int or ndarray with shape (2s+1, )): :math:`\ket{1}` state of the qubit in :math:`S_z` basis
                 or the index of the eigenstate to be used as one.
 
                 Default: Second lowest energy eigenstate of the central spin Hamiltonian.
@@ -941,7 +952,7 @@ class Simulator(Environment):
     @_add_args(_args + _returns)
     def compute(self, timespace, quantity='coherence', method='cce', **kwarg):
         r"""
-        General interface for computing properties with CCE.
+        General function for computing properties with CCE.
 
         The dynamics are simulated using the Hamiltonian:
 
@@ -978,7 +989,7 @@ class Simulator(Environment):
                 >>> import numpy as np
                 >>> atoms = pc.random_bath('13C', 100, number=2000, seed=10) # Random spin bath
                 >>> calc = pc.Simulator(1, bath=atoms, r_bath=40, r_dipole=6,
-                >>>                     order=2, D=2.88 * 2 * np.pi * 1e6,
+                >>>                     order=2, D=2.88 * 1e6, # D of NV in GHz -> kHz
                 >>>                     magnetic_field=500, pulses=1)
                 >>> ts = np.linspace(0, 2, 101) # timesteps
 

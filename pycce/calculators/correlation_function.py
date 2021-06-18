@@ -77,8 +77,7 @@ def compute_correlations(nspin, dm0_expanded, U, central_spin=None):
 
 
 @cluster_expansion_decorator(result_operator=operator.iadd, contribution_operator=operator.imul)
-def projected_noise_correlation(allspin, cluster, projections_state, magnetic_field, timespace, bath_state=None,
-                                ):
+def projected_noise_correlation(allspin, cluster, projections_state, magnetic_field, timespace, bath_state=None):
     """
     Decorated function to compute autocorrelation function with conventional CCE.
 
@@ -183,8 +182,11 @@ def monte_carlo_noise(bath, clusters, dm0, timespace, magnetic_field, zfs,
                       gyro_e=ELECTRON_GYRO, bath_state=None, parallel=False, direct=False):
     """
     Compute noise auto correlation function using generalized CCE with Monte-Carlo bath state sampling.
-    Note that because the function is decorated, the actual call differs from the one above by virtue of adding
-    several additional keywords (see ``monte_carlo_decorator`` for details).
+
+    .. note::
+
+        This function is decorated, therefore the actual call differs from the one above by virtue of adding
+        several additional keywords (see ``monte_carlo_decorator`` for details).
 
     Args:
         bath (BathArray):

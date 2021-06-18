@@ -15,11 +15,11 @@ def hamiltonian_wrapper(_func=None, *, projected=False):
         * **central_spin** (*float*) -- value of the central spin.
 
     Args:
-        _func (func): Wrapped function.
+        _func (func): Function to be wrapped.
         projected (bool): True if return two projected Hamiltonians, False if remove single not projected one.
 
     Returns:
-        func: wrapped function
+        func: Wrapped function.
     """
 
     def inner_hamiltonian_wrapper(function):

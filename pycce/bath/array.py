@@ -228,14 +228,23 @@ class BathArray(np.ndarray):
 
         return HANDLED_FUNCTIONS[func](*args, **kwargs)
 
+    def sort(self, axis=-1, kind=None, order=None):
+        """
+        Sort array in-place. Is implemented only when imap is None. Otherwise use ``np.sort``.
+        """
+        if self.imap is None:
+            super().sort(axis=axis, kind=kind, order=order)
+        else:
+            raise NotImplementedError('Inplace sort is implemented only when .imap is None')
+
     @property
     def name(self):
         """
         ndarray: Array of the ``name`` attribute for each spin in the array from ``types`` dictionary.
 
-        ..note::
-            While the output of attribute should be the same as the ``N`` field of the BathArray instance,
-            this attribute *should not* be used for production as it creates a *new* array from ``types`` dictionary.
+        .. note::
+            While the value of this attribute should be the same as the ``N`` field of the BathArray instance,
+            ``.name`` *should not* be used for production as it creates a *new* array from ``types`` dictionary.
         """
         return self.types[self].name
 
@@ -511,8 +520,6 @@ class BathArray(np.ndarray):
         Coordinate transformation of BathArray.
 
         Args:
-            atoms (BathArray): Array to be transformed.
-
             center (ndarray with shape (3,)): (0, 0, 0) position of new coordinates in the initial frame.
 
             cell (ndarray with shape (3, 3)): Cell vectors in cartesian coordinates
@@ -576,7 +583,7 @@ class BathArray(np.ndarray):
         try:
             posxpos = np.einsum('ki,kj->kij', pos, pos)
         except ValueError:
-            posxpos = np.tensordot(pos,pos, axes=0)
+            posxpos = np.tensordot(pos, pos, axes=0)
 
         r = np.linalg.norm(pos, axis=-1)[..., np.newaxis, np.newaxis]
 
@@ -746,11 +753,27 @@ def implements(numpy_function):
 
     return decorator
 
+@implements(np.sort)
+def sort(a, axis=-1, kind=None, order=None):
+    """
+    Return a sorted copy of an array. Overrides numpy.sort function.
+    """
+    indexes = np.argsort(a, axis=axis, kind=kind, order=order)
+
+    return a[indexes]
+
+@implements(np.argsort)
+def sort(a, *args, **kwargs):
+    """
+    Return a indexes of an sorted array. Overrides ``numpy.argsort`` function.
+    """
+    return np.argsort(a, *args, **kwargs).view(np.ndarray)
+
 
 @implements(np.concatenate)
 def concatenate(arrays, axis=0, out=None):
     """
-    Join a sequence of instances of ``BathArray`` along an existing axis. Overriders ``numpy.concatenate`` function.
+    Join a sequence of instances of ``BathArray`` along an existing axis. Overrides ``numpy.concatenate`` function.
 
     Args:
         arrays (list of BathArray): Arrays to concatenate.
@@ -949,15 +972,28 @@ def _set_sd_attribute(array, attribute_name, initial_value):
         values = value[ind]
 
         for k, v in zip(keys, values):
-            setattr(array.types[k], attribute_name, v)
+            _inner_set_attr(array.types, k, attribute_name, v)
+
         return
 
     if not array.shape:
-        setattr(array.types[array], attribute_name, initial_value)
+        _inner_set_attr(array.types, array, attribute_name, initial_value)
+
         return
 
     for k in np.unique(array['N']):
-        setattr(array.types[k], attribute_name, initial_value)
+        _inner_set_attr(array.types, k, attribute_name, initial_value)
+
+        return
+
+
+def _inner_set_attr(types, key, attr, value):
+    try:
+        setattr(types[key], attr, value)
+    except KeyError:
+        types[key] = (0, 0, 0)
+        setattr(types[key], attr, value)
+    return
 
 
 class SpinType:
@@ -1241,8 +1277,8 @@ class SpinDict(UserDict):
             2H: (2H, 1, 4.1066, 0.00286), 3H: (3H, 0.5, 28.535), e: (e, 0.5, 6.7283))
 
         """
+        keys = []
         try:
-            keys = []
             for nuc in args:
                 if isinstance(nuc, SpinType):
                     key = nuc.name
@@ -1277,12 +1313,14 @@ def _check_key_spintype(k, v):
 _spin_not_found_message = lambda x: 'Spin type for {} was not provided and was not found in common isotopes.'.format(x)
 
 import pandas as pd
+
 try:
     url = 'https://raw.githubusercontent.com/StollLab/EasySpin/main/easyspin/private/isotopedata.txt'
     all_spins = pd.read_csv(url, delim_whitespace=True, header=None, comment='%',
                             names=['protons', 'nucleons', 'radioactive', 'symbol', 'name', 'spin', 'g', 'conc', 'q'])
 except:
     import os
+
     __location__ = os.path.realpath(
         os.path.join(os.getcwd(), os.path.dirname(__file__)))
     filepath = os.path.join(__location__, 'isotopes.txt')

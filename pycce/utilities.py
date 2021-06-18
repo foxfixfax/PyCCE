@@ -71,11 +71,11 @@ def dimensions_spinvectors(nspin, central_spin=None):
     Returns:
         tuple: *tuple* containing:
 
-                * **ndarray with shape (n,)**: Array with dimensions for each spin.
+            * **ndarray with shape (n,)**: Array with dimensions for each spin.
 
-                * **list**: List with vectors of spin matrices for each spin in the cluster
-                  (Including central spin if ``central_spin`` is not None). Each with  shape (3, N, N) where
-                  ``N = prod(dimensions)``.
+            * **list**: List with vectors of spin matrices for each spin in the cluster
+              (Including central spin if ``central_spin`` is not None). Each with  shape (3, N, N) where
+              ``N = prod(dimensions)``.
     """
 
     ntype = nspin.types

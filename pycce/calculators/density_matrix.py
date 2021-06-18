@@ -10,7 +10,7 @@ from .monte_carlo import monte_carlo_decorator
 
 
 def propagator(timespace, hamiltonian, dimensions=None,
-               pulse_sequence=None, alpha=None, beta=None, as_delay=False):
+               pulse_sequence=None, alpha=None, beta=None, as_delay=False,):
     """
     Function to compute time propagator U.
 
@@ -67,6 +67,7 @@ def propagator(timespace, hamiltonian, dimensions=None,
                  'z': expand(sigmaz, len(dimensions) - 1, dimensions)}
 
         equispaced = False
+
         try:
             pulse_sequence[0][2]
         except IndexError:

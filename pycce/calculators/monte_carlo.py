@@ -14,7 +14,7 @@ def generate_bath_state(bath, nbstates, seed=None, fixstates=None, parallel=Fals
             value - fixed :math:`\hat{I}_z` projection of the mixed state of nuclear spin.
 
     Yields:
-        random_state (ndarray): Array of ``shape = len(bath)`` containing z-projections of the bath spins states.
+        ndarray: Array of ``shape = len(bath)`` containing z-projections of the bath spins states.
     """
     rgen = np.random.default_rng(seed)
     rank = 0
