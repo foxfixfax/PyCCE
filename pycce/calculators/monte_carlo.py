@@ -69,11 +69,11 @@ def monte_carlo_decorator(func):
           number of bath states is divisible by the number of processes, ``nbstates % size == 0``.
           Default False
 
-        * fixstates (*dict*) -- Shows which bath states to fix in random bath states.
+        * **fixstates** (*dict*) -- Shows which bath states to fix in random bath states.
           Each key is the index of bath spin,
           value - fixed Sz projection of the mixed state of nuclear spin.
 
-        * masked (*bool*) -- True if mask numerically unstable points (with coherence > 1)
+        * **masked** (*bool*) -- True if mask numerically unstable points (with coherence > 1)
           in the averaging over bath states. Default True. It is up to user to check whether the
           instability is due to numerical error or unphysical system.
 

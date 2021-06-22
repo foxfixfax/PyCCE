@@ -66,8 +66,9 @@ However, for serial implementation the **mpi4py** is not required.
    tutorial
 
 .. toctree::
+   :hidden:
    :maxdepth: 1
-   :caption: User Manual
+   :caption: User Documentation
 
    bath
    simulator
@@ -75,6 +76,7 @@ However, for serial implementation the **mpi4py** is not required.
    dft
 
 .. toctree::
+   :hidden:
    :maxdepth: 1
    :caption: Developer Documentation
 
