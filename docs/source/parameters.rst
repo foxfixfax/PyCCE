@@ -1,4 +1,4 @@
-Hamiltonian parameters input
+Hamiltonian Parameters Input
 ==================================
 
 The total Hamiltonian of the system is set as:
@@ -18,9 +18,18 @@ with
 
 Where :math:`\hat H_S` is the Hamiltonian of the free central spin,
 :math:`\hat H_{SB}` denotes interactions between central spin and bath spin,
-nd :math:`\hat H_B` are intrinsic bath spin interactions.
+nd :math:`\hat H_B` are intrinsic bath spin interactions:
 
-Each of this terms can be defined within **pyCCE** framework as following.
+- :math:`\mathbf{D}` (:math:`\mathbf{P}`) is the self interaction tensor of the central spin (bath spin).
+  For the electron spin, corresponds to the Zero field splitting (ZFS) tensor.
+  For nuclear spins corresponds to the quadrupole interactions tensor.
+- :math:`\mathbf{\gamma}_i`$` is the magnetic field interaction tensor
+  of the :math:`i`-spin describing the interaction of the spin and the external magnetic field.
+- :math:`\mathbf{A}` is the interaction tensor between central and bath spins.
+  In the case of nuclear spin bath, corresponds to the hyperfine couplings.
+- :math:`\mathbf{J}` is the interaction tensor between bath spins.
+
+Each of this terms can be defined within **PyCCE** framework as following.
 
 In general, central spin properties are stored in the ``Simulator`` instance, bath properties are stored in the
 ``BathArray`` instance.

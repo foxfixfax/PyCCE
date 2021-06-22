@@ -1,10 +1,15 @@
 Theoretical Background
 ===========================
 
+This document contains a brief list of the coupling parameters between
+the central and bath spins in **PyCCE**, the description of the qubit dephasing, and the
+summary of the cluster correlation expansion (CCE) method.
+You can find more details in the references [#code]_ [#yang2008]_ [#onizhuk2021]_.
+
 Hamiltonian
 ----------------------------
 
-The **pyCCE** package allows to simulate the dynamics of the central spin interacting with the spin bath by
+The **PyCCE** package allows to simulate the dynamics of the central spin interacting with the spin bath by
 the following Hamiltonian:
 
 .. math::
@@ -22,14 +27,15 @@ and :math:`\hat H_B` are intrinsic bath spin interactions:
                       \mathbf{B}\mathbf{\gamma}_i\mathbf{I}_i} +
                       \sum_{i>j} \mathbf{I}_i\mathbf{J}_{ij}\mathbf{I}_j
 
-Where  :math:`\mathbf{S}=(\hat{S}_x, \hat{S}_y, \hat{S}_z)` is the vector of spin operators of the central spin,
-:math:`\mathbf{I}=(\hat{I}_x, \hat{I}_y, \hat{I}_z)` is the vector of the bath spin operators.
+Where :math:`\mathbf{S}=(\hat{S}_x, \hat{S}_y, \hat{S}_z)` is the vector of spin operators of the central spin,
+:math:`\mathbf{I}=(\hat{I}_x, \hat{I}_y, \hat{I}_z)` is the vector of the bath spin operators,
+and :math:`\mathbf{B}=(B_x,B_y,B_z)` is an external applied magnetic field.
 The interactions are described with the tensors that are either required to be input by user or can be generated
 by the package itself (see :doc:`parameters` for details):
 
-- :math:`\mathbf{D}` (:math:`\mathbf{P}`) is the self interaction tensor of the central spin (bath spin).
-  For the electron spin, corresponds to the Zero field splitting (ZFS) tensor.
-  For nuclear spins corresponds to the quadrupole interactions tensor.
+- :math:`\mathbf{D}` (:math:`\mathbf{P}`) is the self-interaction tensor of the central spin (bath spin).
+  For the electron spin, it corresponds to the Zero field splitting (ZFS) tensor.
+  For nuclear spins, this term corresponds to the quadrupole interactions tensor.
 - :math:`\mathbf{\gamma}_i`$` is the magnetic field interaction tensor
   of the :math:`i`-spin describing the interaction of the spin and the external magnetic field.
 - :math:`\mathbf{A}` is the interaction tensor between central and bath spins.
@@ -41,8 +47,8 @@ Qubit dephasing
 ---------------------------------
 
 In the pure dephasing regime (:math:`T_1 >> T_2`) the decoherence of the central spin is characterized by
-the decay of the off diagonal element of the density matrix of the qubit.
-I.e. if the qubit is initially prepared in the
+the decay of the off-diagonal element of the density matrix of the qubit.
+I.e., if the qubit is initially prepared in the
 :math:`\left|{\psi}\right\rangle = \frac{1}{\sqrt{2}}(\left|{0}\right\rangle+e^{i\phi}\left|{1}\right\rangle)` state,
 the loss of the relative phase between :math:`\left|{0}\right\rangle` and :math:`\left|{1}\right\rangle`
 levels is characterized by the coherence function:
@@ -55,8 +61,9 @@ levels is characterized by the coherence function:
 Where :math:`\hat{\rho}_S(t)` is the density matrix of the central spin and
 :math:`\left|{0}\right\rangle` and :math:`\left|{1}\right\rangle` are qubit levels.
 
+The cluster correlation expansion (CCE) method was first introduced in ref. [#yang2008]_.
 The core idea of CCE approach is that the spin bath-induced decoherence
-can be factorized into set of irreducible contributions from the bath spin clusters.
+can be factorized into a set of irreducible contributions from the bath spin clusters.
 Written in terms of the coherence function:
 
 .. math::
@@ -71,6 +78,23 @@ Where :math:`L_{C}` is a coherence function of the qubit,
 interacting only with the nuclear spins in the given cluster :math:`C`
 (with the cluster Hamiltonian :math:`\hat H_C`),
 and :math:`\tilde{L}_{C'}` are contributions of :math:`C'` subcluster of :math:`C`.
+
+For example, up to the overall phase factor, the contribution of the single spin :math:`i` is equal
+to the coherence function of the bath of a single spin:
+
+.. math::
+    \tilde{L}_i = L_{i}
+
+The contribution of pair of spins :math:`i` and :math:`j` is equal to:
+
+.. math::
+    \tilde{L}_{ij} = \frac{L_{ij}}{\tilde{L}_i \tilde{L}_j}
+
+and so on.
+
+Maximum size of the cluster included into the expansion determines the order of CCE approximation.
+E.g. in CCE2 method contributions up to spin pairs are included, in CCE3 - up to triplets of bath spins etc.
+Each cluster contribution is defined recursively as:
 
 The way the coherence function for each cluster
 is computed slightly varies between two flavours of the CCE, discussed below.
@@ -98,7 +122,9 @@ the coherence function of the qubit interacting with the given cluster is comput
     L_{C}(t) = Tr[\hat U_C^{(0)}(t)\hat \rho_C \hat U_C^{(1) \dagger}(t)]
 
 Where :math:`\hat U_C^{(\alpha)}(t)` is time propagator defined in terms of the effective Hamiltonian
-:math:`\hat H_C^{(\alpha)}` and the number of decoupling pulses.
+:math:`\hat H_C^{(\alpha)}` and the number of decoupling pulses. Note that :math:`\hat H_C^{(\alpha)}` here includes
+only degrees of freedom of the given cluster.
+
 For free induction decay (FID) the time propagators are trivial:
 
 .. math::
@@ -117,7 +143,8 @@ decoupling pulses applied at :math:`t_1, t_2...t_N`:
                            e^{-\frac{i}{\hbar} \hat H_C^{(\beta)} (t_{2} - t_{1})}
                            e^{-\frac{i}{\hbar} \hat H_C^{(\alpha)} t_{1}}
 
-Where :math:`\ket{\alpha} = \ket{0}, \ket{1}` and :math:`\ket{\beta} = \ket{1}, \ket{0}` accordingly.
+Where :math:`\ket{\alpha} = \ket{0}, \ket{1}` and :math:`\ket{\beta} = \ket{1}, \ket{0}` accordingly
+(when :math:`\ket{\alpha} = \ket{0}` one should take :math:`\ket{\beta} = \ket{1}` and vice versa).
 :math:`t=\sum_i{t_i}` is the total evolution time.
 In sequences with odd number of pulses `N`, the leftmost propagator will be exponent of :math:`\hat H_C^{(\beta)}`.
 
@@ -150,8 +177,7 @@ And the coherence function of the cluster :math:`L_C(t)` is computed as:
 Where :math:`\hat \rho_{C+S} = \hat \rho_{C} \otimes \hat \rho_S` is the combined initial density matrix
 of the bath spins cluster and central spin.
 
-Further details on the theoretical background are available in the [#code]_ [#yang2008]_ [#onizhuk2021]_.
-
+Further details on the theoretical background are available in the references below.
 
 .. [#code] Mykyta  Onizhuk  et  al. In preparation.
 .. [#yang2008] Wen Yang  and  Ren-Bao  Liu.  “Quantum  many-body  theory  of qubit

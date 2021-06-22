@@ -997,15 +997,29 @@ def _inner_set_attr(types, key, attr, value):
 
 
 class SpinType:
-    """
+    r"""
     Class which contains properties of each spin type in the bath.
 
     Args:
         name (str): Name of the bath spin.
-        s (float): Total spin of the bath spin. Default 0.
-        gyro (float): Gyromagnetic ratio in rad/(ms * G). Default 0.
-        q (float): Quadrupole moment in barn (for s > 1/2). Default 0.
-        detuning (float): Energy detuning from the zeeman splitting in rad/(ms). Default 0.
+        s (float): Total spin of the bath spin.
+
+            Default 0.
+
+        gyro (float): Gyromagnetic ratio in rad * kHz / G.
+
+            Default 0.
+
+        q (float): Quadrupole moment in barn (for s > 1/2).
+
+            Default 0.
+
+        detuning (float): Energy detuning from the zeeman splitting in kHz,
+            included as an extra :math:`+\omega \hat S_z` term in the Hamiltonian,
+            where :math:`\omega` is the detuning.
+
+            Default 0.
+
 
     Attributes:
 
@@ -1013,7 +1027,7 @@ class SpinType:
         s (float): Total spin of the bath spin.
         gyro (float): Gyromagnetic ratio in rad/(ms * G).
         q (float): Quadrupole moment in barn (for s > 1/2).
-        detuning (float): Energy detuning from the zeeman splitting in rad/(ms).
+        detuning (float): Energy detuning from the zeeman splitting in kHz.
 
     """
 
@@ -1163,8 +1177,6 @@ class SpinDict(UserDict):
                     key = key['N']
 
                 unique_names = np.unique(key)
-                if not unique_names.size:
-                    raise KeyError(f"Wrong format of key {key}")
 
                 if unique_names.size == 1:
                     n = unique_names[0]

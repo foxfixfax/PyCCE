@@ -28,12 +28,16 @@ def hamiltonian_wrapper(_func=None, *, projected=False):
         def base_hamiltonian(bath, *arg,
                              central_spin=None,
                              **kwargs):
+
             dim, spinvectors = dimensions_spinvectors(bath, central_spin=central_spin)
+
             clusterint = bath_interactions(bath, spinvectors)
+
             if projected:
-                halpha, hbeta = Hamiltonian(dim), Hamiltonian(dim)
+                halpha, hbeta = Hamiltonian(dim, vectors=spinvectors), Hamiltonian(dim, vectors=spinvectors)
 
                 data1, data2 = function(bath, spinvectors, *arg, **kwargs)
+
                 halpha.data += data1 + clusterint
                 hbeta.data += data2 + clusterint
 
