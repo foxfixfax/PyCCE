@@ -184,6 +184,7 @@ def optimized_approach(function, allspin, subclusters, *arg, parallel=False,
             vcalc = contribution_operator(vcalc, current_power[index])
 
             result = result_operator(result, vcalc)
+
         if parallel:
             buffer = np.empty(current_power.shape, dtype=np.int32)
             comm.Allreduce(current_power, buffer, MPI.SUM)

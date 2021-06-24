@@ -2,6 +2,7 @@ from numpy import ma as ma
 import numpy as np
 import functools
 
+
 def generate_bath_state(bath, nbstates, seed=None, fixstates=None, parallel=False):
     r"""
     Generator of the random *pure* :math:`\hat{I}_z` bath eigenstates.

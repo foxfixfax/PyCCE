@@ -1,6 +1,6 @@
 
-Welcome to PyCCE's documentation!
-==================================================================
+PyCCE: A Python Package for CCE Simulations
+=========================================================================================
 
 .. figure:: logo.png
   :scale: 40%

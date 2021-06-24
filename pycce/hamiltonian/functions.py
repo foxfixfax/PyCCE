@@ -351,7 +351,7 @@ def overhauser_bath(ivec, position, gyro,
     pre = np.asarray(gyro * other_gyros * HBAR / PI2)
 
     pos = position - others_position
-    r = np.linalg.norm(pos, axis=1)
+    r = np.linalg.norm(pos, axis=-1)
     if len(others_state.shape) == 1:
         # xfield = np.sum(pre / r ** 5 * (- 3 * pos[:, 2] * pos[:, 0]) * others_state)
         # yfield = np.sum(pre / r ** 5 * (- 3 * pos[:, 2] * pos[:, 1]) * others_state)

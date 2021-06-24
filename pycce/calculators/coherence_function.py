@@ -1,12 +1,13 @@
 import numpy as np
+
 from pycce.bath.array import BathArray
 from pycce.cluster_expansion import cluster_expansion_decorator
 from pycce.constants import PI2, ELECTRON_GYRO
 from pycce.hamiltonian import projected_hamiltonian, total_hamiltonian
+from pycce.monte_carlo import monte_carlo_decorator
 from pycce.utilities import generate_projections
 
 from .density_matrix import gen_density_matrix, _check_projected_states
-from .monte_carlo import monte_carlo_decorator
 
 
 def propagators(timespace, H0, H1, N, as_delay=False):
@@ -306,7 +307,7 @@ def compute_cce_coherence(bath, clusters, timespace, alpha, beta, magnetic_field
 
 
 @monte_carlo_decorator
-def monte_calro_cce(bath, clusters, timespace, pulses, alpha, beta, magnetic_field,
+def monte_carlo_cce(bath, clusters, timespace, pulses, alpha, beta, magnetic_field,
                     central_spin,
                     zfs=None, central_gyro=ELECTRON_GYRO,
                     as_delay=False, bath_state=None,

@@ -7,7 +7,7 @@ from pycce.hamiltonian import total_hamiltonian, bath_interactions, expanded_sin
 from pycce.constants import ELECTRON_GYRO
 from .density_matrix import propagator, generate_dm0, gen_density_matrix, _check_projected_states
 
-from .monte_carlo import monte_carlo_decorator
+from pycce.monte_carlo import monte_carlo_decorator
 
 
 def correlation_it_j0(operator_i, operator_j, dm0_expanded, U):

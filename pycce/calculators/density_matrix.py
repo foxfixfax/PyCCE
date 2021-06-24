@@ -6,205 +6,7 @@ from pycce.cluster_expansion import cluster_expansion_decorator
 from pycce.constants import ELECTRON_GYRO, PI2
 from pycce.hamiltonian import total_hamiltonian, expand
 from numba import jit
-from .monte_carlo import monte_carlo_decorator
-
-
-# TODO generate bath pulses
-def _generate_pulses(pulse_sequence=None, alpha=None, beta=None, dimensions=None,
-                     bath=None, vectors=None, bath_pulses=None):
-    pulses = False
-    fractions = False
-    equispaced = True
-
-    if pulse_sequence is not None:
-        equispaced, fractions, pulses = _gen_central_pulses(pulse_sequence, alpha, beta, dimensions)
-
-    if bath_pulses is not None:
-
-        bp_sequences = []
-        bp_fractions = []
-        bp_equispaced = []
-
-        vectors = np.asarray(vectors)
-
-        for sn in bath_pulses:
-            which = np.nonzero(bath.N == sn)
-
-            if not which[0].any():  # No such spins in the cluster
-                continue
-
-            pulse_sequence = bath_pulses[sn]
-
-            es, fracs, bsp = _gen_bath_pulses(vectors[which], pulse_sequence)
-
-            bp_sequences.append(bsp)
-            bp_fractions.append(fracs)
-            bp_equispaced.append(es)
-
-        if all(bp_equispaced) and equispaced:
-
-            try:
-                bps = np.asarray(bp_sequences, dtype=np.complex128)
-
-                if pulses and bps.shape[1] != len(pulses):
-                    equispaced = False
-
-            except TypeError:
-                equispaced = False
-                bps = bp_sequences
-
-        else:
-            equispaced = False
-            bps = bp_sequences
-
-        if pulses:
-            if equispaced:
-                pulses = _combine_eq_bc_pulses(pulses, bps)
-
-            else:
-                raise NotImplementedError('Non equal bath pulses are not implemented')
-                # fractions, pulses = _combine_bc_pulses(fractions, pulses, bp_fractions, bps)
-        else:
-            if equispaced:
-                pulses = _combine_eq_b_pulses(bps)
-            else:
-                raise NotImplementedError('Non equal bath pulses are not implemented')
-                # fractions, pulses = _combine_b_pulses(bp_fractions, bps)
-
-    fractions = False if equispaced else fractions
-
-    return fractions, pulses
-
-
-_rot = {'x': 0, 'y': 1, 'z': 2}
-
-
-def _combine_eq_bc_pulses(pulses, bps):
-    """
-    Combine equal spaced central spin pulses and bath pulses.
-    Args:
-        pulses ():
-        bps ():
-
-    Returns:
-
-    """
-    for bpseq in bps:
-        for p, bp in zip(pulses, bpseq):
-            np.dot(bp, p, out=p)
-    return pulses
-
-
-def _combine_eq_b_pulses(bps):
-    """
-    Combine equal spaced bath pulses only.
-    Args:
-        bps ():
-
-    Returns:
-
-    """
-
-    pulses = bps[0].copy()
-
-    for bpseq in bps[1:]:
-        for p, bp in zip(pulses, bpseq):
-            np.dot(bp, p, out=p)
-    return pulses
-
-
-def _combine_b_pulses(bsfracs, bspulses):
-    fractions = []
-    pulses = []
-    return fractions, pulses
-
-
-def _combine_bc_pulses(csfracs, cspulses, bsfracs, bspulses):
-    fractions = []
-    pulses = []
-    return fractions, pulses
-
-
-def _gen_central_pulses(pulse_sequence, alpha, beta, dimensions):
-    pulses = []  # central spin pulses
-
-    try:
-        pulse_sequence[0][2]
-        equispaced = False  # Not equispaced
-        fractions = []
-
-    except IndexError:
-        equispaced = True  # Equispaced
-
-        fractions = len(pulse_sequence)
-        fractions = np.ones(fractions) / fractions
-
-    alpha_x_alpha = np.tensordot(alpha, alpha, axes=0)
-    beta_x_beta = np.tensordot(beta, beta, axes=0)
-    alpha_x_beta = np.tensordot(alpha, beta, axes=0)
-    beta_x_alpha = np.tensordot(beta, alpha, axes=0)
-
-    small_sigma = {'x': alpha_x_beta + beta_x_alpha,
-                   'y': -1j * alpha_x_beta + 1j * beta_x_alpha,
-                   'z': alpha_x_alpha - beta_x_beta}
-
-    sigma = {}
-
-    for pulse in pulse_sequence:
-        ax = pulse[0]
-        angle = pulse[1]
-
-        if ax not in sigma:
-            sigma[ax] = expand(small_sigma[ax], len(dimensions) - 1, dimensions)
-
-        if angle == np.pi:
-            rotation = -1j * sigma[ax]
-        else:
-            rotation = scipy.linalg.expm(-1j * sigma[ax] * angle / 2)
-
-        pulses.append(rotation)
-
-        if not equispaced:
-            fractions.append(pulse[2])
-
-    return equispaced, fractions, pulses
-
-
-def _gen_bath_pulses(vectors, pulse_sequence):
-    bsp = []
-
-    try:
-        pulse_sequence[0][2]
-        es = False  # Not equispaced
-        fracs = []
-
-    except IndexError:
-        es = True  # Equispaced
-
-        fracs = len(pulse_sequence)
-        fracs = np.ones(fracs) / fracs
-
-    for pulse in pulse_sequence:
-
-        ax = _rot[pulse[0]]  # name -> index
-        angle = pulse[1]
-        if (angle == np.pi) and (vectors[0][0, 0, 0] < 1):  # only works for spin-1/2
-            rotation = -1j * 2 * vectors[0][ax]  # 2 here is to transform into pauli matrices
-            for v in vectors[1:]:
-                np.matmul(rotation, -1j * 2 * v[ax], out=rotation)
-        else:
-            rotation = scipy.linalg.expm(-1j * vectors[0][ax] * angle)
-            for v in vectors[1:]:
-                add = scipy.linalg.expm(-1j * v[ax] * angle)
-                np.matmul(rotation, add, out=rotation)
-
-        bsp.append(rotation)
-
-        if not es:
-            fracs.append(pulse[2])
-
-    return es, fracs, bsp
-
+from pycce.monte_carlo import monte_carlo_decorator
 
 def propagator(timespace, hamiltonian, dimensions=None,
                pulse_sequence=None, alpha=None, beta=None, as_delay=False):
@@ -224,7 +26,11 @@ def propagator(timespace, hamiltonian, dimensions=None,
 
                 1. axis the rotation is about;
                 2. angle of rotation. E.g. for Hahn-Echo ``[('x', np.pi/2)]``.
-                3. (Optional). Fraction of time before the pulse. E.g. for Hahn-Echo ``[('x', np.pi/2, 0.5)]``.
+                3. (Optional). Time before the pulse. Can be as fixed, as well as varied.
+                   If varied, it should be provided as an array with the same
+                   length as ``timespace``.
+
+                   E.g. for Hahn-Echo ``[('x', np.pi/2, timespace/2)]``.
 
         alpha (ndarray with shape (2s+1,)):
             Vector representation of the alpha qubit state in :math:`\hat{S}_z` basis.
@@ -288,6 +94,8 @@ def propagator(timespace, hamiltonian, dimensions=None,
 
                 if angle == np.pi:
                     rotation = -1j * sigma[ax]
+                elif angle == 0:
+                    rotation = np.eye(sigma[ax].shape)
                 else:
                     rotation = scipy.linalg.expm(-1j * sigma[ax] * angle / 2)
 
@@ -298,20 +106,24 @@ def propagator(timespace, hamiltonian, dimensions=None,
             return U
 
         U = None
-        total_fraction = 0
+        times = 0
         for pulse in pulse_sequence:
 
             ax = pulse[0]
             angle = pulse[1]
-            fraction = pulse[2]
+            timesteps = pulse[2]
 
-            eigexp = np.exp(-1j * np.tensordot(timespace * fraction, evalues, axes=0),
+            eigexp = np.exp(-1j * np.tensordot(timesteps, evalues, axes=0),
                             dtype=np.complex128)
 
-            u = np.matmul(np.einsum('ij,kj->kij', evec, eigexp, dtype=np.complex128),
+            u = np.matmul(np.einsum('...ij,...j->...ij', evec, eigexp, dtype=np.complex128),
                           evec.conj().T)
+            times += timesteps
 
-            rotation = scipy.linalg.expm(-1j * sigma[ax] * angle / 2)
+            if angle == np.pi:
+                rotation = -1j * sigma[ax]
+            else:
+                rotation = scipy.linalg.expm(-1j * sigma[ax] * angle / 2)
 
             if U is None:
                 U = np.matmul(rotation, u)
@@ -320,19 +132,17 @@ def propagator(timespace, hamiltonian, dimensions=None,
                 U = np.matmul(u, U)
                 U = np.matmul(rotation, U)
 
-            total_fraction += fraction
-
-        if total_fraction < 1:
-            eigexp = np.exp(-1j * np.tensordot(timespace * (1 - total_fraction), evalues, axes=0),
+        if ((timespace - times) >= 0).all() and (timespace - times).any():
+            eigexp = np.exp(-1j * np.tensordot(timespace - times, evalues, axes=0),
                             dtype=np.complex128)
 
             u = np.matmul(np.einsum('ij,kj->kij', evec, eigexp, dtype=np.complex128),
                           evec.conj().T)
 
             U = np.matmul(u, U)
-        elif total_fraction > 1:
-            raise ValueError(f"Pulse sequence fractions don't add up to one."
-                             f"{total_fraction} found instead.")
+        elif ((timespace - times) < 0).any():
+            raise ValueError(f"Pulse sequence time steps add up to larger than total times"
+                             f"{np.argwhere((timespace - times) < 0)} are longer than total time.")
     return U
 
 
@@ -705,7 +515,14 @@ def compute_cce_dm(bath, clusters, timespace, alpha, beta, magnetic_field, zfs, 
 
         state = (alpha + beta) / np.linalg.norm(alpha + beta)
 
-        if projected_bath_state is not None and (projected_bath_state == bath_state).all():
+        check = False
+        if projected_bath_state is not None:
+            try:
+                check = all(projected_bath_state == bath_state)
+            except TypeError:
+                check = False
+
+        if check:
             dm0 = state
         else:
             dm0 = np.tensordot(state, state, axes=0)
@@ -829,3 +646,9 @@ def monte_carlo_dm(bath, clusters, timespace, pulses, dm0, alpha, beta,
                             projected_bath_state=bath_state, parallel=parallel, direct=direct,
                             central_spin=central_spin)
     return result
+
+
+
+
+
+

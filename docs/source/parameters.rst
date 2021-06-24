@@ -61,7 +61,7 @@ The central spin Hamiltonian is provided as attributes of the ``Simulator`` obje
   the interaction of the spin and the external magnetic field in units of gyromagnetic ratio
   :math:`\mathrm{rad}\cdot\mathrm{kHz}\cdot\mathrm{G}^{-1}`.
   By default is equal to the gyromagnetic ratio of the free electron spin,
-  :math:`-17609\ \mathrm{rad}\cdot\mathrm{kHz}\cdot\mathrm{G}^{-1}`.
+  :math:`-17609\ \mathrm{rad}\cdot\mathrm{ms}^{-1}\cdot\mathrm{G}^{-1}`.
 
   For the electron spin, it is proportional
   to g-tensor :math:`\mathbf{g}` as:

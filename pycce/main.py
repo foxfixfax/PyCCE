@@ -16,7 +16,7 @@ from pycce.io.xyz import read_xyz
 
 from .bath.array import BathArray, SpinDict
 from .bath.cube import Cube
-from .calculators.coherence_function import monte_calro_cce, compute_cce_coherence
+from .calculators.coherence_function import monte_carlo_cce, compute_cce_coherence
 from .calculators.correlation_function import decorated_noise_correlation, \
     projected_noise_correlation, monte_carlo_noise
 from .calculators.density_matrix import monte_carlo_dm, compute_cce_dm
@@ -69,12 +69,18 @@ _args = r"""
     
                 1. axis the rotation is about;
                 2. angle of rotation;
-                3. (optional) fraction of the total time before this pulse is applied.
-                   If not provided, assumes even delay of CPMG sequence. Then total experiment is assumed to be:
-    
-                       tau -- pulse -- 2tau -- pulse -- ... -- 2tau -- pulse -- tau
-    
-                   Where tau is the delay between pulses.
+                3. (optional) Time before the pulse. Can be as fixed, as well as varied.
+                   If varied, it should be provided as an array with the same
+                   length as ``timespace``.
+
+                   E.g. for Hahn-Echo ``pulses = [('x', np.pi/2, timespace/2)]``.
+                   
+               If third argument in the tuple is not provided, assumes even delay of CPMG sequence.
+               Then total experiment is assumed to be:
+
+                   tau -- pulse -- 2tau -- pulse -- ... -- 2tau -- pulse -- tau
+
+               Where tau is the delay between pulses.
     
                 E.g. for Hahn-Echo the ``pulses`` can be defined as ``[('x', np.pi)]`` or ``[('x', np.pi, 0.5)]``.
                 Note, that if fraction is provided the computation becomes less effective than without it.
@@ -1092,7 +1098,7 @@ class Simulator(Environment):
                                               level_confidence=self.level_confidence)
 
         else:
-            coherence = monte_calro_cce(self.bath, self.clusters, timespace,
+            coherence = monte_carlo_cce(self.bath, self.clusters, timespace,
                                         len(self.pulses), self.alpha, self.beta, self.magnetic_field,
                                         self.spin, zfs=self.zfs, central_gyro=self.gyro,
                                         as_delay=self.as_delay,
