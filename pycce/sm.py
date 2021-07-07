@@ -8,12 +8,10 @@ import numpy as np
 
 class SpinMatrix:
     """
-    Class containing the spin matrices in Sz basis
+    Class containing the spin matrices in Sz basis.
 
-    Parameters
-    ----------
-    :param s: float
-    total spin
+    Args:
+        s (float): Total spin.
     """
 
     def __init__(self, s):

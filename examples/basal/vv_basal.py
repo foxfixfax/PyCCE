@@ -35,8 +35,6 @@ GHZ_KHZ = 1e6
 D = 1.334 * GHZ_KHZ
 E = 0.0184 * GHZ_KHZ
 
-# A script to calculate ensemble average coherence for nv_center in diamond
-
 if __name__ == '__main__':
     # check how long the calculations was
     stime = time.time()
@@ -46,7 +44,6 @@ if __name__ == '__main__':
     maxtime = 2.5
     time_space = np.linspace(0, maxtime, 501)
 
-    # Each configuration is determined by rng seed as a sum of seed + conf
     conf = arguments.start
 
     # MPI stuff

@@ -1,6 +1,5 @@
 import copy
 import warnings
-from abc import ABC
 
 import numpy as np
 from pycce.bath.array import common_isotopes, common_concentrations
@@ -11,7 +10,7 @@ coord_types = ['crystal', 'bohr', 'angstrom', 'alat']
 
 class DFTCoordinates:
     r"""
-    Abstract class for container of the DFT output coordinates.
+    Abstract class of a container of the DFT output coordinates.
 
     Attributes:
         alat (float): The lattice parameter in angstrom.

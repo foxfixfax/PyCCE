@@ -2,9 +2,33 @@
 CCE Calculators
 ==========================================
 
-Documentation for the calculator functions called by ``Simulator`` object.
+Documentation for the calculator objects called by ``Simulator`` object.
 
-Cluster-correlation Expansion Decorator
+Base class
+--------------------------------------------
+
+.. automodule:: pycce.run.base
+   :members:
+
+Conventional CCE
+------------------------------------------
+
+.. automodule:: pycce.run.cce
+   :members:
+
+Generalized CCE
+-------------------------------------------
+
+.. automodule:: pycce.run.gcce
+   :members:
+
+Noise Autocorrelation
+-----------------------------------------------
+
+.. automodule:: pycce.run.corr
+   :members:
+
+Cluster-correlation Expansion Decorators
 ------------------------------------------
 
 The way we find cluster in the code.
@@ -12,31 +36,12 @@ The way we find cluster in the code.
 .. automodule:: pycce.find_clusters
    :members:
 
-General decorator that can expand any function acting on the cluster to the whole bath *via* CCE.
+General decorators that are used to expand kernel of the ``RunObject`` class or subclasses to the whole bath *via* CCE.
 
-.. automodule:: pycce.cluster_expansion
+.. automodule:: pycce.run.clusters
    :members:
 
+Decorators that are used to perform bath state sampling over the kernel of ``RunObject``.
 
-Conventional CCE
-------------------------------------------
-
-.. automodule:: pycce.calculators.coherence_function
-   :members:
-
-Generalized CCE
--------------------------------------------
-
-.. automodule:: pycce.calculators.density_matrix
-   :members:
-
-Noise Autocorrelation
------------------------------------------------
-
-.. automodule:: pycce.calculators.correlation_function
-   :members:
-
-Monte Carlo Bath State Sampling
------------------------------------------------
-.. automodule:: pycce.calculators.monte_carlo
+.. automodule:: pycce.run.mc
    :members:

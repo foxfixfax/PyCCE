@@ -22,14 +22,19 @@ to update the properties of the spin bath in ``Simulator`` object.
 
 Calculate Properties with Simulator
 -------------------------------------
-Documentation for the ``Simulator.compute`` method and it's dependencies -
+Documentation for the ``Simulator.compute`` method -
 the interface to run calculations with **PyCCE**.
 
 .. automethod:: pycce.main.Simulator.compute
-.. automethod:: pycce.main.Simulator.cce_coherence
-.. automethod:: pycce.main.Simulator.gcce_coherence
-.. automethod:: pycce.main.Simulator.cce_noise
-.. automethod:: pycce.main.Simulator.gcce_noise
+
+Pulse sequences
+------------------------
+Documentation of the ``Pulse`` and ``Sequence`` classes, used in definition of the complicated
+pulse sequences.
+
+.. automodule:: pycce.run.pulses
+   :members:
+
 
 
 

@@ -11,7 +11,7 @@ Base Units
 * All coupling constants are given in :math:`\mathrm{kHz}`.
 * Timesteps in millisecond (:math:`\mathrm{ms}`).
 * Distances in angstrom (:math:`\mathrm{A}`).
-* Gyromagnetic ratios are given in :math:`\mathrm{rad}\cdot\mathrm{rad}\cdot\mathrm{ms}^{-1}\cdot\mathrm{G}^{-1}`.
+* Gyromagnetic ratios are given in :math:`\mathrm{rad}\cdot\mathrm{ms}^{-1}\cdot\mathrm{G}^{-1}`.
 * Quadrupole constants are given in :math:`\mathrm{barn}` (:math:`10^{-28}\ \mathrm{m}^2`).
 * Magnetic field is given in Gauss (:math:`\mathrm{G}`).
 

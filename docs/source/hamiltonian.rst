@@ -4,13 +4,13 @@ Hamiltonian Functions
 Base Class
 -----------------------------------------------------------------------
 
-.. automodule:: pycce.hamiltonian.base
+.. automodule:: pycce.h.base
    :members:
 
 Total Hamiltonian
 -----------------------------------------------------------------------
 
-.. automodule:: pycce.hamiltonian.total
+.. automodule:: pycce.h.total
    :members:
 
 
@@ -18,5 +18,5 @@ Separate Terms
 -----------------------------------------------------------------------
 Documentation for the functions used to generate spin Hamiltonian for each cluster.
 
-.. automodule:: pycce.hamiltonian.functions
+.. automodule:: pycce.h.functions
    :members:

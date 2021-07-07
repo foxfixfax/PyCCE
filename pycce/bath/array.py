@@ -1,7 +1,8 @@
 import copy
-import numpy as np
 import warnings
 from collections import UserDict, Mapping
+
+import numpy as np
 from numpy.lib.recfunctions import repack_fields
 
 from .map import InteractionMap
@@ -264,6 +265,14 @@ class BathArray(np.ndarray):
         _set_sd_attribute(self, 's', initial_value)
 
     @property
+    def dim(self):
+        """
+        ndarray: Array of the ``dim`` (dimensions of the spin) attribute
+            for each spin in the array from ``types`` dictionary.
+        """
+        return self.types[self].dim
+
+    @property
     def gyro(self):
         """
         ndarray: Array of the ``gyro`` (gyromagnetic ratio)
@@ -304,33 +313,33 @@ class BathArray(np.ndarray):
         """
         ndarray: Array of x coordinates for each spin in the array (``bath['xyz'][:, 0]``).
         """
-        return self['xyz'][:, 0]
+        return self['xyz'][..., 0]
 
     @x.setter
     def x(self, val):
-        self['xyz'][:, 0] = val
+        self['xyz'][..., 0] = val
 
     @property
     def y(self):
         """
         ndarray: Array of y coordinates for each spin in the array (``bath['xyz'][:, 1]``).
         """
-        return self['xyz'][:, 1]
+        return self['xyz'][..., 1]
 
     @y.setter
     def y(self, val):
-        self['xyz'][:, 1] = val
+        self['xyz'][..., 1] = val
 
     @property
     def z(self):
         """
         ndarray: Array of z coordinates for each spin in the array (``bath['xyz'][:, 2]``).
         """
-        return self['xyz'][:, 2]
+        return self['xyz'][..., 2]
 
     @z.setter
     def z(self, val):
-        self['xyz'][:, 2] = val
+        self['xyz'][..., 2] = val
 
     @property
     def N(self):
@@ -753,6 +762,7 @@ def implements(numpy_function):
 
     return decorator
 
+
 @implements(np.sort)
 def sort(a, axis=-1, kind=None, order=None):
     """
@@ -761,6 +771,7 @@ def sort(a, axis=-1, kind=None, order=None):
     indexes = np.argsort(a, axis=axis, kind=kind, order=order)
 
     return a[indexes]
+
 
 @implements(np.argsort)
 def sort(a, *args, **kwargs):
@@ -1025,6 +1036,8 @@ class SpinType:
 
         name (str): Name of the bath spin.
         s (float): Total spin of the bath spin.
+        dim (int): Spin dimensionality = 2s + 1.
+
         gyro (float): Gyromagnetic ratio in rad/(ms * G).
         q (float): Quadrupole moment in barn (for s > 1/2).
         detuning (float): Energy detuning from the zeeman splitting in kHz.
@@ -1035,6 +1048,13 @@ class SpinType:
 
         self.name = name
         self.s = s
+
+        try:
+            self.dim = np.int(2 * s + 1 + 1e-8)
+
+        except TypeError:
+            self.dim = (2 * s + 1 + 1e-8).astype(np.int32)
+
         self.gyro = gyro
         self.q = q
         self.detuning = detuning

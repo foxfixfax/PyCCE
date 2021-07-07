@@ -1,6 +1,7 @@
-from numpy import ma as ma
-import numpy as np
 import functools
+
+import numpy as np
+from numpy import ma as ma
 
 
 def generate_bath_state(bath, nbstates, seed=None, fixstates=None, parallel=False):
@@ -48,80 +49,52 @@ def generate_bath_state(bath, nbstates, seed=None, fixstates=None, parallel=Fals
         yield bath_state
 
 
-def monte_carlo_decorator(func):
+def monte_carlo_method_decorator(func):
     """
     Decorator to sample over random bath states given function.
-
-
-    **Additional parameters**:
-
-        * **bath** (*BathArray*) -- Array of all bath spins.
-        * **nbstates** (*int*) -- Number of random states to sample over.
-
-        * **seed** (*int*) -- Seed for RNG. Default None.
-
-        * **parallel** (*bool*) -- True if parallelize calculation of cluster contributions
-          over different mpi threads using mpi4py. Default False.
-
-        * **parallel_states** (*bool*) -- True if to use MPI to parallelize the calculations of
-          density matrix equally over present mpi processes. Compared to ``parallel`` keyword,
-          when this argument is True each process is given a fraction of random bath states.
-          This makes the implementation faster. Works best when the
-          number of bath states is divisible by the number of processes, ``nbstates % size == 0``.
-          Default False
-
-        * **fixstates** (*dict*) -- Shows which bath states to fix in random bath states.
-          Each key is the index of bath spin,
-          value - fixed Sz projection of the mixed state of nuclear spin.
-
-        * **masked** (*bool*) -- True if mask numerically unstable points (with coherence > 1)
-          in the averaging over bath states. Default True. It is up to user to check whether the
-          instability is due to numerical error or unphysical system.
-
     """
 
     @functools.wraps(func)
-    def inner_function(bath, *args,
-                       nbstates=100, seed=None, masked=True,
-                       parallel_states=False,
-                       fixstates=None, parallel=False, **kwargs):
-
-        if parallel_states:
+    def inner_method(self, *args,
+                     **kwargs):
+        seed = self.seed
+        if self.parallel_states:
             try:
                 from mpi4py import MPI
             except ImportError:
                 print('Parallel failed: mpi4py is not found. Running serial')
-                parallel_states = False
+                self.parallel_states = False
 
-        if masked:
+        if self.masked:
             divider = 0
         else:
-            root_divider = nbstates
+            root_divider = self.nbstates
 
-        if parallel_states:
+        if self.parallel_states:
             comm = MPI.COMM_WORLD
 
             size = comm.Get_size()
             rank = comm.Get_rank()
 
-            remainder = nbstates % size
+            remainder = self.nbstates % size
             add = int(rank < remainder)
-            nbstates = nbstates // size + add
+            nbstates = self.nbstates // size + add
 
             if seed:
                 seed = seed + rank * 19653252
         else:
             rank = 0
+            nbstates = self.nbstates
 
         total = 0j
 
-        for bath_state in generate_bath_state(bath, nbstates, seed=seed, fixstates=fixstates, parallel=parallel):
+        for bath_state in generate_bath_state(self.bath, nbstates, seed=seed,
+                                              fixstates=self.fixstates, parallel=self.parallel):
+            self.bath_state = bath_state
+            self.projected_bath_state = bath_state
+            result = func(self, *args, **kwargs)
 
-            result = func(bath, *args, **kwargs,
-                          parallel=parallel,
-                          bath_state=bath_state)
-
-            if masked:
+            if self.masked:
                 reshaped_result = np.abs(result).reshape(result.shape[0], -1)
                 proper = np.all(reshaped_result <= reshaped_result[0] + 1e-6, axis=(-1))
                 divider += proper.astype(np.int32)
@@ -129,7 +102,7 @@ def monte_carlo_decorator(func):
 
             total += result
 
-        if parallel_states:
+        if self.parallel_states:
             if rank == 0:
                 divider_shape = divider.shape
                 result_shape = total.shape
@@ -143,18 +116,18 @@ def monte_carlo_decorator(func):
             root_result = ma.array(np.zeros(result_shape), dtype=np.complex128)
             comm.Allreduce(total, root_result, MPI.SUM)
 
-            if masked:
+            if self.masked:
                 root_divider = np.zeros(divider_shape, dtype=np.int32)
                 comm.Allreduce(divider, root_divider, MPI.SUM)
 
         else:
             root_result = total
-            if masked:
+            if self.masked:
                 root_divider = divider
 
         root_result = ma.array(root_result, fill_value=0j, dtype=np.complex128)
 
-        if masked:
+        if self.masked:
             root_result[root_divider == 0] = ma.masked
             root_divider = root_divider.reshape(root_result.shape[0], *[1] * len(root_result.shape[1:]))
 
@@ -162,4 +135,4 @@ def monte_carlo_decorator(func):
 
         return root_result
 
-    return inner_function
+    return inner_method

@@ -55,8 +55,9 @@ levels is characterized by the coherence function:
 
 .. math::
 
-    \mathcal{L}(t) = \frac{\left\langle{0}\right|\hat{\rho}_S(t)\left|{1}\right\rangle}
-     {\left\langle{0}\right|\hat{\rho}_S(0)\left|{1}\right\rangle} = \langle{\hat \sigma_+(t)}\rangle
+    \mathcal{L}(t) = \frac{\left\langle{1}\right|\hat{\rho}_S(t)\left|{0}\right\rangle}
+    {\left\langle{1}\right|\hat{\rho}_S(0)\left|{0}\right\rangle} =
+    \frac{\langle{\hat \sigma_{-}(t)}\rangle}{\langle{\hat \sigma_{-}(0)}\rangle}
 
 Where :math:`\hat{\rho}_S(t)` is the density matrix of the central spin and
 :math:`\left|{0}\right\rangle` and :math:`\left|{1}\right\rangle` are qubit levels.

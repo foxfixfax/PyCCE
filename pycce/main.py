@@ -16,14 +16,14 @@ from pycce.io.xyz import read_xyz
 
 from .bath.array import BathArray, SpinDict
 from .bath.cube import Cube
-from .calculators.coherence_function import monte_carlo_cce, compute_cce_coherence
-from .calculators.correlation_function import decorated_noise_correlation, \
-    projected_noise_correlation, monte_carlo_noise
-from .calculators.density_matrix import monte_carlo_dm, compute_cce_dm
 from .constants import ELECTRON_GYRO
 from .find_clusters import generate_clusters
-from .hamiltonian import total_hamiltonian
-from .utilities import zfs_tensor, project_bath_states, generate_projections
+from .h import total_hamiltonian
+from .run.cce import CCE
+from .run.corr import CCENoise, gCCENoise
+from .run.gcce import gCCE
+from .run.pulses import Sequence
+from .utilities import zfs_tensor, project_bath_states
 
 
 def _add_args(after):
@@ -59,13 +59,13 @@ _args = r"""
                 
                 Default is 0.
     
-            pulses (list or int): Number of pulses in CPMG sequence.
+            pulses (list or int or Sequence): Number of pulses in CPMG sequence.
     
-                *OR*
+                **OR**
     
                 Sequence of the instantaneous ideal control pulses.
-                ``pulses`` should have format of list with tuples,
-                each tuple contains can contain two or three entries:
+                ``pulses`` can be provided as a list with tuples,
+                each tuple is used to initialize ``Pulse`` class instance. For only central spin pulses:
     
                 1. axis the rotation is about;
                 2. angle of rotation;
@@ -73,17 +73,21 @@ _args = r"""
                    If varied, it should be provided as an array with the same
                    length as ``timespace``.
 
-                   E.g. for Hahn-Echo ``pulses = [('x', np.pi/2, timespace/2)]``.
-                   
-               If third argument in the tuple is not provided, assumes even delay of CPMG sequence.
+               If delay is not provided in **all** pulses, assumes even delay of CPMG sequence.
+    
                Then total experiment is assumed to be:
 
                    tau -- pulse -- 2tau -- pulse -- ... -- 2tau -- pulse -- tau
 
                Where tau is the delay between pulses.
     
-                E.g. for Hahn-Echo the ``pulses`` can be defined as ``[('x', np.pi)]`` or ``[('x', np.pi, 0.5)]``.
+                E.g. for Hahn-Echo the ``pulses`` can be defined as ``[('x', np.pi)]`` or 
+                ``[('x', np.pi, timespace / 2)]``.
                 Note, that if fraction is provided the computation becomes less effective than without it.
+                
+                **OR**
+                
+                Instance of ``Sequence`` class. (See pycce.Sequence documentation).
                 
                 In the calculations of noise autocorrelation this parameter is ignored.
                 
@@ -106,7 +110,13 @@ _args = r"""
                 Conventional CCE calculations do not support custom time fractions.
                 
                 Default is **False**.
+            
+            interlaced (bool): True if use hybrid CCE approach - for each cluster 
+                sample over states of the supercluster.
                 
+                Default is **False**.
+                
+                   
             state (ndarray with shape (2s+1,)):
                 Initial state of the central spin, used in gCCE and noise autocorrelation calculations.
                 
@@ -120,15 +130,10 @@ _args = r"""
                 Default is **None**. If not set, the code assumes completely random spin bath
                 (density matrix of each nuclear spin is proportional to identity, :math:`\hat {\mathbb{1}}/N`).
     
-            mean_field (bool):
-                If True, and ``bath_states`` keyword is provided, then compute only for
-                the given state with mean field corrections.
-                
-                Default is **True**.
     
             nbstates (int): Number or random bath states to sample over.
 
-                If provided, sampling of random states is carried and ``mean_field`` and ``bath_states`` values are
+                If provided, sampling of random states is carried and ``bath_states`` values are
                 ignored.
                     
                 Default is 0.
@@ -625,7 +630,8 @@ class Simulator(Environment):
         self.as_delay = as_delay
         # Initial entangled state of the qubit
         self.state = None
-        self.density_matrix = None
+        # hybrid CCE
+        self.interlaced = False
         # Parameters of MC states
         self.seed = None
         self.nbstates = None
@@ -637,6 +643,8 @@ class Simulator(Environment):
 
         self.projected_bath_state = None
         self.bath_state = None
+
+        self.timespace = None
 
     def __repr__(self):
         bm = (f"Simulator for spin-{self.spin}.\n"
@@ -765,7 +773,7 @@ class Simulator(Environment):
         except TypeError:
             pulses = pulses
 
-        self._pulses = pulses
+        self._pulses = Sequence(pulses)
 
     def set_zfs(self, D=None, E=0):
         """
@@ -974,7 +982,7 @@ class Simulator(Environment):
     read_bath.__doc__ = Environment.read_bath.__doc__
 
     @_add_args(_args + _returns)
-    def compute(self, timespace, quantity='coherence', method='cce', **kwarg):
+    def compute(self, timespace, quantity='coherence', method='cce', **kwargs):
         r"""
         General function for computing properties with CCE.
 
@@ -1005,6 +1013,19 @@ class Simulator(Environment):
         either be provided by user or read from the ``pycce.common_isotopes`` object.
         The interaction tensors :math:`\mathbf{J}_{ij}` are assumed from point dipole approximation
         or can be provided  in ``BathArray.imap`` attrubite.
+
+        .. note ::
+            The ``compute`` method takes two keyword arguments to determine which quantity to compute and how:
+
+                * `method` can take 'cce' or 'gcce' values, and determines
+                  which method to use - conventional or generalized CCE.
+                * `quantity` can take 'coherence' or 'noise' values, and determines
+                  which quantity to compute - coherence function
+                  or autocorrelation function of the noise.
+
+            Each of the methods can be performed with monte carlo bath state sampling
+            (if ``nbstates`` keyword is non zero)
+            and with interlaced averaging (If ``interlaced`` keyword is set to ``True``).
 
         Examples:
             First set up Simulator object using random bath of 1000 13C nuclear spins.
@@ -1055,150 +1076,39 @@ class Simulator(Environment):
                 Possible values:
 
                     - 'coherence': compute coherence function.
-                    - 'dm': compute full density matrix.
                     - 'noise': compute noise autocorrelation function.
 
             method (str): Which implementation of CCE to use. Case insensitive.
 
                 Possible values:
 
-                    - 'CCE': conventional CCE, where interactions are mapped on 2 level pseudospin.
-                    - 'gCCE': Generalized CCE where central spin is included in each cluster.
-        """
+                    - 'cce': conventional CCE, where interactions are mapped on 2 level pseudospin.
+                    - 'gcce': Generalized CCE where central spin is included in each cluster.
 
-        func = getattr(self, self._compute_func[method.lower()][quantity.lower()])
-        result = func(timespace, **kwarg)
+
+        """
+        self.timespace = timespace
+        self._prepare(**kwargs)
+
+        runner = self._compute_func[method.lower()][quantity.lower()].from_simulator(self)
+
+        if not self.interlaced:
+
+            if self.nbstates:
+                result = runner.sampling_run()
+
+            else:
+                result = runner.run()
+
+        else:
+
+            if self.nbstates:
+                result = runner.sampling_interlaced_run()
+
+            else:
+                result = runner.interlaced_run()
 
         return result
-
-    def cce_coherence(self, timespace, **kwargs):
-        r"""
-        Compute coherence :math:`\bra{0}\hat\rho\ket{1}` with conventional CCE.
-
-        Args:
-            timespace (ndarray with shape (n,)): Time points at which compute coherence function.
-            **kwargs: Additional keyword arguments for the simulation (see ``Simulator.compute`` for details)
-
-        Returns:
-            ndarray with shape (n,):
-                Coherence function computed at the time points listed in the ``timespace``.
-
-        """
-        self._prepare(**kwargs)
-        if not self.nbstates:
-
-            coherence = compute_cce_coherence(self.bath, self.clusters, timespace, self.alpha, self.beta,
-                                              self.magnetic_field, len(self.pulses),
-                                              self.spin, as_delay=self.as_delay,
-                                              bath_state=self.bath_state,
-                                              projected_bath_state=self.projected_bath_state,
-                                              zfs=self.zfs, gyro_e=self.gyro,
-                                              direct=self.direct, parallel=self.parallel,
-                                              second_order=self.second_order,
-                                              level_confidence=self.level_confidence)
-
-        else:
-            coherence = monte_carlo_cce(self.bath, self.clusters, timespace,
-                                        len(self.pulses), self.alpha, self.beta, self.magnetic_field,
-                                        self.spin, zfs=self.zfs, central_gyro=self.gyro,
-                                        as_delay=self.as_delay,
-                                        bath_state=self.bath_state, direct=self.direct, parallel=self.parallel,
-                                        second_order=self.second_order, level_confidence=self.level_confidence,
-                                        fixstates=self.fixstates, nbstates=self.nbstates, masked=self.masked,
-                                        parallel_states=self.parallel_states, seed=self.seed)
-
-        return coherence
-
-    def gcce_coherence(self, timespace, **kwargs) -> np.ndarray:
-        r"""
-        Compute coherence :math:`\bra{0}\hat\rho\ket{1}` of the central spin using generalized CCE.
-
-        Args:
-            timespace (ndarray with shape (n,)): Time points at which compute density matrix.
-            **kwargs: Additional keyword arguments for the simulation (see ``Simulator.compute`` for details)
-
-        Returns:
-            ndarray with shape(n, ):
-                array of coherence computed at each time point.
-
-        """
-        self._prepare(**kwargs)
-
-        if not self.nbstates:
-            dms = compute_cce_dm(self.bath, self.clusters, timespace,
-                                 self.alpha, self.beta, self.magnetic_field, self.zfs,
-                                 self.pulses, self.density_matrix, bath_state=self.bath_state,
-                                 gyro_e=self.gyro, as_delay=self.as_delay,
-                                 projected_bath_state=self.projected_bath_state,
-                                 parallel=self.parallel, direct=self.direct,
-                                 central_spin=self.spin)
-        else:
-
-            dms = monte_carlo_dm(self.bath, self.clusters, timespace,
-                                 self.pulses, self.state, self.alpha, self.beta,
-                                 self.magnetic_field, self.zfs, central_gyro=self.gyro,
-                                 as_delay=self.as_delay, nbstates=self.nbstates, seed=self.seed,
-                                 masked=self.masked, parallel_states=self.parallel_states,
-                                 fixstates=self.fixstates, direct=self.direct, parallel=self.parallel,
-                                 central_spin=self.spin)
-        return dms
-
-    def cce_noise(self, timespace, **kwargs):
-        r"""
-        Compute noise autocorrelation function of the noise with conventional CCE.
-
-        Args:
-            timespace (ndarray with shape (n,)): Time points at which compute correlation.
-            **kwargs: Additional keyword arguments for the simulation (see ``Simulator.compute`` for details)
-
-        Returns:
-            ndarray with shape (n,): Autocorrelation function of the noise, in kHz^2.
-        """
-
-        self._prepare(**kwargs)
-        if self.density_matrix is None:
-            self.eigenstates(self.alpha, self.beta)
-            self._gen_state()
-
-        projections_state = generate_projections(self.state)
-        corr = projected_noise_correlation(self.bath, self.clusters, projections_state,
-                                           self.magnetic_field, timespace, bath_state=self.bath_state,
-                                           parallel=self.parallel, direct=self.direct)
-
-        return corr
-
-    def gcce_noise(self, timespace, **kwargs):
-        r"""
-        Compute noise auto correlation function
-        using generalized CCE with or without Monte-Carlo bath state sampling.
-
-        Args:
-            timespace (ndarray with shape (n,)): Time points at which compute correlation.
-            **kwargs: Additional keyword arguments for the simulation (see ``Simulator.compute`` for details)
-
-        Returns:
-            ndarray with shape (n,): Autocorrelation function of the noise, in (kHz)^2.
-        """
-        self._prepare(**kwargs)
-        # TODO add eigenstates here as well
-        if self.density_matrix is None:
-            self.eigenstates(self.alpha, self.beta)
-            self._gen_state()
-
-        if self.nbstates:
-
-            corr = monte_carlo_noise(self.bath, self.clusters, self.density_matrix,
-                                     timespace, self.magnetic_field, self.zfs,
-                                     gyro_e=self.gyro, masked=self.masked, fixstates=self.fixstates,
-                                     nbstates=self.nbstates, seed=self.seed, parallel_states=self.parallel_states,
-                                     direct=self.direct, parallel=self.parallel)
-        else:
-            corr = decorated_noise_correlation(self.bath, self.clusters, self.density_matrix,
-                                               self.magnetic_field, self.zfs, timespace,
-                                               bath_state=self.bath_state,
-                                               gyro_e=self.gyro, projected_bath_state=self.projected_bath_state,
-                                               parallel=self.parallel, direct=self.direct)
-        return corr
 
     def _broadcast(self):
         """
@@ -1212,16 +1122,17 @@ class Simulator(Environment):
 
     _compute_func = {
         'cce': {
-            'coherence': 'cce_coherence',
-            'noise': 'cce_noise'
+            'coherence': CCE,
+            'noise': CCENoise
         },
         'gcce': {
-            'coherence': 'gcce_coherence',
-            'noise': 'gcce_noise',
+            'coherence': gCCE,
+            'noise': gCCENoise,
         }
     }
 
     def _gen_state(self, state=None):
+
         if state is None:
             if not (self.alpha.shape and self.beta.shape):
                 self.state = None
@@ -1230,10 +1141,6 @@ class Simulator(Environment):
         else:
             self.state = state
 
-        if self.state is not None:
-            self.density_matrix = np.tensordot(self.state, self.state, axes=0)
-        else:
-            self.density_matrix = None
 
     @_add_args(_args)
     def _prepare(self, state=None,
@@ -1244,7 +1151,6 @@ class Simulator(Environment):
                  alpha=None,
                  beta=None,
                  bath_state=None,
-                 mean_field=True,
                  nbstates=None,
                  seed=None,
                  masked=True,
@@ -1253,7 +1159,8 @@ class Simulator(Environment):
                  second_order=False,
                  level_confidence=0.95,
                  direct=False,
-                 parallel=False):
+                 parallel=False,
+                 interlaced=False):
         """
 
         Args:
@@ -1279,7 +1186,6 @@ class Simulator(Environment):
         self.parallel = parallel
         self.parallel_states = parallel_states
         self.as_delay = as_delay
-        self.mean_field = mean_field
         self.direct = direct
 
         if bath_state is not None:
@@ -1294,11 +1200,12 @@ class Simulator(Environment):
         self.nbstates = nbstates
         self.seed = seed
         self.masked = masked
+        self.interlaced = interlaced
 
         if parallel or parallel_states:
             self._broadcast()
 
-        if bath_state is not None and mean_field:
+        if bath_state is not None:
             self.projected_bath_state = project_bath_states(bath_state)
 
         else:
@@ -1336,7 +1243,10 @@ def _broadcast_simulator(simulator=None, root=0):
 
     nbath = comm.bcast(bath, root)
     nparam = comm.bcast(parameters, root)
+
     for k in nparam:
         setattr(nbath, k, nparam[k])
     nsim._bath = nbath
+
     return nsim
+

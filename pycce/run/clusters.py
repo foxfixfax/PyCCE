@@ -6,7 +6,7 @@ import operator
 import warnings
 import numpy as np
 
-from .sm import _smc
+from pycce.sm import _smc
 
 try:
     from mpi4py import MPI
@@ -29,19 +29,7 @@ def cluster_expansion_decorator(_func=None, *,
                                 removal_operator=operator.itruediv,
                                 addition_operator=np.prod):
     """
-    Decorator for creating cluster correlation expansion. Each expanded function will have two first arguments
-    and two additional keyword arguments.
-
-
-    **Additional parameters**:
-
-        * **allspin** (*BathArray*) -- Array of all bath spins.
-        * **subclusters** (*dict*) -- Clusters included in different CCE orders of structure
-          {int order: ndarray([[i,j],[i,j]])}.
-        * **parallel** (*bool*) -- True if parallelize calculation of cluster contributions
-          over different mpi threads using mpi4py.Default False.
-        * **direct** (*bool*) -- True if use direct approach (requires way more memory
-          but might be more numerically stable). False if use memory efficient approach. Default False.
+    Decorator for creating cluster correlation expansion of the method of ``RunObject`` class.
 
     Args:
         _func (func): Function to expand.
@@ -55,25 +43,27 @@ def cluster_expansion_decorator(_func=None, *,
         removal_operator (func):
             Operator which will remove subcluster contribution from the given cluster contribution.
             First argument cluster contribution, second - subcluster contribution (default: operator.itruediv).
+        addition_operator (func):
+            Group operation which will combine contributions from the different clusters into one
+            contribution (default: np.prod).
 
     Returns:
         func: Expanded function.
-
     """
 
     def inner_cluster_expansion_decorator(function):
 
         @functools.wraps(function)
-        def cluster_expansion(allspin, subclusters, *arg, parallel=False, direct=False, **kwarg):
+        def cluster_expansion(self, *arg, **kwarg):
 
-            if direct:
-                return direct_approach(function, allspin, subclusters, *arg, parallel=parallel,
+            if self.direct:
+                return direct_approach(function, self, *arg,
                                        result_operator=result_operator,
                                        removal_operator=removal_operator,
                                        addition_operator=addition_operator,
                                        **kwarg)
             else:
-                return optimized_approach(function, allspin, subclusters, *arg, parallel=parallel,
+                return optimized_approach(function, self, *arg,
                                           result_operator=result_operator,
                                           contribution_operator=contribution_operator,
                                           **kwarg)
@@ -86,7 +76,7 @@ def cluster_expansion_decorator(_func=None, *,
         return inner_cluster_expansion_decorator(_func)
 
 
-def optimized_approach(function, allspin, subclusters, *arg, parallel=False,
+def optimized_approach(function, self, *arg,
                        result_operator=operator.imul,
                        contribution_operator=operator.ipow,
                        **kwarg):
@@ -95,13 +85,8 @@ def optimized_approach(function, allspin, subclusters, *arg, parallel=False,
 
     Args:
         function (func): Function to expand.
-        subclusters (dict):
-            Clusters included in different CCE orders of structure {int order: ndarray([[i,j],[i,j]])}.
-        allspin (BathArray): Array of all bath spins.
+        self (RunObject): Object whose method is expanded.
         *arg: list of positional arguments of the expanded function.
-        parallel (bool):
-            True if parallelize calculation of cluster contributions over different mpi threads.
-            Default False.
         result_operator (func):
             Operator which will combine the result of expansion (default: operator.imul).
         contribution_operator (func):
@@ -112,18 +97,18 @@ def optimized_approach(function, allspin, subclusters, *arg, parallel=False,
     Returns:
         func: Expanded function.
     """
-
+    subclusters = self.clusters
     revorders = sorted(subclusters)[::-1]
     norders = len(revorders)
 
-    if parallel:
+    if self.parallel:
         try:
             from mpi4py import MPI
         except ImportError:
             warnings.warn('Parallel failed: mpi4py is not found. Running serial.')
-            parallel = False
+            self.parallel = False
 
-    if parallel:
+    if self.parallel:
         comm = MPI.COMM_WORLD
 
         size = comm.Get_size()
@@ -135,7 +120,7 @@ def optimized_approach(function, allspin, subclusters, *arg, parallel=False,
     # Then for this subcluster nelements < maximum CCE order
     if norders == 1 and subclusters[revorders[0]].shape[0] == 1:
         verticles = subclusters[revorders[0]][0]
-        return function(allspin, verticles, *arg, **kwarg)
+        return function(self, verticles, *arg, **kwarg)
 
     result = 1
     result = contribution_operator(result, 0)
@@ -147,7 +132,7 @@ def optimized_approach(function, allspin, subclusters, *arg, parallel=False,
         nclusters = subclusters[order].shape[0]
         current_power = np.ones(nclusters, dtype=np.int32)
         # indexes of the cluster of size order are stored in v
-        if parallel:
+        if self.parallel:
             remainder = nclusters % size
             add = int(rank < remainder)
             each = nclusters // size
@@ -180,12 +165,12 @@ def optimized_approach(function, allspin, subclusters, *arg, parallel=False,
                 # As all of them have to be divided by v
                 current_power[index] -= np.sum(power[higherorder][containv], dtype=np.int32)
 
-            vcalc = function(allspin, v, *arg, **kwarg)
+            vcalc = function(v, *arg, **kwarg)
             vcalc = contribution_operator(vcalc, current_power[index])
 
             result = result_operator(result, vcalc)
 
-        if parallel:
+        if self.parallel:
             buffer = np.empty(current_power.shape, dtype=np.int32)
             comm.Allreduce(current_power, buffer, MPI.SUM)
             current_power = buffer - size + 1
@@ -197,7 +182,7 @@ def optimized_approach(function, allspin, subclusters, *arg, parallel=False,
         #     function.__name__, order, subclusters[order].shape[0]))
     _smc.clear()
 
-    if parallel:
+    if self.parallel:
         if rank == 0:
             result_shape = result.shape
         else:
@@ -216,7 +201,7 @@ def optimized_approach(function, allspin, subclusters, *arg, parallel=False,
     return root_result
 
 
-def direct_approach(function, allspin, subclusters, *arg, parallel=False,
+def direct_approach(function, self, *arg,
                     result_operator=operator.imul,
                     removal_operator=operator.itruediv,
                     addition_operator=np.prod,
@@ -226,13 +211,7 @@ def direct_approach(function, allspin, subclusters, *arg, parallel=False,
 
     Args:
         function (func): Function to expand.
-        subclusters (dict):
-            Clusters included in different CCE orders of structure {int order: ndarray([[i,j],[i,j]])}.
-        allspin (BathArray): Array of all bath spins.
-        *arg: list of positional arguments of the expanded function.
-        parallel (bool):
-            True if parallelize calculation of cluster contributions over different mpi threads.
-            Default False.
+        self (RunObject): Object whose method is expanded.
         result_operator (func):
             Operator which will combine the result of expansion (default: operator.imul).
         removal_operator (func):
@@ -244,21 +223,23 @@ def direct_approach(function, allspin, subclusters, *arg, parallel=False,
         **kwarg: Dictionary containing all keyword arguments of the expanded function.
 
     Returns:
-        func: Expanded function.
+        func: Expanded method.
 
     """
-    if parallel:
+    subclusters = self.clusters
+
+    if self.parallel:
         try:
             from mpi4py import MPI
         except ImportError:
             warnings.warn('Parallel failed: mpi4py is not found. Running serial')
-            parallel = False
+            self.parallel = False
             MPI = None
 
     orders = sorted(subclusters)
     norders = len(orders)
 
-    if parallel:
+    if self.parallel:
         comm = MPI.COMM_WORLD
 
         size = comm.Get_size()
@@ -272,7 +253,7 @@ def direct_approach(function, allspin, subclusters, *arg, parallel=False,
     if norders == 1 and subclusters[orders[0]].shape[0] == 1:
         verticles = subclusters[orders[0]][0]
 
-        return function(allspin, verticles,  *arg, **kwarg)
+        return function(self, verticles, *arg, **kwarg)
 
         # print(zero_power)
     # The Highest possible L will have all powers of 1
@@ -285,7 +266,7 @@ def direct_approach(function, allspin, subclusters, *arg, parallel=False,
         # indexes of the cluster of size order are stored in v
         nclusters = subclusters[order].shape[0]
 
-        if parallel:
+        if self.parallel:
             remainder = nclusters % size
             add = int(rank < remainder)
             each = nclusters // size
@@ -298,7 +279,7 @@ def direct_approach(function, allspin, subclusters, *arg, parallel=False,
         for index in range(start, start + block):
 
             v = subclusters[order][index]
-            vcalc = function(allspin, v,  *arg, **kwarg)
+            vcalc = function(v, *arg, **kwarg)
 
             for lowerorder in orders[:visited]:
                 contained_in_v = np.all(np.isin(subclusters[lowerorder], v), axis=1)
@@ -308,7 +289,7 @@ def direct_approach(function, allspin, subclusters, *arg, parallel=False,
             current_order.append(vcalc)
         current_order = np.array(current_order, copy=False)
 
-        if parallel:
+        if self.parallel:
             comm.Barrier()
             result_shape = vcalc.shape if rank == 0 else None
             result_shape = comm.bcast(result_shape, root=0)
@@ -327,3 +308,134 @@ def direct_approach(function, allspin, subclusters, *arg, parallel=False,
         result = result_operator(result, addition_operator(result_tilda[o], axis=0))
 
     return result
+
+
+def interlaced_decorator(_func=None, *,
+                         result_operator=operator.imul,
+                         contribution_operator=operator.ipow):
+    """
+    Decorator for creating interlaced cluster correlation expansion of the method of ``RunObject`` class.
+
+    Args:
+        _func (func): Function to expand.
+        result_operator (func):
+            Operator which will combine the result of expansion (default: operator.imul).
+        contribution_operator (func):
+            Operator which will combine multiple contributions
+            of the same cluster (default: operator.ipow) in the optimized approach.
+
+    Returns:
+        func: Expanded method.
+
+    """
+
+    def inner_interlaced_decorator(function):
+
+        @functools.wraps(function)
+        def cluster_expansion(self, *arg, **kwarg):
+
+            subclusters = self.clusters
+            revorders = sorted(subclusters)[::-1]
+            norders = len(revorders)
+
+            if self.parallel:
+                try:
+                    from mpi4py import MPI
+                except ImportError:
+                    warnings.warn('Parallel failed: mpi4py is not found. Running serial.')
+                    self.parallel = False
+
+            if self.parallel:
+                comm = MPI.COMM_WORLD
+
+                size = comm.Get_size()
+                rank = comm.Get_rank()
+            else:
+                rank = 0
+
+            # If there is only one set of indexes for only one order,
+            # Then for this subcluster nelements < maximum CCE order
+            if norders == 1 and subclusters[revorders[0]].shape[0] == 1:
+                verticles = subclusters[revorders[0]][0]
+                return function(self, verticles, *arg, **kwarg)
+
+            result = 1
+            result = contribution_operator(result, 0)
+            # The Highest possible L will have all powers of 1
+            power = {}
+            # Number of visited orders from highest to lowest
+            visited = 0
+            for order in revorders:
+                nclusters = subclusters[order].shape[0]
+                current_power = np.ones(nclusters, dtype=np.int32)
+                # indexes of the cluster of size order are stored in v
+                if self.parallel:
+                    remainder = nclusters % size
+                    add = int(rank < remainder)
+                    each = nclusters // size
+                    block = each + add
+                    start = rank * each + rank if rank < remainder else rank * each + remainder
+                else:
+                    start = 0
+                    block = nclusters
+
+                for index in range(start, start + block):
+
+                    v = subclusters[order][index]
+                    supercluster = []
+
+                    for higherorder in revorders[:visited]:
+                        containv = np.count_nonzero(
+                            np.isin(subclusters[higherorder], v), axis=1) == v.size
+
+                        supercluster.append(subclusters[higherorder][containv].ravel())
+                        current_power[index] -= np.sum(power[higherorder][containv], dtype=np.int32)
+
+                    try:
+                        supercluster = np.unique(np.concatenate(supercluster))
+                    except ValueError:
+                        supercluster = v
+                    if not supercluster.size:
+                        supercluster = v
+
+                    vcalc = function(v, supercluster, *arg, **kwarg)
+                    vcalc = contribution_operator(vcalc, current_power[index])
+
+                    result = result_operator(result, vcalc)
+
+                if self.parallel:
+                    buffer = np.empty(current_power.shape, dtype=np.int32)
+                    comm.Allreduce(current_power, buffer, MPI.SUM)
+                    current_power = buffer - size + 1
+
+                power[order] = current_power
+
+                visited += 1
+                # print('Computed {} of order {} for {} clusters'.format(
+                #     function.__name__, order, subclusters[order].shape[0]))
+            _smc.clear()
+
+            if self.parallel:
+                if rank == 0:
+                    result_shape = result.shape
+                else:
+                    result_shape = None
+                result_shape = comm.bcast(result_shape, root=0)
+                if np.asarray(result).shape != result_shape:
+                    result = np.ones(result_shape, dtype=np.complex128)
+                    result = contribution_operator(result, 0)
+
+                root_result = np.zeros(result_shape, dtype=np.complex128)
+                comm.Allreduce(result.astype(np.complex128), root_result, mpiop[result_operator.__name__])
+
+            else:
+                root_result = result
+
+            return root_result
+
+        return cluster_expansion
+
+    if _func is None:
+        return inner_interlaced_decorator
+    else:
+        return inner_interlaced_decorator(_func)

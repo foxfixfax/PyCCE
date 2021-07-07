@@ -79,6 +79,7 @@ def dimensions_spinvectors(nspin, central_spin=None):
     """
 
     ntype = nspin.types
+
     spins = [ntype[n].s for n in nspin['N']]
     dimensions = [_smc[s].dim for s in spins]
 
@@ -92,6 +93,8 @@ def dimensions_spinvectors(nspin, central_spin=None):
 
     for j, s in enumerate(spins):
         vectors.append(spinvec(s, j, dimensions))
+
+    vectors = np.asarray(vectors)
 
     return dimensions, vectors
 
