@@ -161,8 +161,7 @@ class RunObject:
         self.bath_state = bath_state
         """ndarray: Array of bath states in any accepted format."""
         self.projected_bath_state = projected_bath_state
-        """ndarray with shape (n,):
-        Array with z-projections of the bath spins states.
+        """ndarray with shape (n,): Array with z-projections of the bath spins states.
         Overridden in runs with random bath state sampling."""
         self.magnetic_field = magnetic_field
         """ndarray: Magnetic field of type ``magnetic_field = np.array([Bx, By, Bz])``."""

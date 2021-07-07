@@ -49,6 +49,7 @@ class Pulse:
         if angle is not None and np.isclose(angle, np.pi):
             self.flip = True
 
+        self._has_delay = False
         self.delay = delay
 
         if bath_names is not None:
@@ -92,7 +93,8 @@ class Pulse:
         if value is not None:
             self._delay = np.asarray(value)
             self._has_delay = True
-
+        else:
+            self._has_delay = False
     def __repr__(self):
 
         w = f'Pulse('
