@@ -247,8 +247,8 @@ class Sequence(UserList):
 
             if p.bath_names is not None:
                 if vectors.shape != bath.shape:
-                    vectors = vectors[:bath.shape[0] + 1]
-
+                    vectors = vectors[:bath.shape[0]]
+                    # print(vectors.shape)
                 properties = np.broadcast(p.bath_names, p.bath_axes, p.bath_angles)
 
                 for name, axis, angle in properties:
