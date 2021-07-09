@@ -198,9 +198,6 @@ class PWCoordinates(DFTCoordinates):
             filename (str): the name of the output file.
             to_angstrom (bool): True if automatically convert the units of ``cell`` and ``coordinates`` to Angstrom.
 
-        Returns:
-            None
-
         """
         input_string = open(filename).read()
         namelists = read_qe_namelists(input_string.lower())
@@ -497,10 +494,10 @@ def read_hyperfine(filename, spin=1):
         spin (float): Spin of the central spin. Default 1.
 
     Returns:
-        tuple: tuple containing:
+        tuple: Tuple containing:
 
-            * **ndarray with shape (n,)**: Array of Fermi contact terms.
-            * **ndarray with shape (n, 3,3)**: Array of spin dipolar hyperfine tensors.
+            * *ndarray with shape (n,)*: Array of Fermi contact terms.
+            * *ndarray with shape (n, 3,3)*: Array of spin dipolar hyperfine tensors.
 
     """
     conversion = MHZ_TO_KHZ / (2 * spin)
@@ -544,7 +541,7 @@ def read_efg(filename):
 
 def read_qe_namelists(input_string):
     """
-    Read Fortran-like namelists from the lagre string.
+    Read Fortran-like namelists from the large string.
 
     Args:
         input_string (str): String representation of the QE input file.
@@ -579,8 +576,9 @@ def read_qe_namelists(input_string):
 def get_ctype(lin):
     """
     Get coordinates type from the line of QE input/output.
+
     Args:
-        lin (str): Line from QE input/output containing string with coordinates type.
+        str: Line from QE input/output containing string with coordinates type.
 
     Returns:
         str: type of the coordinates.

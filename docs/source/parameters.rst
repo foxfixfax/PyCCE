@@ -157,7 +157,7 @@ The couplings between bath spins are assumed to follow point dipole-dipole inter
                        \left[ \frac{3 \vec{r_{ij}} \otimes \vec{r_ij} - |r_{ij}|^2 I}{|r_{ij}|^5} \right]
 
 Where :math:`\gamma_{i}` is gyromagnetic ratio of `i` tensor, :math:`I` is 3x3 identity matrix, and
-:math:`\vec{r_{ij}` is distance between two vectors.
+:math:`\vec{r_{ij}}` is distance between two vectors.
 
 However, user can define the interaction tensors for specific bath spin pairs stored in the ```BathArray`` instance.
 This can be achieved by:

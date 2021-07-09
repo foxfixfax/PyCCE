@@ -354,9 +354,9 @@ def overhauser_bath(ivec, position, gyro,
     if len(others_state.shape) == 1:
         # xfield = np.sum(pre / r ** 5 * (- 3 * pos[:, 2] * pos[:, 0]) * others_state)
         # yfield = np.sum(pre / r ** 5 * (- 3 * pos[:, 2] * pos[:, 1]) * others_state)
-        zfield = np.sum(pre / r ** 3 * (1 - 3 * pos[:, 2] ** 2 / r ** 2) * others_state)
+        zfield = np.sum(pre / r ** 5 * (r ** 2 - 3 * pos[:, 2] ** 2) * others_state)
         # Not sure which is more physical yet..
-        return zfield * ivec[2]  # + xfield * ivec[0] + yfield * ivec[1]
+        return zfield * ivec[2] # + xfield * ivec[0] + yfield * ivec[1]
 
     else:
         posxpos = np.einsum('ki,kj->kij', pos, pos)

@@ -151,7 +151,7 @@ _args = r"""
                     It is up to user to check whether the possible instability is due to numerical error
                     or unphysical assumptions of the calculations.
 
-                Default is **True**.
+                Default is **True** for coherence calculations, **False** for noise calculations.
 
 
             parallel_states (bool):
@@ -577,21 +577,7 @@ class Simulator(Environment):
 
     Attributes:
 
-        spin (float): Value of the central spin s.
 
-        position (ndarray with shape (3, 3)): Position of the central spin in Cartesian coordinates.
-
-        zfs (ndarray with shape (3,3)): Zero field splitting tensor of the central spin.
-
-        imap (InteractionMap): Instance of InteractionMap class, containing interaction tensors for bath spins.
-            Each key of the ``InteractionMap`` is a tuple with indexes of two bath spins.
-            The value is the 3x3 tensor describing the interaction between two spins.
-
-        clusters (dict): Dictionary containing information about cluster structure of the bath.
-            Each keys n correspond to the size of the cluster.
-            Each ``Simulator.clusters[n]`` contains ``ndarray`` of shape (m, n),
-            where m is the number of clusters of given size, n is the size of the cluster.
-            Each row  of this array contains indexes of the bath spins included in the given cluster.
 
         state (ndarray): Innitial state of the qubit in gCCE simulations.
             Assumed to be :math:`1/\sqrt{2}(\ket{0} + \ket{1}` unless provided during ``Simulator.compute`` call.
@@ -608,11 +594,13 @@ class Simulator(Environment):
             position = np.zeros(3)
 
         self.position = np.asarray(position, dtype=np.float64)
+        """ndarray with shape (3, ): Position of the central spin in Cartesian coordinates."""
         self.spin = spin
+        """float: Value of the central spin s."""
         self.gyro = gyro
 
         self.zfs = zfs_tensor(D, E)
-
+        """ndarray with shape (3,3): Zero field splitting tensor of the central spin"""
         self._magnetic_field = None
         self.magnetic_field = magnetic_field
         self.set_states(alpha, beta)
@@ -621,7 +609,13 @@ class Simulator(Environment):
 
         self._order = order
         self.clusters = None
-
+        """dict: Dictionary containing information about cluster structure of the bath.
+        
+        Each keys n correspond to the size of the cluster.
+        Each ``Simulator.clusters[n]`` contains ``ndarray`` of shape (m, n),
+        where m is the number of clusters of given size, n is the size of the cluster.
+        Each row  of this array contains indexes of the bath spins included in the given cluster.
+        Generated during ``.generate_clusters`` call."""
         # Bath setting up
         super().__init__(self.position, self.gyro, bath, **bath_kw)
 
@@ -1087,6 +1081,10 @@ class Simulator(Environment):
 
 
         """
+        if quantity.lower() == 'noise':
+            kwargs.setdefault('masked', False)
+        else:
+            kwargs.setdefault('masked', True)
         self.timespace = timespace
         self._prepare(**kwargs)
 

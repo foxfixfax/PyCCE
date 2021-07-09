@@ -2,25 +2,55 @@
 PyCCE: A Python Package for CCE Simulations
 =========================================================================================
 
+
+.. toctree::
+   :hidden:
+   :maxdepth: 2
+   :caption: Getting Started
+
+   Installation <self>
+   theory
+   quickstart
+   tutorial
+
+.. toctree::
+   :hidden:
+   :maxdepth: 1
+   :caption: User Documentation
+
+   bath
+   simulator
+   parameters
+   dft
+
+.. toctree::
+   :hidden:
+   :maxdepth: 1
+   :caption: Developer Documentation
+
+   calculators
+   hamiltonian
+   utilities
+   dftbase
+
 .. figure:: logo.png
   :scale: 40%
   :align: left
   :target: index.html
 
-**PyCCE** is an open source Python library to simulate
-dynamics of the spin qubit, interacting with spin bath
-with the means of the cluster-correlation expansion (CCE) method.
-
+**PyCCE** is an open source Python library to simulate the
+dynamics of a spin qubit, interacting with a spin bath
+using the cluster-correlation expansion (CCE) method.
 
 
 Installation
 ----------------
 
-The recommended way to install **PyCCE** package is to use the **pip**::
+The recommended way to install **PyCCE** package is to use **pip**::
 
    $ pip install pycce
 
-Otherwise you can install directly from the source code. First copy the repository to the desired folder::
+Otherwise you can install directly using the source code. First copy the repository to the desired folder::
 
     $ git clone https://github.com/foxfixfax/pycce.git
 
@@ -50,37 +80,11 @@ The following modules are required to run **PyCCE**.
 
 * `Pandas <https://pandas.pydata.org/>`_.
 
-**PyCCE** inherently supports parallelization with **mpi4py** package, which requires existing
-MPI implementation to be installed on the system.
+**PyCCE** inherently supports parallelization with the **mpi4py** package, which requires MPI
+to be installed.
 However, for serial implementation the **mpi4py** is not required.
 
-
-
-.. toctree::
-   :maxdepth: 2
-   :caption: Getting Started
-
-   Installation <self>
-   theory
-   quickstart
-   tutorial
-
-.. toctree::
-   :hidden:
-   :maxdepth: 1
-   :caption: User Documentation
-
-   bath
-   simulator
-   parameters
-   dft
-
-.. toctree::
-   :hidden:
-   :maxdepth: 1
-   :caption: Developer Documentation
-
-   calculators
-   hamiltonian
-   utilities
+How to cite
+--------------------------
+If you make use of **PyCCE** in a scientific publication, please cite the following paper:
 

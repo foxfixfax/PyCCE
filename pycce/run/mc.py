@@ -104,19 +104,23 @@ def monte_carlo_method_decorator(func):
 
         if self.parallel_states:
             if rank == 0:
-                divider_shape = divider.shape
                 result_shape = total.shape
             else:
                 result_shape = None
-                divider_shape = None
 
             result_shape = comm.bcast(result_shape, root=0)
-            divider_shape = comm.bcast(divider_shape, root=0)
 
             root_result = ma.array(np.zeros(result_shape), dtype=np.complex128)
             comm.Allreduce(total, root_result, MPI.SUM)
 
             if self.masked:
+                if rank == 0:
+                    divider_shape = divider.shape
+                else:
+                    divider_shape = None
+
+                divider_shape = comm.bcast(divider_shape, root=0)
+
                 root_divider = np.zeros(divider_shape, dtype=np.int32)
                 comm.Allreduce(divider, root_divider, MPI.SUM)
 
