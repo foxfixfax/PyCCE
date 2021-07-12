@@ -138,10 +138,17 @@ def _get_pulse(value):
 
 class Sequence(UserList):
     """
-    Class-container for the sequence of the pulses.
+    List-like object, which contains the sequence of the pulses.
 
     Each element is a ``Pulse`` instance, which can be generated from either the tuple with positional arguments
     or from the dictionary, or set manually.
+
+    If delay is not provided in **all** pulses in the sequence, assume equispaced pulse sequence:
+
+        t - pulse - 2t - pulse - 2t - ... - pulse - t
+
+    If only **some** delays are provided, assumes 0 delay in the pulses without delay provided.
+
 
     Examples:
         >>> import numpy as np
@@ -198,10 +205,6 @@ class Sequence(UserList):
         The rotations are stored in the ``.rotation`` attribute of the each ``Pulse`` object
         and in ``Sequence.rotations``.
 
-        If delay is not provided in all pulses in the sequence, assume equispaced pulse sequence:
-
-            t - pulse - 2t - pulse - 2t - ... - pulse - t
-
         Args:
             dimensions (ndarray with shape (N,)): Array of spin dimensions in the system.
             bath (BathArray with shape (n,)): Array of bath spins in the system.
@@ -226,7 +229,7 @@ class Sequence(UserList):
             delays = None
 
         else:
-            delays = [p.delay for p in self.data]
+            delays = [p.delay if p.delay is not None else 0 for p in self.data]
 
         rots = []
         sigma = {}

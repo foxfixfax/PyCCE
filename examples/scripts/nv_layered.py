@@ -9,27 +9,12 @@ from parser import pcparser
 import pandas as pd
 
 from ase.build import bulk
-
-sys.path.append('/home/onizhuk/codes_development/pyCCE/')
 import pycce as pc
-
-
-# helper function to make folder
-def mkdir_p(dir):
-    '''make a directory (dir) if it doesn't exist'''
-    try:
-        os.mkdir(dir)
-
-    except FileExistsError:
-        pass
-
-    return
-
 
 seed = 1
 
 # parameters of calcuations
-calc_param = {'magnetic_field': np.array([0., 0., 500.]), 'N': 1}
+calc_param = {'magnetic_field': np.array([0., 0., 500.]), 'pulses': 1}
 
 # position of central spin
 center = np.array([0, 0, 0])
@@ -49,14 +34,9 @@ if __name__ == '__main__':
     maxtime = 50
     time_space = np.geomspace(0.001, maxtime, 1001)
 
-    # MPI stuff
-    comm = MPI.COMM_WORLD
-
-    size = comm.Get_size()
-    rank = comm.Get_rank()
 
     # Each configuration is determined by rng seed as a sum of seed + conf
-    conf = rank + arguments.start
+    conf = arguments.start
     # Set up BathCell
     diamond = bulk('C', 'diamond', cubic=True)
     diamond = pc.bath.BathCell.from_ase(diamond)
@@ -82,9 +62,6 @@ if __name__ == '__main__':
     # transform parser into dictionary
     calc_setup = vars(arguments)
 
-    # directory to store results
-    fol = f'var_{arguments.param}'
-    mkdir_p(fol)
     # list to store calculations results
     ls = []
     # argument.values contains values of the varied parameter
@@ -97,13 +74,13 @@ if __name__ == '__main__':
 
         # r_bath is a sum of 'rbath' parameter and thickness of
         # purified layer
-        r_bath = calc_setup['rbath'] + thickness * length
+        r_bath = calc_setup['r_bath'] + thickness * length
         ntop = top.copy()
         nbottom = bottom.copy()
         # move top and bottom by the thickness
         ntop['xyz'] = top['xyz'] + offset * thickness
         nbottom['xyz'] = bottom['xyz'] - offset * thickness
-        # cimbine top and bottom back
+        # combine top and bottom back
         atoms = np.r_[ntop, nbottom]
 
         # if no isotopical layer, remove C at the locations of the defect
@@ -114,10 +91,10 @@ if __name__ == '__main__':
         # initiallize Simulator instance
         calc = pc.Simulator(1, center, alpha=alpha, beta=beta, bath=atoms,
                             r_bath=r_bath,
-                            r_dipole=calc_setup['rdipole'],
+                            r_dipole=calc_setup['r_dipole'],
                             order=calc_setup['order'])
         # compute coherence
-        result = calc.cce_coherence(time_space, as_delay=False, **calc_param)
+        result = calc.compute(time_space, as_delay=False, parallel=True, **calc_param)
         # for simplicity of further analysis, save actual thickness
         if arguments.param == 'thickness':
             v = v * length * 2
@@ -129,14 +106,20 @@ if __name__ == '__main__':
     df = pd.DataFrame(ls).T
 
     # write the calculation parameters into file
-    with open(os.path.join(fol, f'pyCCE_{conf}.csv'), 'w') as file:
-        calc_setup.pop(arguments.param)
-        # first line is the comment containing parameters
-        tw = ', '.join(f'{a} = {b}' for a, b in calc_setup.items())
-        file.write('# ' + tw + '\n')
-        df.to_csv(file)
+    # To avoid confusion, do it only from rank == 0
 
-    etime = time.time()
+    # MPI stuff
+    rank = MPI.COMM_WORLD.Get_rank()
 
-    print(f'Calculation of {len(arguments.values)} {arguments.param} took '
-          f'{etime - stime:.2f} s for configuration {conf}')
+    if rank == 0:
+        with open(f'var_{arguments.param}_{conf}.csv', 'w') as file:
+            calc_setup.pop(arguments.param)
+            # first line is the comment containing parameters
+            tw = ', '.join(f'{a} = {b}' for a, b in calc_setup.items())
+            file.write('# ' + tw + '\n')
+            df.to_csv(file)
+
+        etime = time.time()
+
+        print(f'Calculation of {len(arguments.values)} {arguments.param} took '
+              f'{etime - stime:.2f} s for configuration {conf}')

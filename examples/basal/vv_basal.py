@@ -1,3 +1,26 @@
+"""
+script usage:
+
+mpirun python nv_ensemble.py [-h] [--r_bath R_BATH] [--r_dipole R_DIPOLE] [--order ORDER]
+                             [--nbstates NBSTATES] [--start START] [--pulses PULSES]
+                             [--magnetic_field MAGNETIC_FIELD]
+                             [param] [values [values ...]] 
+
+positional arguments:
+param                 varied parameter
+values                values of varied parameter
+
+optional arguments:                                                                                                       
+-h, --help                          show this help message and exit
+--r_bath R_BATH, -rb R_BATH         cutoff bath radius
+--r_dipole R_DIPOLE, -rd R_DIPOLE   pair cutoff radius
+--order ORDER, -o ORDER             CCE order
+--start START, -s START             configurations start
+--pulses PULSES, -N PULSES          number of pulses
+--nbstates NBSTATES, -n NBSTATES    number of bath states to sample over
+"""
+
+
 import numpy as np
 import os
 import time
@@ -7,20 +30,7 @@ from mpi4py import MPI
 from parser import pcparser
 
 import pandas as pd
-sys.path.append('/home/onizhuk/codes_development/pyCCE/')
 import pycce as pc
-
-
-# helper function to make folder
-def mkdir_p(dir):
-    '''make a directory (dir) if it doesn't exist'''
-    try:
-        os.mkdir(dir)
-
-    except FileExistsError:
-        pass
-
-    return
 
 
 seed = 1
@@ -108,16 +118,10 @@ if __name__ == '__main__':
     atoms = atoms[np.abs(atoms.A[:,2,2]) < 1.1 * MHZ_KHZ]
     calc_setup = vars(arguments)
 
-    # argument.values contains values of the varied parameter
-    # arguments.param
-    fol = f'{arguments.pulses}_var_{arguments.param}'
-    mkdir_p(fol)
-
     # list to store calculations results
     ls = []
 
     # argument.values contains values of the varied parameter
-
     # arguments.param
 
     for v in arguments.values:
@@ -135,7 +139,7 @@ if __name__ == '__main__':
         # compute coherence
         result = calc.compute(time_space, as_delay=False,
                               quantity='coherence', method='gcce',
-                              mean_field=True, parallel_states=True,
+                              parallel_states=True,
                               nbstates=calc_setup['nbstates'],
                               )
         # for simplicity of further analysis, save actual thickness
@@ -148,7 +152,7 @@ if __name__ == '__main__':
         df.index.rename('Time', inplace=True)
 
         # write the calculation parameters into file
-        with open(os.path.join(fol, f'pyCCE_{conf}.csv'), 'w') as file:
+        with open(f'{arguments.pulses}_var_{arguments.param}_{conf}.csv', 'w') as file:
             tw = ', '.join(f'{a} = {b}' for a, b in calc_setup.items())
             file.write('# ' + tw + '\n')
             df.to_csv(file)

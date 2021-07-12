@@ -3,7 +3,7 @@ from distutils.core import setup
 
 setup(
     name='pycce',
-    version='0.6.2',
+    version='0.6.5',
     url='',
     license='',
     author='Nikita Onizhuk',
@@ -13,4 +13,5 @@ setup(
     install_requires=[
         'numpy', 'scipy', 'ase', 'pandas'
     ],
+    include_package_data=True,
 )

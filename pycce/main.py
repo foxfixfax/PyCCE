@@ -4,7 +4,7 @@ Default Units:
 - Distance: Angstrom, A
 - Time: Millisecond, ms
 - Magnetic Field: Gaussian, G = 1e-4 Tesla
-- Gyromagnetic Ratio: rad * kHz / Gauss
+- Gyromagnetic Ratio: rad / ms / Gauss
 - Quadrupole moment: barn
 - Couplings: kHz
 
@@ -58,65 +58,74 @@ _args = r"""
                 Ignored if ``D`` is None or tensor.
                 
                 Default is 0.
-    
+
             pulses (list or int or Sequence): Number of pulses in CPMG sequence.
-    
+
                 **OR**
-    
+
                 Sequence of the instantaneous ideal control pulses.
-                ``pulses`` can be provided as a list with tuples,
-                each tuple is used to initialize ``Pulse`` class instance. For only central spin pulses:
-    
+                It can be provided as an instance of ``Sequence`` class
+                (See documentation for pycce.Sequence).
+                
+                ``pulses`` can be provided as a list with tuples or dictionaries,
+                each tuple or dictionary is used to initialize ``Pulse`` class instance.
+
+                For example, for only central spin pulses the ``pulses`` argument
+                can be provided as a list of tuples, containing:
+
                 1. axis the rotation is about;
                 2. angle of rotation;
                 3. (optional) Time before the pulse. Can be as fixed, as well as varied.
                    If varied, it should be provided as an array with the same
                    length as ``timespace``.
 
-               If delay is not provided in **all** pulses, assumes even delay of CPMG sequence.
-    
-               Then total experiment is assumed to be:
-
-                   tau -- pulse -- 2tau -- pulse -- ... -- 2tau -- pulse -- tau
-
-               Where tau is the delay between pulses.
-    
                 E.g. for Hahn-Echo the ``pulses`` can be defined as ``[('x', np.pi)]`` or 
                 ``[('x', np.pi, timespace / 2)]``.
-                Note, that if fraction is provided the computation becomes less effective than without it.
+
+                .. note::
                 
-                **OR**
-                
-                Instance of ``Sequence`` class. (See pycce.Sequence documentation).
-                
-                In the calculations of noise autocorrelation this parameter is ignored.
-                
-                Default is **None**. Overrides``Simulator.pulses`` if provided.
-                
+                    If delay is not provided in **all** pulses, assumes even delay of CPMG sequence. 
+                    If only **some** delays are provided, assumes ``delay = 0``  in the pulses without delay.
+
+                    Then total experiment is assumed to be:
+
+                        tau -- pulse -- 2tau -- pulse -- ... -- 2tau -- pulse -- tau
+
+                    Where tau is the delay between pulses.
+
+                    The sum of delays at each time point should be less or equal to the total time of the experiment
+                    at the same time point, provided in ``timespace`` argument. 
+
+                .. warning::
     
+                    In conventional CCE calculations, only :math:`pi` pulses
+                    on the central spin are allowed. 
+
+                In the calculations of noise autocorrelation this parameter is ignored.
+
+                Default is **None**. Overrides``Simulator.pulses`` if provided.
+
             alpha (int or ndarray with shape (2s+1, )): :math:`\ket{0}` state of the qubit in :math:`S_z`
                 basis or the index of eigenstate to be used as one.
-    
+
                 Default is **None**. Overrides``Simulator.alpha`` if provided.
 
-    
             beta (int or ndarray with shape (2s+1, )): :math:`\ket{1}` state of the qubit in :math:`S_z` basis
                 or the index of the eigenstate to be used as one.
 
                 Default is **None**. Overrides``Simulator.beta`` if provided.
-                    
+    
             as_delay (bool): True if time points are delay between pulses (for equispaced pulses),
                 False if time points are total time. Ignored in gCCE if ``pulses`` contains the time fractions.
                 Conventional CCE calculations do not support custom time fractions.
-                
+
                 Default is **False**.
-            
+
             interlaced (bool): True if use hybrid CCE approach - for each cluster 
                 sample over states of the supercluster.
-                
+
                 Default is **False**.
-                
-                   
+
             state (ndarray with shape (2s+1,)):
                 Initial state of the central spin, used in gCCE and noise autocorrelation calculations.
                 
@@ -129,8 +138,7 @@ _args = r"""
     
                 Default is **None**. If not set, the code assumes completely random spin bath
                 (density matrix of each nuclear spin is proportional to identity, :math:`\hat {\mathbb{1}}/N`).
-    
-    
+
             nbstates (int): Number or random bath states to sample over.
 
                 If provided, sampling of random states is carried and ``bath_states`` values are
@@ -153,7 +161,6 @@ _args = r"""
 
                 Default is **True** for coherence calculations, **False** for noise calculations.
 
-
             parallel_states (bool):
                 True if to use MPI to parallelize the calculations of density matrix equally over
                 present mpi processes for random bath state sampling calculations.
@@ -172,11 +179,12 @@ _args = r"""
                 Default is **None**.
 
             second_order (bool):
-                True if add second order perturbation theory correction to the cluster Hamiltonian in conventional CCE.
+                True if add second order perturbation theory correction
+                to the cluster Hamiltonian in conventional CCE.
                 Relevant only for conventional CCE calculations.
                 
-                If set to True sets the qubit states as eigenstates of central spin Hamiltonian from the following
-                procedure. If qubit states are provided as vectors in :math:`S_z` basis,
+                If set to True sets the qubit states as eigenstates of central spin Hamiltonian
+                from the following procedure. If qubit states are provided as vectors in :math:`S_z` basis,
                 for each qubit state compute the fidelity of the qubit state and
                 all eigenstates of the central spin and chose the one with fidelity higher than ``level_confidence``.
                 If such state is not found, raises an error.
@@ -287,7 +295,6 @@ class Environment:
 
             where coord is array of the bath spin coordinate, gyro is the gyromagnetic ratio of bath spin,
             central_gyro is the gyromagnetic ratio of the central bath spin.
-
         """
         return self._hyperfine
 
@@ -343,7 +350,7 @@ class Environment:
                 gives number of rows to skip while reading the .xyz file (default 1).
 
             external_bath (BathArray, optional):
-                BathArray containing spins read from DFT output (see ``pycce.io``)
+                BathArray containing spins read from DFT output (see ``pycce.io``).
 
             hyperfine (str, func, or Cube instance, optional):
                 This argument tells the code how to generate hyperfine couplings.
@@ -393,6 +400,7 @@ class Environment:
         Returns:
             BathArray: The view of ``Simulator.bath`` attribute, generated by the method.
         """
+
         self._bath = None
 
         if bath is not None:
@@ -540,7 +548,7 @@ class Simulator(Environment):
             and :math:`s` is the total spin if no information of central spin Hamiltonian is provided.
             Otherwise second lowest energy eigenstate of the central spin Hamiltonian.
 
-        gyro (float or ndarray with shape (3,3)): Gyromagnetic ratio of central spin in rad * kHz / G.
+        gyro (float or ndarray with shape (3,3)): Gyromagnetic ratio of central spin in rad / ms / G.
 
             *OR*
 
@@ -575,15 +583,6 @@ class Simulator(Environment):
 
         **bath_kw: Additional keyword arguments for the ``Simulator.read_bath`` method.
 
-    Attributes:
-
-
-
-        state (ndarray): Innitial state of the qubit in gCCE simulations.
-            Assumed to be :math:`1/\sqrt{2}(\ket{0} + \ket{1}` unless provided during ``Simulator.compute`` call.
-
-        as_delay (bool): True if time points are delay between pulses (for equispaced pulses),
-            False if time points are total time. Ignored if ``pulses`` contains the time fractions.
     """
 
     def __init__(self, spin, position=None, alpha=None, beta=None, gyro=ELECTRON_GYRO, magnetic_field=None,
@@ -598,7 +597,13 @@ class Simulator(Environment):
         self.spin = spin
         """float: Value of the central spin s."""
         self.gyro = gyro
+        """gyro (float or ndarray with shape (3,3)): Gyromagnetic ratio of central spin in rad / ms / G.
 
+        *OR*
+
+        Tensor describing central spin interactions with the magnetic field.
+
+        Default -17608.597050 kHz * rad / G - gyromagnetic ratio of the free electron spin."""
         self.zfs = zfs_tensor(D, E)
         """ndarray with shape (3,3): Zero field splitting tensor of the central spin"""
         self._magnetic_field = None
@@ -621,24 +626,50 @@ class Simulator(Environment):
 
         # Parameters of the calculations
         self.pulses = pulses
+
         self.as_delay = as_delay
+        """bool: True if time points are delay between pulses (for equispaced pulses),
+        False if time points are total time. Ignored if ``pulses`` contains the time delays."""
         # Initial entangled state of the qubit
         self.state = None
+        """
+        ndarray: Innitial state of the qubit in gCCE simulations.
+            Assumed to be :math:`1/\sqrt{2}(\ket{0} + \ket{1}` unless provided during ``Simulator.compute`` call."""
+
         # hybrid CCE
         self.interlaced = False
+        """bool: True if use hybrid CCE approach - for each cluster sample over states of the supercluster."""
         # Parameters of MC states
         self.seed = None
+        """int: Seed for random number generator, used in random bath states sampling."""
         self.nbstates = None
+        """int: Number or random bath states to sample over."""
         self.fixstates = None
+        """dict: If not None, shows which bath states to fix in random bath states.
+        
+        Each key is the index of bath spin,
+        value - fixed :math:`\hat S_z` projection of the mixed state of nuclear spin."""
         self.masked = None
+        """bool: True if mask numerically unstable points (with coherence > 1)
+        in the averaging over bath states. 
+
+        .. note::
+
+            It is up to user to check whether the possible instability is due to numerical error
+            or unphysical assumptions of the calculations."""
         # Parameters of conventional CCE
         self.second_order = None
+        """bool: True if add second order perturbation theory correction to the cluster Hamiltonian in conventional CCE.
+        Relevant only for conventional CCE calculations."""
         self.level_confidence = None
-
+        """float: Maximum fidelity of the qubit state to be considered eigenstate of the
+        central spin Hamiltonian when ``second_order`` set to True."""
         self.projected_bath_state = None
+        """ndarray with shape (n,): Array with z-projections of the bath spins states."""
         self.bath_state = None
-
+        """bath_state (ndarray): Array of bath states."""
         self.timespace = None
+        """timespace (ndarray with shape (n,)): Time points at which compute the desired property."""
 
     def __repr__(self):
         bm = (f"Simulator for spin-{self.spin}.\n"
@@ -667,8 +698,8 @@ class Simulator(Environment):
     @property
     def alpha(self):
         r"""
-        ndarray or int: :math:`\ket{0}` qubit state of the central spin in Sz basis **OR** index of the energy state
-            to be considered as one.
+        ndarray or int: :math:`\ket{0}` qubit state of the central spin in Sz basis
+            **OR** index of the energy state to be considered as one.
         """
         return self._alpha
 
@@ -685,8 +716,8 @@ class Simulator(Environment):
     @property
     def beta(self):
         r"""
-        ndarray or int: :math:`\ket{1}` qubit state of the central spin in Sz basis **OR** index of the energy state
-            to be considered as one.
+        ndarray or int: :math:`\ket{1}` qubit state of the central spin in Sz basis
+            **OR** index of the energy state to be considered as one.
         """
         return self._beta
 
@@ -736,26 +767,32 @@ class Simulator(Environment):
     @property
     def pulses(self):
         """
-        list or int: Number of pulses in CPMG sequence.
+        Sequence: List-like object, containing the sequence of the instantaneous ideal control pulses.
 
-            *OR*
+        Each item is ``Pulse`` object, containing the following attributes:
 
-            Sequence of the instantaneous ideal control pulses.
-            ``pulses`` should have format of list with tuples,
-            each tuple contains can contain two or three entries:
+        * **axis** (*str*): Axis of rotation of the central spin. Can be 'x', 'y', or 'z'.
 
-            1. axis the rotation is about;
-            2. angle of rotation;
-            3. (optional) fraction of the total time before this pulse is applied.
-               If not provided, assumes even delay of CPMG sequence. Then total experiment is assumed to be:
+        * **angle** (*float or str*): Angle of rotation of central spin.
+          Can be provided in rad, or as a string, containing
+          fraction of pi: ``'pi'``, ``'pi/2'``, ``'2*pi'`` etc. Default is None.
 
-                   tau -- pulse -- 2tau -- pulse -- ... -- 2tau -- pulse -- tau
+        * **delay** (*float or ndarray*): Delay before the pulse or array of delays
+          with the same shape as time points.
 
-               Where tau is the delay between pulses.
+        * **bath_names** (*str or array-like of str*): Name or array of names of bath spin types,
+          impacted by the bath pulse.
 
-            E.g. for Hahn-Echo the ``pulses`` can be defined as ``[('x', np.pi)]`` or ``[('x', np.pi, 0.5)]``.
-            Note, that if fraction is provided the computation becomes less effective than without it.
+        * **bath_axes** (*str or array-like of str*): Axis of rotation or array of axes of the bath spins.
+          If ``bath_names`` is provided, but ``bath_axes`` and ``bath_angles`` are not,
+          assumes the same axis and angle as the one of the central spin.
 
+        * **bath_angles** (*float or str or array-like*): Angle of rotation or array of axes
+          of rotations of the bath spins.
+
+        If delay is not provided in **all** pulses, assumes even delay of CPMG sequence.
+
+        If only **some** delays are provided, assumes 0 delay in the pulses without delay provided.
         """
         return self._pulses
 
@@ -777,7 +814,7 @@ class Simulator(Environment):
             D (float or ndarray with shape (3, 3)): D (longitudinal splitting) parameter of central spin
                 in ZFS tensor of central spin in kHz.
 
-                *OR*
+                **OR**
 
                 Total ZFS tensor. Default 0.
 
@@ -816,6 +853,7 @@ class Simulator(Environment):
         Set :math:`\ket{0}` and :math:`\ket{1}` Qubit states of the ``Simulator`` object.
 
         Args:
+
             alpha (int or ndarray with shape (2s+1, )): :math:`\ket{0}` state of the qubit in :math:`S_z`
                 basis or the index of eigenstate to be used as one.
 
@@ -829,7 +867,6 @@ class Simulator(Environment):
                 Default: Second lowest energy eigenstate of the central spin Hamiltonian.
                 Otherwise state with :math:`m_s = +s - 1` where :math:`m_s` is the z-projection of the spin
                 and :math:`s` is the total spin if no information of central spin Hamiltonian is provided.
-
         """
         if alpha is None:
             alpha = 0
@@ -852,7 +889,8 @@ class Simulator(Environment):
             self.alpha = alpha
             self.beta = beta
 
-    def eigenstates(self, alpha=None, beta=None, magnetic_field=None, D=None, E=0,
+    def eigenstates(self, alpha=None, beta=None,
+                    magnetic_field=None, D=None, E=0,
                     return_eigen=True):
         """
         Compute eigenstates of the central spin Hamiltonian.
@@ -868,7 +906,7 @@ class Simulator(Environment):
                 Index of the state to be considered as 1 (beta) qubit state.
             magnetic_field (ndarray with shape (3,)): Array containing external magnetic field as (Sx, By, Bz).
             D (float or ndarray with shape (3, 3)): D (longitudinal splitting) parameter of central spin
-                inkHz *OR* total ZFS tensor.
+                in kHz *OR* total ZFS tensor.
             E (float): E (transverse splitting) parameter of central spin in kHz.
                 Ignored if ``D`` is None or tensor.
             return_eigen (bool): If true, returns eigenvalues and eigenvectors of the central spin Hamiltonian.
@@ -908,10 +946,13 @@ class Simulator(Environment):
         The clusters are generated from the following procedure:
 
         * Each bath spin :math:`i` forms a cluster of one.
+
         * Bath spins :math:`i` and :math:`j` form cluster of two if there is an edge between them
           (distance :math:`d_{ij} \le` ``r_dipole``).
+
         * Bath spins :math:`i`, :math:`j`, and :math:`j` form a cluster of three if enough edges connect them
           (e.g., there are two edges :math:`ij` and :math:`jk`)
+
         * And so on.
 
         In general, we assume that spins :math:`\{i..n\}` form clusters if they form a connected graph.
@@ -919,24 +960,27 @@ class Simulator(Environment):
 
         Args:
             order (int): Maximum size of the cluster.
+
             r_dipole (float): Maximum connectivity distance.
+
             r_inner (float): Minimum connectivity distance.
+
             strong (bool):
                 True -  generate only clusters with "strong" connectivity (all nodes should be interconnected).
                 Default False.
+
             ignore (list or str, optional): If not None, includes the names of bath spins
                 which are ignored in the cluster generation.
 
         Returns:
-            dict:
-                View of ``Simulator.clusters``. ``Simulator.clusters`` is a dictionary
+
+            dict: View of ``Simulator.clusters``. ``Simulator.clusters`` is a dictionary
                 with keys corresponding to size of the cluster.
 
                 I.e. ``Simulator.clusters[n]`` contains ``ndarray`` of shape (m, n),
                 where m is the number of clusters of given size,
                 n is the size of the cluster.
-                Each row contains indexes of the bath spins included in the given cluster.
-        """
+                Each row contains indexes of the bath spins included in the given cluster."""
 
         self._order = order if order is not None else self._order
         self._r_dipole = r_dipole if r_dipole is not None else self._r_dipole
@@ -1002,13 +1046,16 @@ class Simulator(Environment):
         The :math:`\hat H_{B}` is the Hamiltonian describing interactions between the bath spins.
         The self interaction tensors :math:`\mathbf{P}_i` are read from the ``BathArray`` stored in
         ``Simulator.bath['Q']`` and have to be provided by the user.
+
         The gyromagnetic ratios :math:`\mathbf{\gamma}_i` are read from the ``BathArray.gyros`` attribuite,
         which is generated from the properties of the types of bath spins, stored in ``BathArray.types``. They can
         either be provided by user or read from the ``pycce.common_isotopes`` object.
+
         The interaction tensors :math:`\mathbf{J}_{ij}` are assumed from point dipole approximation
         or can be provided  in ``BathArray.imap`` attrubite.
 
         .. note ::
+
             The ``compute`` method takes two keyword arguments to determine which quantity to compute and how:
 
                 * `method` can take 'cce' or 'gcce' values, and determines
@@ -1022,6 +1069,7 @@ class Simulator(Environment):
             and with interlaced averaging (If ``interlaced`` keyword is set to ``True``).
 
         Examples:
+
             First set up Simulator object using random bath of 1000 13C nuclear spins.
 
                 >>> import pycce as pc
@@ -1063,6 +1111,7 @@ class Simulator(Environment):
                 >>> calc.compute(ts, method='gcce', nbstates=10)
 
         Args:
+
             timespace (ndarray with shape (n,)): Time points at which compute the desired property.
 
             quantity (str): Which quantity to compute. Case insensitive.
@@ -1078,13 +1127,13 @@ class Simulator(Environment):
 
                     - 'cce': conventional CCE, where interactions are mapped on 2 level pseudospin.
                     - 'gcce': Generalized CCE where central spin is included in each cluster.
-
-
         """
         if quantity.lower() == 'noise':
             kwargs.setdefault('masked', False)
+
         else:
             kwargs.setdefault('masked', True)
+
         self.timespace = timespace
         self._prepare(**kwargs)
 
@@ -1138,7 +1187,6 @@ class Simulator(Environment):
                 self.state = (self.alpha + self.beta) / np.linalg.norm((self.alpha + self.beta))
         else:
             self.state = state
-
 
     @_add_args(_args)
     def _prepare(self, state=None,
@@ -1215,10 +1263,12 @@ def _broadcast_simulator(simulator=None, root=0):
     Broadcast ``Simulator`` object from root to all mpi processes.
 
     Args:
+
         simulator (Simulator): Object to broadcast. Should be defined at root process.
         root (int): Index of the root process.
 
     Returns:
+
         Simulator: Broadcasted object.
     """
     try:
@@ -1247,4 +1297,3 @@ def _broadcast_simulator(simulator=None, root=0):
     nsim._bath = nbath
 
     return nsim
-

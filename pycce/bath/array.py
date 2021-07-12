@@ -1346,18 +1346,18 @@ _spin_not_found_message = lambda x: 'Spin type for {} was not provided and was n
 
 import pandas as pd
 
-try:
-    url = 'https://raw.githubusercontent.com/StollLab/EasySpin/main/easyspin/private/isotopedata.txt'
-    all_spins = pd.read_csv(url, delim_whitespace=True, header=None, comment='%',
-                            names=['protons', 'nucleons', 'radioactive', 'symbol', 'name', 'spin', 'g', 'conc', 'q'])
-except:
-    import os
+# try:
+#     url = 'https://raw.githubusercontent.com/StollLab/EasySpin/main/easyspin/private/isotopedata.txt'
+#     all_spins = pd.read_csv(url, delim_whitespace=True, header=None, comment='%',
+#                             names=['protons', 'nucleons', 'radioactive', 'symbol', 'name', 'spin', 'g', 'conc', 'q'])
+# except:
+import os
 
-    __location__ = os.path.realpath(
-        os.path.join(os.getcwd(), os.path.dirname(__file__)))
-    filepath = os.path.join(__location__, 'isotopes.txt')
-    all_spins = pd.read_csv(filepath, delim_whitespace=True, header=None, comment='%',
-                            names=['protons', 'nucleons', 'radioactive', 'symbol', 'name', 'spin', 'g', 'conc', 'q'])
+__location__ = os.path.realpath(
+    os.path.join(os.getcwd(), os.path.dirname(__file__)))
+filepath = os.path.join(__location__, 'isotopes.txt')
+all_spins = pd.read_csv(filepath, delim_whitespace=True, header=None, comment='%',
+                        names=['protons', 'nucleons', 'radioactive', 'symbol', 'name', 'spin', 'g', 'conc', 'q'])
 
 stable_spins = all_spins[(all_spins['spin'] > 0) & (all_spins['conc'] > 0)]
 

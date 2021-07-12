@@ -9,27 +9,13 @@ import pandas as pd
 
 from ase.build import bulk
 
-sys.path.append('/home/onizhuk/codes_development/pyCCE/')
 import pycce as pc
-
-
-# helper function to make folder
-def mkdir_p(dir):
-    '''make a directory (dir) if it doesn't exist'''
-    try:
-        os.mkdir(dir)
-
-    except FileExistsError:
-        pass
-
-    return
-
 
 seed = 1
 
 # parameters of calcuations
 calc_param = {'magnetic_field': np.array(
-    [0., 0., 500.]), 'N': 1, 'parallel': True}
+    [0., 0., 500.]), 'pulses': 1, 'parallel': True}
 
 # position of central spin
 center = np.array([0, 0, 0])
@@ -75,18 +61,17 @@ if __name__ == '__main__':
     # argument.values contains values of the varied parameter
     # arguments.param
 
-    fol = f'var_{arguments.param}'
-    mkdir_p(fol)
+
     for v in arguments.values:
         # initiallize Simulator instance
         calc_setup[arguments.param] = v
 
         calc = pc.Simulator(1, center, alpha=alpha, beta=beta, bath=atoms,
-                            r_bath=calc_setup['rbath'],
-                            r_dipole=calc_setup['rdipole'],
+                            r_bath=calc_setup['r_bath'],
+                            r_dipole=calc_setup['r_dipole'],
                             order=calc_setup['order'])
         # compute coherence
-        result = calc.cce_coherence(time_space, as_delay=False, **calc_param)
+        result = calc.compute(time_space, as_delay=False, **calc_param)
         # for simplicity of further analysis, save actual thickness
         ls.append(result)
 
@@ -105,7 +90,7 @@ if __name__ == '__main__':
         df.index.rename('Time', inplace=True)
 
         # write the calculation parameters into file
-        with open(os.path.join(fol, f'pyCCE_{conf}.csv'), 'w') as file:
+        with open(f'var_{arguments.param}_{conf}.csv', 'w') as file:
             tw = ', '.join(f'{a} = {b}' for a, b in calc_setup.items())
             file.write('# ' + tw + '\n')
             df.to_csv(file)

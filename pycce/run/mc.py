@@ -129,7 +129,7 @@ def monte_carlo_method_decorator(func):
             if self.masked:
                 root_divider = divider
 
-        root_result = ma.array(root_result, fill_value=0j, dtype=np.complex128)
+        root_result = ma.array(root_result, fill_value=0, dtype=np.complex128)
 
         if self.masked:
             root_result[root_divider == 0] = ma.masked

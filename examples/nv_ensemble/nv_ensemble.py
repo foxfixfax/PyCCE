@@ -1,3 +1,24 @@
+"""
+script usage:
+
+mpirun python nv_ensemble.py [-h] [--r_bath R_BATH] [--r_dipole R_DIPOLE] [--order ORDER]
+                             [--nbstates NBSTATES] [--start START] [--pulses PULSES]
+                             [--magnetic_field MAGNETIC_FIELD]
+                             [param] [values [values ...]] 
+
+positional arguments:
+param                 varied parameter
+values                values of varied parameter
+
+optional arguments:                                                                                                       
+-h, --help                          show this help message and exit
+--r_bath R_BATH, -rb R_BATH         cutoff bath radius
+--r_dipole R_DIPOLE, -rd R_DIPOLE   pair cutoff radius
+--order ORDER, -o ORDER             CCE order
+--start START, -s START             configurations start
+--pulses PULSES, -N PULSES          number of pulses
+"""
+
 import numpy as np
 from mpi4py import MPI
 import os
@@ -8,22 +29,7 @@ from parser import pcparser
 import pandas as pd
 
 from ase.build import bulk
-
-sys.path.append('/home/onizhuk/codes_development/pyCCE/')
 import pycce as pc
-
-
-# helper function to make folder
-def mkdir_p(dir):
-    '''make a directory (dir) if it doesn't exist'''
-    try:
-        os.mkdir(dir)
-
-    except FileExistsError:
-        pass
-
-    return
-
 
 seed = 1
 
@@ -37,6 +43,10 @@ alpha = np.array([0, 0, 1])
 beta = np.array([0, 1, 0])
 
 # A script to calculate ensemble average coherence for nv_center in diamond
+# Parallelization here is over different spatial configurations of spin bath
+# However, the results for a single configuration can be parallelized with 
+# parallel and parallel_states Simulator keywords
+
 if __name__ == '__main__':
     # parse argument for Simulator instance
     # with console parser (defined in parser.py)
@@ -44,7 +54,7 @@ if __name__ == '__main__':
 
     maxtime = 2
     # check how long the calculations was
-    time_space = np.linspace(0, maxtime, 1001)
+    time_space = np.linspace(0, maxtime, 501)
 
     # MPI stuff
     comm = MPI.COMM_WORLD
@@ -62,7 +72,6 @@ if __name__ == '__main__':
     # Add types of isotopes
     # set z direction of the defect
     diamond.zdir = [1, 1, 1]
-    # direction along which the material growth is performed
     atoms = diamond.gen_supercell(200, seed=seed + conf,
                                   remove=('C', center))
     # transform parser into dictionary
@@ -72,6 +81,7 @@ if __name__ == '__main__':
     ls = []
     # argument.values contains values of the varied parameter
     # arguments.param
+
     for v in arguments.values:
         calc_setup[arguments.param] = v
         # initiallize Simulator instance
@@ -80,8 +90,8 @@ if __name__ == '__main__':
                             r_dipole=calc_setup['r_dipole'],
                             order=calc_setup['order'])
         # compute coherence
-        result = calc.cce_coherence(time_space, as_delay=False, **calc_param)
-        # for simplicity of further analysis, save actual thickness
+        result = calc.compute(time_space, as_delay=False, method='cce',
+                              nbstates=None, interlaced=False,**calc_param)
         ls.append(result)
 
     ls = np.asarray(ls)
