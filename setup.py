@@ -14,4 +14,5 @@ setup(
         'numpy', 'scipy', 'ase', 'pandas'
     ],
     include_package_data=True,
+    package_data={'': ['bath/*.txt']},
 )
