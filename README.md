@@ -11,7 +11,7 @@ in the main folder.
 
 ### Base Units
 
-* Gyromagnetic ratios are given in rad * kHz / G.
+* Gyromagnetic ratios are given in rad / MS / G.
 * Magnetic field in G.
 * Timesteps in ms. 
 * Distances in A.
