@@ -26,5 +26,5 @@ See `examples` folder for tutorials and scripts of calculations.
 
 ### Documentation
 
-Full documentation is available online at [Read the Docs](http://example.com "Title"). 
+Full documentation is available online at [Read the Docs](https://pycce.readthedocs.io/en/latest/). 
 
