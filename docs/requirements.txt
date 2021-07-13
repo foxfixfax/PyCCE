@@ -3,3 +3,7 @@ sphinx_rtd_theme
 IPython
 nbsphinx
 sphinx-mathjax-offline
+numba
+numpy
+pandas
+scipy
