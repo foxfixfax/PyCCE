@@ -20,8 +20,8 @@ sys.path.insert(0, os.path.abspath('/home/onizhuk/midway/codes_development/pyCCE
 # -- Project information -----------------------------------------------------
 
 project = 'PyCCE'
-copyright = '2021, Mykyta Onizhuk et al'
-author = 'Mykyta Onizhuk et al'
+copyright = '2021, Mykyta Onizhuk'
+author = 'Mykyta Onizhuk'
 
 # The full version, including alpha/beta/rc tags
 release = '0.6.5'
@@ -40,7 +40,6 @@ extensions = [
     'IPython.sphinxext.ipython_console_highlighting',
     'sphinx_rtd_theme',
     'sphinx.ext.napoleon',
-    'sphinx_panels',
 ]
 
 # Add any paths that contain templates here, relative to this directory.

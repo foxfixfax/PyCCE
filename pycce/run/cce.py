@@ -48,7 +48,7 @@ def propagators(timespace, H0, H1, pulses, as_delay=False):
         check = (not as_delay)
         use_rotations = False
 
-    if check:
+    if check and number:
         timespace = timespace / (2 * number)
 
     eval0, evec0 = np.linalg.eigh(H0 * PI2)
@@ -345,7 +345,7 @@ class CCE(RunObject):
             c2 = all([p.bath_names is None for p in pulses])
             c3 = all([not p._has_delay for p in pulses])
 
-            if c1 & c2 & c3:
+            if (c1 & c2 & c3) or not number:
                 self.pulses = number
             else:
                 self.pulses = self.initial_pulses

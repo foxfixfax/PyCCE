@@ -2,7 +2,7 @@ Theoretical Background
 ===========================
 
 This document contains a brief list of the coupling parameters between
-the central and the bath spins, a description of the qubit dephasing, and a
+the central and the bath spins used in **PyCCE**, a description of the qubit dephasing, and a
 summary of the cluster correlation expansion (CCE) method.
 You can find more details in the following references [#code]_ [#yang2008]_ [#onizhuk2021]_.
 
@@ -88,7 +88,7 @@ interacting only with the bath spins in a given cluster :math:`C`
 (with the cluster Hamiltonian :math:`\hat H_C`),
 and :math:`\tilde{L}_{C'}` are contributions of :math:`C'` subcluster of :math:`C`.
 
-For example, up to the overall phase factor, the contribution of the single spin :math:`i` is equal
+For example, the contribution of the single spin :math:`i` is equal
 to the coherence function of the bath with one isolated spin :math:`i`:
 
 .. math::
@@ -106,7 +106,7 @@ For example, in the CCE2 approximation, only contributions up to spin pairs are 
 in CCE3 - up to triplets of bath spins are included, etc.
 
 The way the coherence function for each cluster
-is computed slightly varies between two flavours of the CCE method, as discussed below.
+is computed slightly varies between depending on whether the conventional or generalized CCE method is used.
 
 Conventional CCE
 ..................................

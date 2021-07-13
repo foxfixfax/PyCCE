@@ -38,19 +38,19 @@ PyCCE: A Python Package for CCE Simulations
   :align: left
   :target: index.html
 
-**PyCCE** is an open source Python library to simulate the
-dynamics of a spin qubit, interacting with a spin bath
-using the cluster-correlation expansion (CCE) method.
+**PyCCE** is an open source Python library to simulate the dynamics of
+a spin qubit interacting with a spin bath using the cluster-correlation expansion (CCE) method.
 
 
 Installation
 ----------------
 
-The recommended way to install **PyCCE** package is to use **pip**::
+The recommended way to install **PyCCE** is to use **pip**::
 
    $ pip install pycce
 
-Otherwise you can install directly using the source code. First copy the repository to the desired folder::
+Otherwise you can install  **PyCCE** directly using the source code.
+First copy the repository to the desired folder::
 
     $ git clone https://github.com/foxfixfax/pycce.git
 
@@ -80,8 +80,7 @@ The following modules are required to run **PyCCE**.
 
 * `Pandas <https://pandas.pydata.org/>`_.
 
-**PyCCE** inherently supports parallelization with the **mpi4py** package, which requires MPI
-to be installed.
+**PyCCE** inherently supports parallelization with the **mpi4py** package, which requires the installation of MPI.
 However, for serial implementation the **mpi4py** is not required.
 
 How to cite
