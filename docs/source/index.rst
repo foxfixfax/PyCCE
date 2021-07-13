@@ -47,7 +47,7 @@ Installation
 
 The recommended way to install **PyCCE** is to use **pip**::
 
-   $ https://github.com/foxfixfax/pycce.git
+    $ pip install pycce
 
 Otherwise you can install  **PyCCE** directly using the source code.
 First copy the repository to the desired folder::
