@@ -632,7 +632,7 @@ class Simulator(Environment):
         False if time points are total time. Ignored if ``pulses`` contains the time delays."""
         # Initial entangled state of the qubit
         self.state = None
-        """
+        r"""
         ndarray: Innitial state of the qubit in gCCE simulations.
             Assumed to be :math:`1/\sqrt{2}(\ket{0} + \ket{1}` unless provided during ``Simulator.compute`` call."""
 
@@ -645,7 +645,7 @@ class Simulator(Environment):
         self.nbstates = None
         """int: Number or random bath states to sample over."""
         self.fixstates = None
-        """dict: If not None, shows which bath states to fix in random bath states.
+        r"""dict: If not None, shows which bath states to fix in random bath states.
         
         Each key is the index of bath spin,
         value - fixed :math:`\hat S_z` projection of the mixed state of nuclear spin."""
@@ -849,7 +849,7 @@ class Simulator(Environment):
         self._magnetic_field = magnetic_field
 
     def set_states(self, alpha=None, beta=None):
-        """
+        r"""
         Set :math:`\ket{0}` and :math:`\ket{1}` Qubit states of the ``Simulator`` object.
 
         Args:

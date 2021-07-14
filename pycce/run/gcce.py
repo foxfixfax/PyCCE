@@ -219,7 +219,7 @@ def generate_pure_initial_state(state0, dimensions, states):
 
 
 def gen_density_matrix(states=None, dimensions=None):
-    """
+    r"""
     Generate density matrix from the ndarray of states.
 
     Args:

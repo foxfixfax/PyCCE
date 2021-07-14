@@ -7,7 +7,7 @@ import warnings
 
 def read_orca(fname, isotopes=None, types=None, center=None,
               find_isotopes=True, rotation_matrix=None, rm_style='col'):
-    """
+    r"""
     Function to read ORCA output containing the hyperfines couplings and EFG tensors.
 
     if ``find_isotopes`` is set to True changes the names of the atoms to the most abundant isotopes.
@@ -49,8 +49,8 @@ def read_orca(fname, isotopes=None, types=None, center=None,
     q_indexes = []
     for ind in yield_index('Nucleus', lines, start=start, case_sensitive=True):
         sline = lines[ind].split()
-        atom_index = int(re.sub('\D', '', sline[1]))
-        atom_name = re.sub("\d+", "", sline[1])
+        atom_index = int(re.sub(r'\D', '', sline[1]))
+        atom_name = re.sub(r"\d+", "", sline[1])
 
         # assert atoms[atom_index]['N'] == atom_name, (f"Name mismatch at {atom_index}{atom_name}"
         #                                              f" {atoms[atom_index]['N']} expected")
