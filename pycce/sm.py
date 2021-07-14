@@ -1,4 +1,4 @@
-from collections import MutableMapping
+from collections.abc import MutableMapping
 
 import numpy as np
 
@@ -15,7 +15,7 @@ class SpinMatrix:
     """
 
     def __init__(self, s):
-        dim = np.int(2 * s + 1 + 1e-8)
+        dim = int(2 * s + 1 + 1e-8)
 
         projections = np.linspace(-s, s, dim, dtype=np.complex128)
 

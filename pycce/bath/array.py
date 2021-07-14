@@ -1,6 +1,6 @@
 import copy
 import warnings
-from collections import UserDict, Mapping
+from collections.abc import UserDict, Mapping
 
 import numpy as np
 from numpy.lib.recfunctions import repack_fields
@@ -387,7 +387,7 @@ class BathArray(np.ndarray):
 
     def __getitem__(self, item):
         # if string then return ndarray view of the field
-        if isinstance(item, (int, np.int64)):
+        if isinstance(item, (int, np.int32, np.int64)):
             return super().__getitem__((Ellipsis, item))
         elif isinstance(item, (str, np.str_)):
             try:
@@ -1050,7 +1050,7 @@ class SpinType:
         self.s = s
 
         try:
-            self.dim = np.int(2 * s + 1 + 1e-8)
+            self.dim = int(2 * s + 1 + 1e-8)
 
         except TypeError:
             self.dim = (2 * s + 1 + 1e-8).astype(np.int32)

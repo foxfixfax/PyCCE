@@ -109,7 +109,7 @@ def make_graph(bath, r_dipole, r_inner=0, ignore=None, max_size=5000):
         print('No spins, no neighbours.')
 
     # Generate sparse matrix contain connectivity
-    graph = csr_matrix(atoms_within, dtype=np.bool)
+    graph = csr_matrix(atoms_within, dtype=bool)
 
     return graph
 
