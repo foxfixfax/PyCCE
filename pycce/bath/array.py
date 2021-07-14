@@ -1,6 +1,7 @@
 import copy
 import warnings
-from collections.abc import UserDict, Mapping
+from collections.abc import Mapping
+from collections import UserDict
 
 import numpy as np
 from numpy.lib.recfunctions import repack_fields
