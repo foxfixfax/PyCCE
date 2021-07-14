@@ -189,7 +189,8 @@ of the bath spins' cluster and central spin.
 
 Further details on the theoretical background are available in the references below.
 
-.. [#code] Mykyta  Onizhuk  et  al. In preparation.
+.. [#code] Mykyta Onizhuk and Giulia Galli. "PyCCE: A Python Package for Cluster Correlation Expansion Simulations of Spin Qubit Dynamic".
+       arXiv:2107.05843. https://arxiv.org/abs/2107.05843
 .. [#yang2008] Wen Yang  and  Ren-Bao  Liu.  “Quantum  many-body  theory  of qubit
        decoherence in a finite-size spin bath”.
        Phys. Rev. B78, p. 085315, https://link.aps.org/doi/10.1103/PhysRevB.78.085315

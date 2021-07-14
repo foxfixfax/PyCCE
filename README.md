@@ -11,7 +11,7 @@ in the main folder.
 
 ### Base Units
 
-* Gyromagnetic ratios are given in rad * kHz / G.
+* Gyromagnetic ratios are given in rad / ms / G.
 * Magnetic field in G.
 * Timesteps in ms. 
 * Distances in A.
@@ -26,5 +26,5 @@ See `examples` folder for tutorials and scripts of calculations.
 
 ### Documentation
 
-Full documentation is available online at [Read the Docs](http://example.com "Title"). 
+Full documentation is available online at [Read the Docs](https://pycce.readthedocs.io/en/latest/). 
 
