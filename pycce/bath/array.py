@@ -722,6 +722,9 @@ class BathArray(np.ndarray):
         Returns:
             ndarray  with shape (n,): Array of distances of each bath spin from the given position in angstrom.
         """
+        if isinstance(position, BathArray):
+            return np.linalg.norm(self.xyz - position.xyz, axis=-1)
+
         if position is None:
             position = np.zeros(3)
         else:
