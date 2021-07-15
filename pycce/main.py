@@ -579,14 +579,22 @@ class Simulator(Environment):
 
         order (int): Maximum size of the cluster to be considered in CCE expansion.
 
-        pulses (list or int): Number of pulses in CPMG sequence or list with pulses.
+        n_clusters (dict): Dictionary which contain maximum number of clusters of the given size.
+            Has the form ``nclusters = {order: number}``, where ``order`` is the size of the cluster,
+            ``number`` is the maximum number of clusters with this size.
+
+            If provided, sort the clusters by the strength of cluster interaction,
+            equal to the lowest pairwise interaction in the cluster.
+            Then the strongest ``number`` of clusters is taken.
+
+        pulses (list or int or Sequence): Number of pulses in CPMG sequence or list with pulses.
 
         **bath_kw: Additional keyword arguments for the ``Simulator.read_bath`` method.
 
     """
 
     def __init__(self, spin, position=None, alpha=None, beta=None, gyro=ELECTRON_GYRO, magnetic_field=None,
-                 D=0., E=0., r_dipole=None, order=None, bath=None, pulses=None, as_delay=False,
+                 D=0., E=0., r_dipole=None, order=None, bath=None, pulses=None, as_delay=False, n_clusters=None,
                  **bath_kw):
 
         if position is None:
@@ -611,7 +619,7 @@ class Simulator(Environment):
         self.set_states(alpha, beta)
 
         self._r_dipole = r_dipole
-
+        self._nclusters = n_clusters
         self._order = order
         self.clusters = None
         """dict: Dictionary containing information about cluster structure of the bath.
@@ -751,7 +759,26 @@ class Simulator(Environment):
 
     @order.setter
     def order(self, order):
+        self._order = order
         self.generate_clusters(order=order)
+
+    @property
+    def nclusters(self):
+        """
+        dict: Dictionary which contain maximum number of clusters of the given size.
+        Has the form ``n_clusters = {order: number}``, where ``order`` is the size of the cluster,
+        ``number`` is the maximum number of clusters with this size.
+
+        If provided, sorts the clusters by the strength of cluster interaction,
+        equal to the lowest pairwise interaction in the cluster. Then the strongest ``number`` of clusters is
+        taken.
+        """
+        return self._nclusters
+
+    @nclusters.setter
+    def nclusters(self, nclusters):
+        self._nclusters = nclusters
+        self.generate_clusters(nclusters=nclusters)
 
     @property
     def r_dipole(self):
@@ -762,6 +789,7 @@ class Simulator(Environment):
 
     @r_dipole.setter
     def r_dipole(self, r_dipole):
+        self._r_dipole = r_dipole
         self.generate_clusters(r_dipole=r_dipole)
 
     @property
@@ -939,7 +967,7 @@ class Simulator(Environment):
         if return_eigen:
             return en, eiv
 
-    def generate_clusters(self, order=None, r_dipole=None, r_inner=0, strong=False, ignore=None):
+    def generate_clusters(self, order=None, r_dipole=None, r_inner=0, strong=False, ignore=None, nclusters=None):
         r"""
         Generate set of clusters used in CCE calculations.
 
@@ -972,6 +1000,14 @@ class Simulator(Environment):
             ignore (list or str, optional): If not None, includes the names of bath spins
                 which are ignored in the cluster generation.
 
+            nclusters (dict): Dictionary which contain maximum number of clusters of the given size.
+                Has the form ``n_clusters = {order: number}``, where ``order`` is the size of the cluster,
+                ``number`` is the maximum number of clusters with this size.
+
+                If provided, sort the clusters by the strength of cluster interaction,
+                equal to the lowest pairwise interaction in the cluster.
+                Then the strongest ``number`` of clusters is taken.
+
         Returns:
 
             dict: View of ``Simulator.clusters``. ``Simulator.clusters`` is a dictionary
@@ -984,6 +1020,8 @@ class Simulator(Environment):
 
         self._order = order if order is not None else self._order
         self._r_dipole = r_dipole if r_dipole is not None else self._r_dipole
+        self._nclusters = nclusters if nclusters is not None else self._nclusters
+
         self.clusters = None
 
         if self.r_dipole is None:
@@ -992,7 +1030,7 @@ class Simulator(Environment):
             raise ValueError('order was not set')
 
         clusters = generate_clusters(self.bath, self.r_dipole, self.order,
-                                     r_inner=r_inner, strong=strong, ignore=ignore)
+                                     r_inner=r_inner, strong=strong, ignore=ignore, nclusters=self.nclusters)
 
         self.clusters = clusters
 

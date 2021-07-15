@@ -37,11 +37,12 @@ class _Clusters(MutableMapping):
         return self._data.keys()
 
 
-def generate_clusters(bath, r_dipole, order, r_inner=0, ignore=None, strong=False):
+def generate_clusters(bath, r_dipole, order, r_inner=0, ignore=None, strong=False, nclusters=None):
     """
     Generate clusters for the bath spins.
 
     Args:
+
         bath (BathArray): Array of bath spins.
         r_dipole (float): Maximum connectivity distance.
         order (int): Maximum size of the clusters to find.
@@ -52,7 +53,16 @@ def generate_clusters(bath, r_dipole, order, r_inner=0, ignore=None, strong=Fals
 
         strong (bool): Whether to find only completely interconnected clusters (default False).
 
+        nclusters (dict): Dictionary which contain maximum number of clusters of the given size.
+            Has the form ``n_clusters = {order: number}``, where ``order`` is the size of the cluster,
+            ``number`` is the maximum number of clusters with this size.
+
+            If provided, sorts the clusters by the strength of cluster interaction,
+            equal to the lowest pairwise interaction in the cluster. Then the strongest ``number`` of clusters is
+            taken.
+
     Returns:
+
         dict:
             Dictionary with keys corresponding to size of the cluster,
             and value corresponds to ndarray of shape (matrix, N).
@@ -61,7 +71,10 @@ def generate_clusters(bath, r_dipole, order, r_inner=0, ignore=None, strong=Fals
     """
     graph = make_graph(bath, r_dipole, r_inner=r_inner, ignore=ignore, max_size=5000)
     n_components, labels = connected_components(csgraph=graph, directed=False, return_labels=True)
-    clusters = find_subclusters(order, graph, labels, n_components, strong=strong)
+    if nclusters is None:
+        clusters = find_subclusters(order, graph, labels, n_components, strong=strong)
+    else:
+        clusters = find_valid_subclusters(graph, order, strong=strong, nclusters=nclusters, bath=bath)
 
     if ignore is not None and order > 0:
         if isinstance(ignore, (str, np.str)):
@@ -278,7 +291,6 @@ def find_subclusters(maximum_order, graph, labels, n_components, strong=False):
     return clusters
 
 
-
 def combine_clusters(cs1, cs2):
     """
     Combine two dictionaries with clusters.
@@ -346,3 +358,128 @@ def expand_clusters(sc):
         newsc[o + 1] = lexpanded
 
     return newsc
+
+
+def find_valid_subclusters(graph, maximum_order, nclusters=None, bath=None, strong=False):
+    """
+    Find subclusters from connectivity matrix.
+
+    Args:
+        maximum_order (int):
+            Maximum size of the clusters to find.
+        graph (csr_matrix): Connectivity matrix.
+
+        strong (bool): Whether to find only completely interconnected clusters (default False).
+
+    Returns:
+        dict:
+            Dictionary with keys corresponding to size of the cluster,
+            and value corresponds to ndarray of shape (matrix, N).
+            Here matrix is the number of clusters of given size, N is the size of the cluster.
+            Each row contains indexes of the bath spins included in the given cluster.
+    """
+    clusters = {1: np.arange(graph.shape[0])[:, np.newaxis]}
+
+    if maximum_order > 1:
+        strength = {}
+        # Retrieve upper right triangle (remove i,j pairs with i>j),
+        csrmat = scipy.sparse.triu(graph, k=0, format='csr')
+        # Change to coordinate format of matrix
+        coomat = csrmat.tocoo()
+        row_ind, col_ind = coomat.row, coomat.col
+
+        bonds = np.column_stack([row_ind, col_ind])
+
+        if nclusters is not None:
+            strength[2] = np.abs(bath[col_ind].gyro * bath[row_ind].gyro / (bath[col_ind].dist(bath[row_ind]) ** 3))
+            ordered = strength[2].argsort()[::-1]
+            bonds = bonds[ordered]
+            strength[2] = strength[2][ordered]
+
+            if 2 in nclusters:
+                bonds = bonds[:nclusters[2]]
+                strength[2] = strength[2][:nclusters[2]]
+
+        clusters[2] = bonds
+
+        for order in range(3, maximum_order + 1):
+
+            ltriplets = []
+            # list of triplet strength (used only when n_clusters is not None)
+            ltstr = []
+
+            for i in range(clusters[order - 1].shape[0] - 1):
+
+                # The triplet under study
+                test = clusters[order - 1][i]
+
+                # For cluster i,j,k (i>j>k, as all indexes are stored in increasing order)
+                # consider only bonds l, n with l >= i, n >= j without loss of generality
+                choosebonds = np.all(bonds >= test[:2], axis=1)
+                testbonds = bonds[choosebonds]
+
+                cond = np.any(testbonds.reshape(testbonds.shape + (1,)) == test, axis=1)
+                # Check which of testbonds form a cluster with the triplet i,j,k
+                # rows is 1D bool array, rows[i] is True if bond[i] contains exactly 1 element of
+                # test triplet
+                rows = np.equal(np.count_nonzero(cond, axis=1), 1)
+                # Prepare 2D array with nrows = number of rows with nonzero entry,
+                # ncols = length of test cluster (for CCE4 is 3)
+                tiled_test = np.tile(test, (np.count_nonzero(rows), 1))
+
+                if tiled_test.shape[-1] > 2:
+                    flatten = tiled_test[~cond[rows]]
+                    appendix = flatten.reshape(flatten.size // (order - 2), order - 2)
+                else:
+                    appendix = tiled_test[~cond[rows]][:, np.newaxis]
+
+                triplets = np.concatenate((testbonds[rows], appendix), axis=1)
+
+                if nclusters is not None:
+                    teststrength = strength[order - 1][i]
+                    tripletstrength = strength[2][choosebonds][rows]
+                    tripletstrength[tripletstrength > teststrength] = teststrength
+
+                if strong and triplets.any():
+                    unique, index, counts = np.unique(np.sort(triplets, axis=1), axis=0, return_index=True,
+                                                      return_counts=True)
+
+                    triplets = unique[counts == order - 1]
+
+                    if triplets.any():
+                        ltriplets.append(triplets)
+
+                        if nclusters is not None:
+                            tripletstrength = tripletstrength[index[counts == order - 1]]
+                            ltstr.append(tripletstrength)
+
+                else:
+                    ltriplets.append(triplets)
+                    if nclusters is not None:
+                        ltstr.append(tripletstrength)
+
+            # Transform list of numpy arrays into numpy array
+
+            try:
+                ltriplets = np.concatenate(ltriplets, axis=0)
+                ltriplets, indexes = np.unique(np.sort(ltriplets, axis=1), axis=0, return_index=True)
+
+                if nclusters is not None:
+                    ltstr = np.concatenate(ltstr)[indexes]
+                    ordered_by_strength = ltstr.argsort()[::-1]
+                    ltriplets = ltriplets[ordered_by_strength]
+                    ltstr = ltstr[ordered_by_strength]
+
+                    if order in nclusters:
+                        ltstr = ltstr[:nclusters[order]]
+                        ltriplets = ltriplets[:nclusters[order]]
+
+            except ValueError:
+                print('Set of clusters of order {} is empty!'.format(order))
+                break
+
+            clusters[order] = ltriplets
+            if nclusters is not None:
+                strength[order] = ltstr
+
+    return clusters
