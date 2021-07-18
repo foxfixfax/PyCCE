@@ -9,7 +9,7 @@ class Hamiltonian:
 
     Usual methods (e.g. ``__setitem__`` or ``__getitem__``) access the ``data`` attribute.
 
-    ..note::
+    .. note::
 
         Algebraic operations with Hamiltonian will return ndarray instance.
 
