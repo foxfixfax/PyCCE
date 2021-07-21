@@ -175,108 +175,109 @@ def find_subclusters(maximum_order, graph, labels, n_components, strong=False):
         # else:
 
         subclusters = {1: vertices[:, np.newaxis]}
+
         clusters[1].append(vertices[:, np.newaxis])
-        if vertices.size >= 2:
-            for order in range(2, maximum_order + 1):
 
-                if order == 2:
-                    # Retrieve upper right triangle (remove i,j pairs with i>j),
-                    # choose only rows corresponding to vertices in the subcluster
-                    csrmat = scipy.sparse.triu(graph, k=0, format='csr')[vertices]
-                    # Change to coordinate format of matrix
-                    coomat = csrmat.tocoo()
-                    # rows, col give row and colum indexes, which correspond to
-                    # edges of the graph. as we already slised out the rows,
-                    # to obtain correct row indexes we need to use vertices array
-                    row_ind, col_ind = vertices[coomat.row], coomat.col
+        if vertices.size >= 2 and maximum_order > 1:
+            # Retrieve upper right triangle (remove i,j pairs with i>j),
+            # choose only rows corresponding to vertices in the subcluster
+            csrmat = scipy.sparse.triu(graph, k=0, format='csr')[vertices]
+            # Change to coordinate format of matrix
+            coomat = csrmat.tocoo()
+            # rows, col give row and colum indexes, which correspond to
+            # edges of the graph. as we already slised out the rows,
+            # to obtain correct row indexes we need to use vertices array
+            row_ind, col_ind = vertices[coomat.row], coomat.col
 
-                    bonds = np.column_stack([row_ind, col_ind])
-                    subclusters[order] = bonds
-                    # Check if [1,2] row in a matrix(Nx2):  any(np.equal(a, [1, 2]).all(1))
+            bonds = np.column_stack([row_ind, col_ind])
+            subclusters[2] = bonds
+            clusters[2].append(bonds)
 
-                else:
+            # Check if [1,2] row in a matrix(Nx2):  any(np.equal(a, [1, 2]).all(1))
 
-                    # General way to compute clusters for any order >= 3
-                    # but for simplicity consider CCE4
+            for order in range(3, maximum_order + 1):
 
-                    # List of cluster of size 4
-                    ltriplets = []
+                # General way to compute clusters for any order >= 3
+                # but for simplicity consider CCE4
 
-                    # For ith triplet direct i+1:N pairs, if one of them contains
-                    # one and only one element of jth pair, they form a cluster of 4
-                    # There is no need to direct the last one, as it would be included
-                    # into quartet already if it were to be a part of one
-                    for i in range(subclusters[order - 1].shape[0] - 1):
+                # List of cluster of size 4
+                ltriplets = []
 
-                        # The triplet under study
-                        test = subclusters[order - 1][i]
+                # For ith triplet direct i+1:N pairs, if one of them contains
+                # one and only one element of jth pair, they form a cluster of 4
+                # There is no need to direct the last one, as it would be included
+                # into quartet already if it were to be a part of one
+                for i in range(subclusters[order - 1].shape[0] - 1):
 
-                        # For cluster i,j,k (i>j>k, as all indexes are stored in increasing order)
-                        # consider only bonds l, n with l >= i, n >= j without loss of generality
-                        testbonds = bonds[np.all(bonds >= test[:2], axis=1)]
+                    # The triplet under study
+                    test = subclusters[order - 1][i]
 
-                        # cond is an bool 2D array of shape (testbonds.shape[0], test.size)
-                        # i.e. number of rows corresponds to number of testbonds,
-                        # lenght of the row is equal to the length of the test cluster (3 in case CCE4)
-                        # cond[i,j] is True if bond[i] contains element of test[j], otherwise False
+                    # For cluster i,j,k (i>j>k, as all indexes are stored in increasing order)
+                    # consider only bonds l, n with l >= i, n >= j without loss of generality
+                    testbonds = bonds[np.all(bonds >= test[:2], axis=1)]
 
-                        # To construct this array the following procedure is applied:
-                        # Reshape testbonds from (n, 2) to (n, 2, 1)
-                        # when asked to do logical operation == testbonds is broadcasted to shape (n, 2, order - 1)
-                        # In the case of CCE4 (n, 2, 3). Resulting 3D bool array has True entry i,j,k
-                        # If j element of testbonds[i] is equal to k element of test
-                        # Applying logical operation any along 2nd axis (axis=1, any element of the bond i)
-                        # we obtain resulting array cond
+                    # cond is an bool 2D array of shape (testbonds.shape[0], test.size)
+                    # i.e. number of rows corresponds to number of testbonds,
+                    # lenght of the row is equal to the length of the test cluster (3 in case CCE4)
+                    # cond[i,j] is True if bond[i] contains element of test[j], otherwise False
 
-                        cond = np.any(testbonds.reshape(testbonds.shape + (1,)) == test, axis=1)
-                        # Check which of testbonds form a cluster with the triplet i,j,k
-                        # rows is 1D bool array, rows[i] is True if bond[i] contains exactly 1 element of
-                        # test triplet
-                        rows = np.equal(np.count_nonzero(cond, axis=1), 1)
-                        # Prepare 2D array with nrows = number of rows with nonzero entry,
-                        # ncols = length of test cluster (for CCE4 is 3)
-                        tiled_test = np.tile(test, (np.count_nonzero(rows), 1))
+                    # To construct this array the following procedure is applied:
+                    # Reshape testbonds from (n, 2) to (n, 2, 1)
+                    # when asked to do logical operation == testbonds is broadcasted to shape (n, 2, order - 1)
+                    # In the case of CCE4 (n, 2, 3). Resulting 3D bool array has True entry i,j,k
+                    # If j element of testbonds[i] is equal to k element of test
+                    # Applying logical operation any along 2nd axis (axis=1, any element of the bond i)
+                    # we obtain resulting array cond
 
-                        if tiled_test.shape[-1] > 2:
-                            # From test indexes for each row[i] of nonzero rows choose those indexes, which are not
-                            # present in the bond[i],given by reverse cond array
-                            flatten = tiled_test[~cond[rows]]
-                            # Obtaining correct indexes from tiled test gives flattened array
-                            # which should be reshaped nack into (nrows, order - bond).
-                            # For CCE4 we need to add 2 indexes
-                            # to bond to create a quartet, therefore appendix should have shape (nrows, 2)
-                            appendix = flatten.reshape(flatten.size // (order - 2), order - 2)
-                        else:
-                            # For CCE3 it's easier to do in this way
-                            # (probably, idk, I really just don't want to break it)
-                            appendix = tiled_test[~cond[rows]][:, np.newaxis]
+                    cond = np.any(testbonds.reshape(testbonds.shape + (1,)) == test, axis=1)
+                    # Check which of testbonds form a cluster with the triplet i,j,k
+                    # rows is 1D bool array, rows[i] is True if bond[i] contains exactly 1 element of
+                    # test triplet
+                    rows = np.equal(np.count_nonzero(cond, axis=1), 1)
+                    # Prepare 2D array with nrows = number of rows with nonzero entry,
+                    # ncols = length of test cluster (for CCE4 is 3)
+                    tiled_test = np.tile(test, (np.count_nonzero(rows), 1))
 
-                        triplets = np.concatenate((testbonds[rows], appendix), axis=1)
+                    if tiled_test.shape[-1] > 2:
+                        # From test indexes for each row[i] of nonzero rows choose those indexes, which are not
+                        # present in the bond[i],given by reverse cond array
+                        flatten = tiled_test[~cond[rows]]
+                        # Obtaining correct indexes from tiled test gives flattened array
+                        # which should be reshaped nack into (nrows, order - bond).
+                        # For CCE4 we need to add 2 indexes
+                        # to bond to create a quartet, therefore appendix should have shape (nrows, 2)
+                        appendix = flatten.reshape(flatten.size // (order - 2), order - 2)
+                    else:
+                        # For CCE3 it's easier to do in this way
+                        # (probably, idk, I really just don't want to break it)
+                        appendix = tiled_test[~cond[rows]][:, np.newaxis]
 
-                        # If strong keyword was used, the program will find only the completely interconnected clusters
-                        # For CCE4 this means that from the given triplet i,j,k to form an interconnected array
-                        # i,j,k,l, vertex l should have edges il, jl, kl. Therefore the quartet will appear 3 times
-                        # in the array triplets. we choose unique quartets, and from them choose only quartets that
-                        # appeared 3 times.
-                        if strong and triplets.any():
-                            unique, counts = np.unique(np.sort(triplets, axis=1), axis=0, return_counts=True)
-                            triplets = unique[counts == order - 1]
+                    triplets = np.concatenate((testbonds[rows], appendix), axis=1)
 
-                            if triplets.any():
-                                ltriplets.append(triplets)
-                                # print(triplets)
+                    # If strong keyword was used, the program will find only the completely interconnected clusters
+                    # For CCE4 this means that from the given triplet i,j,k to form an interconnected array
+                    # i,j,k,l, vertex l should have edges il, jl, kl. Therefore the quartet will appear 3 times
+                    # in the array triplets. we choose unique quartets, and from them choose only quartets that
+                    # appeared 3 times.
+                    if strong and triplets.any():
+                        unique, counts = np.unique(np.sort(triplets, axis=1), axis=0, return_counts=True)
+                        triplets = unique[counts == order - 1]
 
-                        else:
+                        if triplets.any():
                             ltriplets.append(triplets)
+                            # print(triplets)
 
-                    # Transform list of numpy arrays into numpy array
-                    try:
-                        ltriplets = np.concatenate(ltriplets, axis=0)
-                        ltriplets = np.unique(np.sort(ltriplets, axis=1), axis=0)
-                    except ValueError:
-                        break
+                    else:
+                        ltriplets.append(triplets)
 
-                    subclusters[order] = ltriplets
+                # Transform list of numpy arrays into numpy array
+                try:
+                    ltriplets = np.concatenate(ltriplets, axis=0)
+                    ltriplets = np.unique(np.sort(ltriplets, axis=1), axis=0)
+                except ValueError:
+                    break
+
+                subclusters[order] = ltriplets
 
                 clusters[order].append(subclusters[order])
 
@@ -368,7 +369,8 @@ def find_valid_subclusters(graph, maximum_order, nclusters=None, bath=None, stro
         maximum_order (int):
             Maximum size of the clusters to find.
         graph (csr_matrix): Connectivity matrix.
-
+        nclusters (dict): Dictionary which contain maximum number of clusters of the given size.
+        bath (BathArray): Array of bath spins.
         strong (bool): Whether to find only completely interconnected clusters (default False).
 
     Returns:
@@ -412,6 +414,7 @@ def find_valid_subclusters(graph, maximum_order, nclusters=None, bath=None, stro
 
                 # The triplet under study
                 test = clusters[order - 1][i]
+                tripletstrength = None
 
                 # For cluster i,j,k (i>j>k, as all indexes are stored in increasing order)
                 # consider only bonds l, n with l >= i, n >= j without loss of generality
