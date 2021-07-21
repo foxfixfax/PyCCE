@@ -1,9 +1,10 @@
-import setuptools
 from distutils.core import setup
+
+import setuptools
 
 setup(
     name='pycce',
-    version='0.6.5',
+    version='0.6.6',
     url='',
     license='',
     author='Nikita Onizhuk',
