@@ -4,7 +4,7 @@ import setuptools
 
 setup(
     name='pycce',
-    version='0.6.6',
+    version='0.6.7',
     url='',
     license='',
     author='Nikita Onizhuk',

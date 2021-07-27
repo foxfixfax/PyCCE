@@ -96,7 +96,7 @@ def monte_carlo_method_decorator(func):
 
             if self.masked:
                 reshaped_result = np.abs(result).reshape(result.shape[0], -1)
-                proper = np.all(reshaped_result <= reshaped_result[0] + 1e-6, axis=(-1))
+                proper = np.all(reshaped_result <= reshaped_result[0] * 1.01, axis=(-1))
                 divider += proper.astype(np.int32)
                 result[~proper] = 0.
 
@@ -109,7 +109,11 @@ def monte_carlo_method_decorator(func):
                 result_shape = None
 
             result_shape = comm.bcast(result_shape, root=0)
+            total = np.asarray(total)
+            if not total.shape:
+                total = np.zeros(result_shape,
 
+                                 dtype=np.complex128)
             root_result = ma.array(np.zeros(result_shape), dtype=np.complex128)
             comm.Allreduce(total, root_result, MPI.SUM)
 
