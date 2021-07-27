@@ -402,6 +402,7 @@ class CCE(RunObject):
         hamil = projected_hamiltonian(self.cluster, self.projections_alpha, self.projections_beta, self.magnetic_field,
                                       others=self.others,
                                       other_states=self.other_states,
+                                      energies=self.energies,
                                       projections_beta_all=self.projections_beta_all,
                                       projections_alpha_all=self.projections_alpha_all,
                                       energy_alpha=self.energy_alpha, energy_beta=self.energy_beta)
