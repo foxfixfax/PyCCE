@@ -426,9 +426,12 @@ class Environment:
             # if self.total_imap is not None:
             #     imap = self.total_imap.subspace(mask)
 
-        if self.external_bath is not None and self.ext_r_bath is not None:
-            where = np.linalg.norm(self.external_bath['xyz'] - self.position, axis=1) <= self.ext_r_bath
-            external_bath = self.external_bath[where]
+        if self.external_bath is not None:
+            if self.ext_r_bath is not None:
+                where = np.linalg.norm(self.external_bath['xyz'] - self.position, axis=1) <= self.ext_r_bath
+                external_bath = self.external_bath[where]
+            else:
+                external_bath = self.external_bath
 
         if self._hyperfine == 'pd' or (self._hyperfine is None and not np.any(bath['A'])):
             bath.from_point_dipole(self.position, gyro_e=self.gyro)

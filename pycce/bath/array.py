@@ -733,7 +733,7 @@ class BathArray(np.ndarray):
         return np.linalg.norm(self['xyz'] - position, axis=-1)
 
     def savetxt(self, filename, fmt='%18.8f', strip_isotopes=False, **kwargs):
-        """
+        r"""
         Save name of the isotopes and their coordinates to the txt file of xyz format.
 
         Args:

@@ -144,13 +144,14 @@ class Cube:
             shift = np.asarray(shift)
             self.grid = self.grid + shift
 
+            self.atoms.xyz += shift
             self.origin += shift
 
         if rotmatrix is not None:
             assert (np.isclose(np.linalg.det(rotmatrix), 1.)), 'Determinant of R is not equal to 1'
             self.grid = np.einsum('ij,abcj->abci', rotmatrix.T, self.grid)
             self.origin = rotmatrix.T @ self.origin
-
+            self.atoms.transform(rotation_matrix=rotmatrix)
         return
 
     def integrate(self, position, gyro_n, gyro_e=ELECTRON_GYRO, spin=None):
