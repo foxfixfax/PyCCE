@@ -337,10 +337,11 @@ class gCCE(RunObject):
         else:
             self.normalization = np.inner(self.alpha.conj(), self.dm0) * np.inner(self.dm0.conj(), self.beta)
 
-        self.zero_cluster = ma.masked_array(res, mask=(np.isclose(np.abs(res), 0)), dtype=np.complex128)
+        self.zero_cluster = res
 
     def postprocess(self):
-        self.result = self.zero_cluster * self.result.filled(0) / self.normalization
+
+        self.result = self.zero_cluster * self.result / self.normalization
 
     def generate_hamiltonian(self):
         """
@@ -372,6 +373,6 @@ class gCCE(RunObject):
         result = compute_dm(self.dm0, self.cluster_hamiltonian, self.timespace, self.pulses,
                             as_delay=self.as_delay, states=self.states)
 
-        result = self.alpha.conj() @ result @ self.beta / self.zero_cluster
+        result = (self.alpha.conj() @ result @ self.beta) / self.zero_cluster
 
         return result
