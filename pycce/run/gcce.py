@@ -56,7 +56,8 @@ def propagator(timespace, hamiltonian,
 
             for rotation in pulses.rotations:
                 U = np.matmul(u, U)
-                U = np.matmul(rotation, U)
+                if rotation is not None:
+                    U = np.matmul(rotation, U)
                 U = np.matmul(u, U)
 
             return U
@@ -75,13 +76,19 @@ def propagator(timespace, hamiltonian,
             times += timesteps
 
             if U is None:
-                U = np.matmul(rotation, u)
+                if rotation is not None:
+                    U = np.matmul(rotation, u)
+                else:
+                    U = u
 
             else:
                 U = np.matmul(u, U)
-                U = np.matmul(rotation, U)
+                if rotation is not None:
+                    U = np.matmul(rotation, U)
 
-        if ((timespace - times) >= 0).all() and (timespace - times).any():
+        which = np.isclose(timespace, times)
+
+        if ((timespace - times)[~which] >= 0).all():
             eigexp = np.exp(-1j * np.tensordot(timespace - times, evalues, axes=0),
                             dtype=np.complex128)
 
@@ -89,9 +96,9 @@ def propagator(timespace, hamiltonian,
                           evec.conj().T)
 
             U = np.matmul(u, U)
-        elif ((timespace - times) < 0).any():
-            raise ValueError(f"Pulse sequence time steps add up to larger than total times"
-                             f"{np.argwhere((timespace - times) < 0)} are longer than total time.")
+        elif not which.all():
+            raise ValueError(f"Pulse sequence time steps add up to larger than total times. Delays at"
+                             f"{timespace[(timespace - times) < 0]} ms are longer than total time.")
     return U
 
 
@@ -337,10 +344,11 @@ class gCCE(RunObject):
         else:
             self.normalization = np.inner(self.alpha.conj(), self.dm0) * np.inner(self.dm0.conj(), self.beta)
 
-        self.zero_cluster = ma.masked_array(res, mask=(np.isclose(np.abs(res), 0)), dtype=np.complex128)
+        self.zero_cluster = res
 
     def postprocess(self):
-        self.result = self.zero_cluster * self.result.filled(0) / self.normalization
+
+        self.result = self.zero_cluster * self.result / self.normalization
 
     def generate_hamiltonian(self):
         """
@@ -372,6 +380,6 @@ class gCCE(RunObject):
         result = compute_dm(self.dm0, self.cluster_hamiltonian, self.timespace, self.pulses,
                             as_delay=self.as_delay, states=self.states)
 
-        result = self.alpha.conj() @ result @ self.beta / self.zero_cluster
+        result = (self.alpha.conj() @ result @ self.beta) / self.zero_cluster
 
         return result

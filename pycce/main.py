@@ -318,8 +318,7 @@ class Environment:
             raise e
 
         self.total_bath = self._bath
-        # self.imap = None
-        # self.total_imap = None
+
         self._r_bath = None
         self.external_bath = None
         self._ext_r_bath = None
@@ -412,26 +411,18 @@ class Environment:
             return
 
         self._r_bath = r_bath if r_bath is not None else self._r_bath
-        # self.total_imap = imap if imap is not None else self.total_imap
         self._external_bath = external_bath if external_bath is not None else self._external_bath
         self._ext_r_bath = ext_r_bath if ext_r_bath is not None else self._ext_r_bath
         self._hyperfine = hyperfine if hyperfine is not None else self._hyperfine
         self._error_range = error_range if error_range is not None else self._error_range
 
-        # imap = self.total_imap
-
         if self.r_bath is not None:
             mask = np.linalg.norm(bath['xyz'] - np.asarray(self.position), axis=-1) < self.r_bath
             bath = bath[mask]
-            # if self.total_imap is not None:
-            #     imap = self.total_imap.subspace(mask)
 
-        if self.external_bath is not None:
-            if self.ext_r_bath is not None:
-                where = np.linalg.norm(self.external_bath['xyz'] - self.position, axis=1) <= self.ext_r_bath
-                external_bath = self.external_bath[where]
-            else:
-                external_bath = self.external_bath
+        if self.ext_r_bath is not None and self.external_bath is not None:
+            where = np.linalg.norm(self.external_bath['xyz'] - self.position, axis=1) <= self.ext_r_bath
+            self._external_bath = self.external_bath[where]
 
         if self._hyperfine == 'pd' or (self._hyperfine is None and not np.any(bath['A'])):
             bath.from_point_dipole(self.position, gyro_e=self.gyro)
@@ -443,15 +434,14 @@ class Environment:
         elif self._hyperfine:
             bath.from_function(self._hyperfine, gyro_e=self.gyro)
 
-        if external_bath is not None:
-            bath.update(external_bath, error_range=self._error_range, ignore_isotopes=True,
+        if self.external_bath is not None:
+            bath.update(self.external_bath, error_range=self._error_range, ignore_isotopes=True,
                         inplace=True)
 
         if not bath.size:
-            warnings.warn('Empty bath is provided.', stacklevel=2)
+            warnings.warn('Provided bath is empty.', stacklevel=2)
 
         self._bath = bath
-        # self.imap = imap
 
         return self.bath
 
