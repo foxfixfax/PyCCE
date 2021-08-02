@@ -164,7 +164,8 @@ def propagators(timespace, H0, H1, pulses, as_delay=False):
             evalues = evalues[::-1]
             evec = evec[::-1]
 
-    if ((timespace - times) >= 0).all() and (timespace - times).any():
+    which = np.isclose(timespace, times)
+    if ((timespace - times)[~which] >= 0).all():
 
         eigen_exp0 = np.exp(-1j * np.tensordot(timespace - times,
                                                evalues[0], axes=0), dtype=np.complex128)
@@ -180,7 +181,7 @@ def propagators(timespace, H0, H1, pulses, as_delay=False):
         U0 = np.matmul(u0, U0)
         U1 = np.matmul(u1, U1)
 
-    elif ((timespace - times) < 0).any():
+    elif not which.all():
         raise ValueError(f"Pulse sequence time steps add up to larger than total times"
                          f"{np.argwhere((timespace - times) < 0)} are longer than total time.")
 

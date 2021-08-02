@@ -86,7 +86,9 @@ def propagator(timespace, hamiltonian,
                 if rotation is not None:
                     U = np.matmul(rotation, U)
 
-        if ((timespace - times) >= 0).all() and (timespace - times).any():
+        which = np.isclose(timespace, times)
+
+        if ((timespace - times)[~which] >= 0).all():
             eigexp = np.exp(-1j * np.tensordot(timespace - times, evalues, axes=0),
                             dtype=np.complex128)
 
@@ -94,9 +96,9 @@ def propagator(timespace, hamiltonian,
                           evec.conj().T)
 
             U = np.matmul(u, U)
-        elif ((timespace - times) < 0).any():
-            raise ValueError(f"Pulse sequence time steps add up to larger than total times"
-                             f"{np.argwhere((timespace - times) < 0)} are longer than total time.")
+        elif not which.all():
+            raise ValueError(f"Pulse sequence time steps add up to larger than total times. Delays at"
+                             f"{timespace[(timespace - times) < 0]} ms are longer than total time.")
     return U
 
 
