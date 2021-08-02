@@ -56,7 +56,8 @@ def propagator(timespace, hamiltonian,
 
             for rotation in pulses.rotations:
                 U = np.matmul(u, U)
-                U = np.matmul(rotation, U)
+                if rotation is not None:
+                    U = np.matmul(rotation, U)
                 U = np.matmul(u, U)
 
             return U
@@ -75,11 +76,15 @@ def propagator(timespace, hamiltonian,
             times += timesteps
 
             if U is None:
-                U = np.matmul(rotation, u)
+                if rotation is not None:
+                    U = np.matmul(rotation, u)
+                else:
+                    U = u
 
             else:
                 U = np.matmul(u, U)
-                U = np.matmul(rotation, U)
+                if rotation is not None:
+                    U = np.matmul(rotation, U)
 
         if ((timespace - times) >= 0).all() and (timespace - times).any():
             eigexp = np.exp(-1j * np.tensordot(timespace - times, evalues, axes=0),
