@@ -9,12 +9,12 @@ Default Units:
 - Couplings: kHz
 
 """
-import warnings
 
 import numpy as np
-from pycce.io.xyz import read_xyz
+import warnings
 
-from .bath.array import BathArray, SpinDict
+from pycce.io.xyz import read_xyz
+from .bath.array import BathArray, SpinDict, check_gyro
 from .bath.cube import Cube
 from .constants import ELECTRON_GYRO
 from .find_clusters import generate_clusters
@@ -214,7 +214,6 @@ _args = r"""
                 True if parallelize calculation of cluster contributions over different mpi processes.
 
                 Default is **False**."""
-
 
 class Environment:
     def __init__(self, position, gyro, *arg, **kwarg):

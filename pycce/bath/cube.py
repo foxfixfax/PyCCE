@@ -2,7 +2,7 @@ import warnings
 
 import numpy as np
 from numba import jit
-from .array import BathArray
+from .array import BathArray, check_gyro
 from ..constants import BOHR_TO_ANGSTROM, HBAR, ELECTRON_GYRO, PI2
 
 # Copied from ASE
@@ -210,18 +210,25 @@ def _cube_integrate(data, grid, voxel, spin, position, gyro_n, gyro_e=ELECTRON_G
 
     dist = np.sqrt(np.sum(pos ** 2, axis=-1))
 
-    pre = gyro_e * gyro_n * HBAR / (2 * spin * PI2) * np.linalg.det(voxel)
+    gyro_e, check = check_gyro(gyro_e)
 
     hyperfine = np.zeros((3, 3), dtype=np.float64)
     for i in range(3):
         for j in range(3):
 
             if i == j:
-                integrand = - pre * data * (3 * pos[:, :, :, i] * pos[:, :, :, j] - dist ** 2) / dist ** 5
+                integrand = - data * (3 * pos[:, :, :, i] * pos[:, :, :, j] - dist ** 2) / dist ** 5
             else:
-                integrand = - pre * data * (3 * pos[:, :, :, i] * pos[:, :, :, j]) / dist ** 5
+                integrand = - data * (3 * pos[:, :, :, i] * pos[:, :, :, j]) / dist ** 5
 
             hyperfine[i, j] = np.trapz(np.trapz(np.trapz(integrand)))
+
+    pre = gyro_e * gyro_n * HBAR / (2 * spin * PI2) * np.linalg.det(voxel)
+
+    if check:
+        hyperfine = hyperfine * pre
+    else:
+        hyperfine = pre @ hyperfine
 
     return hyperfine
 

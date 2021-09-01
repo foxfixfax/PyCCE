@@ -53,7 +53,12 @@ class MatrixDict(MutableMapping):
                 self[s] = SpinMatrix[s]
 
     def __getitem__(self, key):
-        if key not in self._data.keys():
+        try:
+            cond = key in self._data.keys()
+        except TypeError:
+            key = key[()]
+            cond = key in self._data.keys()
+        if not cond:
             self._data[key] = SpinMatrix(key)
         return self._data[key]
 

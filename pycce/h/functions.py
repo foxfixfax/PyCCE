@@ -1,4 +1,6 @@
 import numpy as np
+
+from pycce.bath.array import check_gyro
 from pycce.constants import HBAR, PI2, ELECTRON_GYRO
 from pycce.utilities import dimensions_spinvectors, expand
 
@@ -289,7 +291,8 @@ def self_central(svec, mfield, zfs=None, gyro=ELECTRON_GYRO):
         H0 = np.einsum('lij,ljk->ik', svec, dsvec, dtype=np.complex128)
 
     # if gyro is number
-    if isinstance(gyro, (np.floating, float, int)):
+    gyro, check = check_gyro(gyro)
+    if check:
         # print(svec, mfield)
         H1 = -gyro / PI2 * (mfield[0] * svec[0] + mfield[1] * svec[1] + mfield[2] * svec[2])
     # else assume tensor
@@ -356,7 +359,7 @@ def overhauser_bath(ivec, position, gyro,
         # yfield = np.sum(pre / r ** 5 * (- 3 * pos[:, 2] * pos[:, 1]) * others_state)
         zfield = np.sum(pre / r ** 5 * (r ** 2 - 3 * pos[:, 2] ** 2) * others_state)
         # Not sure which is more physical yet..
-        return zfield * ivec[2] # + xfield * ivec[0] + yfield * ivec[1]
+        return zfield * ivec[2]  # + xfield * ivec[0] + yfield * ivec[1]
 
     else:
         posxpos = np.einsum('ki,kj->kij', pos, pos)

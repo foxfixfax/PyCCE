@@ -1,7 +1,7 @@
 import copy
 import warnings
-from collections.abc import Mapping
 from collections import UserDict
+from collections.abc import Mapping
 
 import numpy as np
 from numpy.lib.recfunctions import repack_fields
@@ -389,15 +389,22 @@ class BathArray(np.ndarray):
     def __getitem__(self, item):
         # if string then return ndarray view of the field
         if isinstance(item, (int, np.int32, np.int64)):
-            return super().__getitem__((Ellipsis, item))
+            return np.ndarray.__getitem__(self, (Ellipsis, item))
         elif isinstance(item, (str, np.str_)):
             try:
-                return self.view(np.ndarray).__getitem__(item)
+                value = self.view(np.ndarray).__getitem__(item)
+
+                if value.shape == ():
+                    return value[()]
+
+                return value
+
             except ValueError:
                 return self[self['N'] == item]
+
         else:
 
-            obj = super().__getitem__(item)
+            obj = np.ndarray.__getitem__(self, item)
             if self.imap is not None:
                 if not isinstance(item, tuple):
 
@@ -596,8 +603,9 @@ class BathArray(np.ndarray):
             posxpos = np.tensordot(pos, pos, axes=0)
 
         r = np.linalg.norm(pos, axis=-1)[..., np.newaxis, np.newaxis]
+        gyro_e, check = check_gyro(gyro_e)
 
-        if isinstance(gyro_e, (np.floating, float, int)):
+        if check:
             pref = np.asarray(gyro_e * array.gyro * HBAR / PI2)[..., np.newaxis, np.newaxis]
 
             array['A'] = -(3 * posxpos[np.newaxis, ...] - identity[np.newaxis, ...] * r ** 2) / (r ** 5) * pref
@@ -819,6 +827,35 @@ def concatenate(arrays, axis=0, out=None):
         new_array.imap = imap
 
     return new_array
+
+def check_gyro(gyro):
+    """
+    Check if gyro is matrix or scalar.
+
+    Args:
+        gyro (ndarray or float): Gyromagnetic ratio matrix or float.
+
+    Returns:
+        tuple: tuple containing:
+
+            * **ndarray or float**: Gyromagnetic ratio.
+            * **bool**: True if gyro is float, False otherwise.
+    """
+    check = isinstance(gyro, (np.floating, float, int))
+
+    if not check:
+        gyro = np.asarray(gyro)
+        if gyro.size == 1:
+            check = True
+            gyro = gyro.reshape(1)[0]
+        else:
+            diag_check = (gyro == np.diag(np.diag(gyro))).all()
+            same_check = gyro[0, 0] == gyro[1, 1] == gyro[2, 2]
+            check = diag_check & same_check
+            if check:
+                gyro = gyro[0, 0]
+
+    return gyro, check
 
 
 # @implements(np.broadcast_to)
