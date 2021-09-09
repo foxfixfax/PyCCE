@@ -1,11 +1,11 @@
-from collections.abc import MutableSequence
+from collections.abc import MutableSequence, Sequence
 
 import numpy as np
 
-from pycce.bath.array import check_gyro
+from pycce.bath.array import check_gyro, BathArray
 from pycce.constants import ELECTRON_GYRO
 from pycce.utilities import zfs_tensor
-
+from pycce.h.total import total_hamiltonian
 
 def attr_arr_setter(self, attr, value, dtype=np.float64):
     if getattr(self, attr) is not None:
@@ -79,11 +79,8 @@ class Center:
             E (float): E (transverse splitting) parameter of central spin in ZFS tensor of central spin in kHz.
                  Default 0. Ignored if ``D`` is None or tensor.
         """
+
         self.zfs = zfs_tensor(D, E)
-        #
-        # else:
-        #     for i, d, e in enumerate(zip(np.broadcast_to(D, self.shape), np.broadcast_to(E, self.shape))):
-        #         self.zfs[i] = zfs_tensor(D, E)
 
     def set_gyro(self, gyro):
         """
@@ -99,20 +96,10 @@ class Center:
         if check:
             gyro, check = check_gyro(gyro)
 
-        if check:
-            self.gyro = np.eye(3) * gyro
-        else:
-            self.gyro = gyro
+            if check:
+                gyro = np.eye(3) * gyro
 
-        # else:
-        #     for i, g in enumerate(np.broadcast_to(gyro, self.shape)):
-        #
-        #         g, check = check_gyro(g)
-        #
-        #         if check:
-        #             self.gyro[i] = np.eye(3) * g
-        #         else:
-        #             self.gyro[i] = g
+        self.gyro = gyro
 
     @property
     def alpha(self):
@@ -153,7 +140,7 @@ class Center:
             self._beta = np.int(beta_state)
 
 
-class CenterList(Center, MutableSequence):
+class CenterList(Center, Sequence):
     def __init__(self, size, position=None,
                  spin=0, D=0, E=0,
                  gyro=ELECTRON_GYRO, imap=None):
@@ -174,6 +161,13 @@ class CenterList(Center, MutableSequence):
                       zip(self.xyz, self.s[:, np.newaxis], self.zfs, self.gyro)]
 
         self.imap = imap
+
+        self.energies = None
+        self.eigenvectors = None
+
+        self.hamiltonian = None
+        self.run_alpha = None
+        self.run_beta = None
 
     @property
     def state(self):
@@ -245,6 +239,35 @@ class CenterList(Center, MutableSequence):
                 self.gyro[i] = np.eye(3) * g
             else:
                 self.gyro[i] = g
+
+    def generate_hamiltonian(self, magnetic_field=None, bath=None, projected_bath_state=None):
+        """
+        Method which will be called before cluster-expanded run.
+        """
+        self.hamiltonian = total_hamiltonian(BathArray((0,)), magnetic_field, central_spin=self, others=bath,
+                                             other_states=projected_bath_state,)
+
+        self.energies, self.eigenvectors = np.linalg.eigh(self.hamiltonian)
+
+        alpha = self.alpha
+        beta = self.beta
+
+        if (not alpha.shape) or (not beta.shape):
+
+            alpha = self.eigenvectors[:, alpha]
+            beta = self.eigenvectors[:, beta]
+
+            state = (alpha + beta) / np.linalg.norm(alpha + beta)
+
+            self.run_alpha = alpha
+            self.run_beta = beta
+
+        else:
+            state = self.state
+        self.run_alpha = alpha
+        self.run_beta = beta
+
+        self.state = state
 #
 # class CenterArray:
 #     _dtype_center = np.dtype([('N', np.unicode_, 16),

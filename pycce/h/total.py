@@ -28,15 +28,17 @@ def hamiltonian_wrapper(_func=None, *, projected=False):
         def base_hamiltonian(bath, *arg,
                              central_spin=None,
                              **kwargs):
-
-            dim, spinvectors = dimensions_spinvectors(bath, central_spin=central_spin)
+            if projected:
+                dim, spinvectors = dimensions_spinvectors(bath, central_spin=None)
+            else:
+                dim, spinvectors = dimensions_spinvectors(bath, central_spin=central_spin)
 
             clusterint = bath_interactions(bath, spinvectors)
 
             if projected:
                 halpha, hbeta = Hamiltonian(dim, vectors=spinvectors), Hamiltonian(dim, vectors=spinvectors)
 
-                data1, data2 = function(bath, spinvectors, *arg, **kwargs)
+                data1, data2 = function(bath, spinvectors, central_spin, *arg, **kwargs)
 
                 halpha.data += data1 + clusterint
                 hbeta.data += data2 + clusterint
@@ -44,7 +46,7 @@ def hamiltonian_wrapper(_func=None, *, projected=False):
                 return halpha, hbeta
 
             totalh = Hamiltonian(dim)
-            data = function(bath, spinvectors, *arg, **kwargs)
+            data = function(bath, spinvectors, central_spin, *arg, **kwargs)
             totalh.data += data + clusterint
 
             return totalh
@@ -58,7 +60,7 @@ def hamiltonian_wrapper(_func=None, *, projected=False):
 
 
 @hamiltonian_wrapper(projected=True)
-def projected_hamiltonian(bath, vectors, projections_alpha, projections_beta, mfield,
+def projected_hamiltonian(bath, vectors, center, projections_alpha, projections_beta, mfield,
                           others=None, other_states=None,
                           energy_alpha=None, energy_beta=None,
                           energies=None, projections_alpha_all=None, projections_beta_all=None):
@@ -141,7 +143,7 @@ def projected_hamiltonian(bath, vectors, projections_alpha, projections_beta, mf
 
 
 @hamiltonian_wrapper
-def total_hamiltonian(bath, vectors, mfield, zfs=None, others=None, other_states=None, central_gyro=ELECTRON_GYRO):
+def total_hamiltonian(bath, vectors, center, mfield, others=None, other_states=None):
     """
     Compute total Hamiltonian for the given cluster including mean field effect of all bath spins.
     Wrapped function so the actual call does not follow the one above!
@@ -157,7 +159,7 @@ def total_hamiltonian(bath, vectors, mfield, zfs=None, others=None, other_states
             Array of Iz projections for each bath spin outside of the given cluster.
         zfs (ndarray with shape (3,3)):
             Zero Field Splitting tensor of the central spin.
-        central_gyro(float or ndarray with shape (3,3)):
+        central_spin(CenterList):
             gyromagnetic ratio of the central spin OR tensor corresponding to interaction between magnetic field and
             central spin.
         central_spin (float): value of the central spin.
@@ -166,11 +168,16 @@ def total_hamiltonian(bath, vectors, mfield, zfs=None, others=None, other_states
         Hamiltonian: hamiltonian of the given cluster, including central spin.
 
     """
+    totalh = 0
+    for i, c in enumerate(center):
+        totalh = self_central(vectors[bath.size + i], mfield, c.zfs, c.gyro)
 
-    totalh = self_central(vectors[-1], mfield, zfs, central_gyro)
-
-    if others is not None and other_states is not None:
-        totalh += overhauser_central(vectors[-1], others['A'], other_states)
+        if others is not None and other_states is not None:
+            if center.size == 1:
+                hf = others['A']
+            else:
+                hf = others['A'][i]
+            totalh += overhauser_central(vectors[bath.size + i], hf, other_states)
 
     for j, n in enumerate(bath):
         ivec = vectors[j]
@@ -180,7 +187,15 @@ def total_hamiltonian(bath, vectors, mfield, zfs=None, others=None, other_states
         if others is not None and other_states is not None:
             hsingle += overhauser_bath(ivec, n['xyz'], n.gyro, others.gyro, others['xyz'], other_states)
 
-        hhyperfine = hyperfine(n['A'], vectors[-1], ivec)
+        hhyperfine = 0
+
+        for i in range(len(center)):
+            if center.size == 1:
+                hf = n['A']
+            else:
+                hf = n['A'][i]
+
+            hhyperfine += hyperfine(hf, vectors[bath.size + i], ivec)
 
         totalh += hsingle + hhyperfine
 

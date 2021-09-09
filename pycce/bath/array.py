@@ -113,20 +113,28 @@ class BathArray(np.ndarray):
             Shorthand notation for ``quadrupoles`` argument.
 
     """
-    _dtype_bath = np.dtype([('N', np.unicode_, 16),
-                            ('xyz', np.float64, (3,)),
-                            ('A', np.float64, (3, 3)),
-                            ('Q', np.float64, (3, 3))])
 
+    _dtype_names = ('N', 'xyz', 'A', 'Q')
     def __new__(subtype, shape=None, array=None,
                 names=None, hyperfines=None, quadrupoles=None,
                 types=None, imap=None,
-                ca=None, sn=None, hf=None, q=None, efg=None):
-
+                ca=None, sn=None, hf=None, q=None, efg=None,
+                center=1):
         # Create the ndarray instance of our type, given the usual
         # ndarray input arguments. This will call the standard
         # ndarray constructor, but return an object of our type.
-        # It also triggers a call to InfoArray.__array_finalize__
+        # It also triggers a call to BathArray.__array_finalize__
+        if center == 1:
+            atupl = (3, 3)
+        elif center > 1:
+            atupl = (center, 3, 3)
+        else:
+            raise ValueError
+
+        _dtype_bath = np.dtype([('N', np.unicode_, 16),
+                                ('xyz', np.float64, (3,)),
+                                ('A', np.float64, atupl),
+                                ('Q', np.float64, (3, 3))])
 
         if array is None and ca is not None:
             array = ca
@@ -142,12 +150,12 @@ class BathArray(np.ndarray):
 
         if shape is not None:
             # set the new 'info' attribute to the value passed
-            obj = super(BathArray, subtype).__new__(subtype, shape, dtype=subtype._dtype_bath)
+            obj = super(BathArray, subtype).__new__(subtype, shape, dtype=_dtype_bath)
         else:
             for a in (array, hyperfines, quadrupoles):
                 if a is not None:
                     obj = super(BathArray, subtype).__new__(subtype, (np.asarray(a).shape[0],),
-                                                            dtype=subtype._dtype_bath)
+                                                            dtype=_dtype_bath)
                     break
             else:
                 raise ValueError('No shape provided')
@@ -205,7 +213,7 @@ class BathArray(np.ndarray):
         # method sees all creation of default objects - with the
         # BathArray.__new__ constructor, but also with
         # arr.view(BathArray).
-        if obj.dtype != self._dtype_bath:
+        if obj.dtype.names != self._dtype_names:
             warnings.warn('Trying to view array with unknown dtype as BathArray. '
                           'This can lead to unexpected results.',
                           RuntimeWarning, stacklevel=2)
@@ -827,6 +835,7 @@ def concatenate(arrays, axis=0, out=None):
         new_array.imap = imap
 
     return new_array
+
 
 def check_gyro(gyro):
     """
