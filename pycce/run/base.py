@@ -125,8 +125,7 @@ class RunObject:
     def __init__(self, timespace,
                  clusters, bath,
                  magnetic_field,
-                 alpha, beta, state,
-                 spin, zfs, gyro,
+                 center=None,
                  nbstates=None,
                  bath_state=None,
                  seed=None,
@@ -146,18 +145,8 @@ class RunObject:
         """dict: Clusters included in different CCE orders of structure ``{int order: ndarray([[i,j],[i,j]])}``."""
         self.bath = bath
         """BathArray with shape (n,): Array of *n* bath spins."""
-        self.spin = spin
-        """float: Value of the central spin"""
-        self.zfs = zfs
-        """ndarray with shape (3, 3): Zero Field Splitting tensor of the central spin."""
-        self.gyro = gyro
-        """float or ndarray with shape (3, 3):
-        Gyromagnetic ratio of the central spin
-
-        **OR**
-
-        tensor corresponding to interaction between magnetic field and
-        central spin."""
+        self.center = center
+        """CenterArray: Properties of the central spin."""
         self.bath_state = bath_state
         """ndarray: Array of bath states in any accepted format."""
         self.projected_bath_state = projected_bath_state
@@ -165,27 +154,7 @@ class RunObject:
         Overridden in runs with random bath state sampling."""
         self.magnetic_field = magnetic_field
         """ndarray: Magnetic field of type ``magnetic_field = np.array([Bx, By, Bz])``."""
-        alpha = np.asarray(alpha)
 
-        beta = np.asarray(beta)
-
-        self.initial_alpha = alpha
-        r"""ndarray: :math:`\ket{0}` state of the qubit in :math:`S_z`
-        basis or the index of eigenstate to be used as one."""
-        self.initial_beta = beta
-        r"""ndarray: :math:`\ket{1}` state of the qubit in :math:`S_z`
-        basis or the index of eigenstate to be used as one."""
-        self.alpha = alpha
-        r"""ndarray: :math:`\ket{0}` state of the qubit in :math:`S_z`
-        basis. If initially provided as index, generated as a state during the run."""
-        self.beta = beta
-        r"""ndarray: :math:`\ket{1}` state of the qubit in :math:`S_z`
-        basis. If initially provided as index, generated as a state during the run."""
-        self.state = state
-        r"""ndarray: Initial state of the central spin, used in gCCE and noise autocorrelation calculations.
-        
-        Defaults to :math:`\frac{1}{N}(\ket{0} + \ket{1})` if not set **OR** if alpha and beta are provided as
-        indexes."""
         self.parallel = parallel
         """bool: True if parallelize calculation of cluster contributions over different mpi processes.
         Default False."""
@@ -238,9 +207,8 @@ class RunObject:
         """
         Method which will be called before cluster-expanded run.
         """
-        self.hamiltonian = total_hamiltonian(BathArray((0,)), self.magnetic_field, zfs=self.zfs, others=self.bath,
-                                             other_states=self.projected_bath_state,
-                                             central_gyro=self.gyro, central_spin=self.spin)
+        self.hamiltonian = total_hamiltonian(BathArray((0,)), self.magnetic_field, center=self.center, others=self.bath,
+                                             other_states=self.projected_bath_state)
 
         self.energies, self.eigenvectors = np.linalg.eigh(self.hamiltonian)
 

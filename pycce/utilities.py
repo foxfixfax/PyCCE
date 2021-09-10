@@ -1,8 +1,11 @@
+import warnings
+
 import numpy as np
-from pycce.sm import _smc
 from numba import jit
 from numba.typed import List
-import warnings
+
+from pycce.sm import _smc
+
 
 def rotmatrix(initial_vector, final_vector):
     r"""
@@ -66,7 +69,7 @@ def dimensions_spinvectors(nspin, central_spin=None):
 
     Args:
         nspin (BathArray with shape (n,)): Array of the n spins within cluster.
-        central_spin (float, optional): If provided, include dimensions of the central spin with the total spin s.
+        central_spin (CenterArray, optional): If provided, include dimensions of the central spins.
 
     Returns:
         tuple: *tuple* containing:
@@ -84,8 +87,9 @@ def dimensions_spinvectors(nspin, central_spin=None):
     dimensions = [_smc[s].dim for s in spins]
 
     if central_spin is not None:
-        dimensions += [_smc[central_spin].dim]
-        spins += [central_spin]
+        for c in central_spin:
+            dimensions += [c.dim]
+            spins += [c.s]
 
     dimensions = np.asarray(dimensions, dtype=np.int32)
 
@@ -119,7 +123,7 @@ def spinvec(s, j, dimensions):
     return vec
 
 
-def generate_projections(state_a, state_b=None):
+def generate_projections(state_a, state_b=None, spins=None):
     r"""
     Generate vector with the spin projections of the given spin states:
 
@@ -138,14 +142,28 @@ def generate_projections(state_a, state_b=None):
     """
     if state_b is None:
         state_b = state_a
+    if spins is None:
+        spin = (state_a.size - 1) / 2
+        sm = _smc[spin]
 
-    spin = (state_a.size - 1) / 2
-    sm = _smc[spin]
+        projections = np.array([state_a.conj() @ sm.x @ state_b,
+                                state_a.conj() @ sm.y @ state_b,
+                                state_a.conj() @ sm.z @ state_b],
+                               dtype=np.complex128)
+    else:
+        projections = []
+        dim = (np.asarray(spins) * 2 + 1 + 1e-8).astype(int)
+        for i, s in enumerate(spins):
+            sm = _smc[s]
+            smx = expand(sm.x, i, dim)
+            smy = expand(sm.y, i, dim)
+            smz = expand(sm.z, i, dim)
 
-    projections = np.array([state_a.conj() @ sm.x @ state_b,
-                            state_a.conj() @ sm.y @ state_b,
-                            state_a.conj() @ sm.z @ state_b],
-                           dtype=np.complex128)
+            p = np.array([state_a.conj() @ smx @ state_b,
+                          state_a.conj() @ smy @ state_b,
+                          state_a.conj() @ smz @ state_b],
+                         dtype=np.complex128)
+            projections.append(p)
     return projections
 
 
@@ -288,4 +306,3 @@ def partial_inner_product(avec, total, dimensions, index=-1):
         matrix = np.moveaxis(total, index, -1)
         matrix = matrix.reshape([total.shape[0], np.prod(np.delete(dimensions, index)), dimensions[index]])
     return avec @ matrix
-

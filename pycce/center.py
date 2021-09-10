@@ -1,11 +1,12 @@
-from collections.abc import MutableSequence, Sequence
+from collections.abc import Sequence
 
 import numpy as np
 
 from pycce.bath.array import check_gyro, BathArray
 from pycce.constants import ELECTRON_GYRO
-from pycce.utilities import zfs_tensor
 from pycce.h.total import total_hamiltonian
+from pycce.utilities import zfs_tensor, generate_projections
+
 
 def attr_arr_setter(self, attr, value, dtype=np.float64):
     if getattr(self, attr) is not None:
@@ -31,6 +32,13 @@ class Center:
         self.s = spin
         self.set_zfs(D, E)
         self.set_gyro(gyro)
+
+        self.projections_alpha = None
+        self.projections_beta = None
+
+        # You cannot initialize these from center, only from CenterArray
+        self.projections_alpha_all = None
+        self.projections_beta_all = None
 
     @property
     def xyz(self):
@@ -139,8 +147,12 @@ class Center:
         except TypeError:
             self._beta = np.int(beta_state)
 
+    @property
+    def dim(self):
+        return (self._s * 2 + 1 + 1e-8).astype(int)[()]
 
-class CenterList(Center, Sequence):
+
+class CenterArray(Center, Sequence):
     def __init__(self, size, position=None,
                  spin=0, D=0, E=0,
                  gyro=ELECTRON_GYRO, imap=None):
@@ -166,6 +178,11 @@ class CenterList(Center, Sequence):
         self.eigenvectors = None
 
         self.hamiltonian = None
+
+        self.energy_alpha = None
+        self.energy_beta = None
+        self.energies = None
+
         self.run_alpha = None
         self.run_beta = None
 
@@ -187,16 +204,19 @@ class CenterList(Center, Sequence):
     def __setitem__(self, key, val):
         if not isinstance(val, Center):
             raise ValueError
-        self._list.__setitem__(key, val)
 
-    def __delitem__(self, key):
-        raise NotImplementedError
+        self.zfs[key] = val.zfs
+        self.gyro[key] = val.gyro
+        self.s[key] = val.s
+        self.xyz[key] = val.xyz
+
+        center = self._list.__getitem__(key)
+
+        center.alpha = val.alpha
+        center.beta = val.beta
 
     def __len__(self):
         return self.size
-
-    def insert(self, index: int, value) -> None:
-        raise NotImplementedError
 
     def set_zfs(self, D=0, E=0):
         """
@@ -241,11 +261,9 @@ class CenterList(Center, Sequence):
                 self.gyro[i] = g
 
     def generate_hamiltonian(self, magnetic_field=None, bath=None, projected_bath_state=None):
-        """
-        Method which will be called before cluster-expanded run.
-        """
+
         self.hamiltonian = total_hamiltonian(BathArray((0,)), magnetic_field, central_spin=self, others=bath,
-                                             other_states=projected_bath_state,)
+                                             other_states=projected_bath_state, )
 
         self.energies, self.eigenvectors = np.linalg.eigh(self.hamiltonian)
 
@@ -268,7 +286,69 @@ class CenterList(Center, Sequence):
         self.run_beta = beta
 
         self.state = state
-#
+
+    #
+    def generate_projections(self, second_order=False, level_confidence=0.95):
+        if second_order:
+            ai = _close_state_index(self.alpha, self.eigenvectors, level_confidence=level_confidence)
+            bi = _close_state_index(self.beta, self.eigenvectors, level_confidence=level_confidence)
+
+            alpha = self.eigenvectors[:, ai]
+            beta = self.eigenvectors[:, bi]
+
+            self.energy_alpha = self.energies[ai]
+            self.energy_beta = self.energies[bi]
+
+            self.energies = self.energies
+
+            gp = generate_projections
+            self.projections_alpha_all = np.array([gp(alpha, s, spins=self.s) for s in self.eigenvectors.T])
+            self.projections_beta_all = np.array([gp(beta, s, spins=self.s) for s in self.eigenvectors.T])
+
+            for i, center in enumerate(self):
+                center.projections_alpha_all = self.projections_alpha_all[:, i]
+                center.projections_beta_all = self.projections_beta_all[:, i]
+
+
+        else:
+
+            self.energy_alpha = None
+            self.energy_beta = None
+            self.energies = None
+
+            self.projections_alpha_all = None
+            self.projections_beta_all = None
+
+        self.projections_alpha = np.array(generate_projections(self.alpha, spins=self.s))
+        self.projections_beta = np.array(generate_projections(self.beta, spins=self.s))
+
+        for i, center in enumerate(self):
+            center.projections_alpha = self.projections_alpha[i]
+            center.projections_beta = self.projections_beta[i]
+
+
+def _close_state_index(state, eiv, level_confidence=0.95):
+    """
+    Get index of the eigenstate stored in eiv,
+    which has fidelity higher than ``level_confidence`` with the provided ``state``.
+
+    Args:
+        state (ndarray with shape (2s+1,)): State for which to find the analogous eigen state.
+        eiv (ndarray with shape (2s+1, 2s+1)): Matrix of eigenvectors as columns.
+        level_confidence (float): Threshold fidelity. Default 0.95.
+
+    Returns:
+        int: Index of the eigenstate.
+    """
+    indexes = np.argwhere((eiv.T @ state) ** 2 > level_confidence).flatten()
+
+    if not indexes.size:
+        raise ValueError(f"Initial qubit state is below F = {level_confidence} "
+                         f"to the eigenstate of central spin Hamiltonian.\n"
+                         f"Qubit level:\n{repr(state)}"
+                         f"Eigenstates (rows):\n{repr(eiv.T)}")
+    return indexes[0]
+
 # class CenterArray:
 #     _dtype_center = np.dtype([('N', np.unicode_, 16),
 #                               ('s', np.float64),

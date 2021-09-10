@@ -159,7 +159,7 @@ def total_hamiltonian(bath, vectors, center, mfield, others=None, other_states=N
             Array of Iz projections for each bath spin outside of the given cluster.
         zfs (ndarray with shape (3,3)):
             Zero Field Splitting tensor of the central spin.
-        central_spin(CenterList):
+        central_spin(CenterArray):
             gyromagnetic ratio of the central spin OR tensor corresponding to interaction between magnetic field and
             central spin.
         central_spin (float): value of the central spin.
@@ -189,7 +189,7 @@ def total_hamiltonian(bath, vectors, center, mfield, others=None, other_states=N
 
         hhyperfine = 0
 
-        for i in range(len(center)):
+        for i in range(center.size):
             if center.size == 1:
                 hf = n['A']
             else:

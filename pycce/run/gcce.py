@@ -123,6 +123,7 @@ def compute_dm(dm0, H, timespace, pulse_sequence=None, as_delay=False, states=No
     Returns:
         ndarray: Array of density matrices evaluated at all time points in timespace.
     """
+    # center_dim = dm0.shape[0]
 
     dm0 = generate_dm0(dm0, H.dimensions, states)
     dm = full_dm(dm0, H, timespace, pulse_sequence=pulse_sequence, as_delay=as_delay)
