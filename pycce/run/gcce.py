@@ -123,7 +123,7 @@ def compute_dm(dm0, H, timespace, pulse_sequence=None, as_delay=False, states=No
     Returns:
         ndarray: Array of density matrices evaluated at all time points in timespace.
     """
-    # center_dim = dm0.shape[0]
+    center_shape = dm0.shape
 
     dm0 = generate_dm0(dm0, H.dimensions, states)
     dm = full_dm(dm0, H, timespace, pulse_sequence=pulse_sequence, as_delay=as_delay)
@@ -132,6 +132,8 @@ def compute_dm(dm0, H, timespace, pulse_sequence=None, as_delay=False, states=No
     dm.shape = (initial_shape[0], *H.dimensions, *H.dimensions)
     for d in range(len(H.dimensions) + 1, 2, -1):  # The last one is el spin
         dm = np.trace(dm, axis1=1, axis2=d)
+        if dm.shape[1:] == center_shape:  # break if shape is the same
+            break
     return dm
 
 
@@ -360,8 +362,8 @@ class gCCE(RunObject):
             Hamiltonian: Cluster hamiltonian.
 
         """
-        ham = total_hamiltonian(self.cluster, self.magnetic_field, self.zfs, others=self.others,
-                                other_states=self.other_states, central_gyro=self.gyro, central_spin=self.spin)
+        ham = total_hamiltonian(self.cluster, self.magnetic_field, others=self.others,
+                                other_states=self.other_states, central_spin=self.center)
 
         if self.pulses is not None:
             self.pulses.generate_pulses(dimensions=ham.dimensions, bath=self.cluster, vectors=ham.vectors)

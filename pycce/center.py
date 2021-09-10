@@ -309,7 +309,6 @@ class CenterArray(Center, Sequence):
                 center.projections_alpha_all = self.projections_alpha_all[:, i]
                 center.projections_beta_all = self.projections_beta_all[:, i]
 
-
         else:
 
             self.energy_alpha = None
