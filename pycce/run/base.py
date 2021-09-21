@@ -207,28 +207,8 @@ class RunObject:
         """
         Method which will be called before cluster-expanded run.
         """
-        self.hamiltonian = total_hamiltonian(BathArray((0,)), self.magnetic_field, center=self.center, others=self.bath,
-                                             other_states=self.projected_bath_state)
-
-        self.energies, self.eigenvectors = np.linalg.eigh(self.hamiltonian)
-
-        alpha = self.initial_alpha
-        beta = self.initial_beta
-
-        if (not alpha.shape) or (not beta.shape):
-
-            alpha = self.eigenvectors[:, alpha]
-            beta = self.eigenvectors[:, beta]
-
-            state = (alpha + beta) / np.linalg.norm(alpha + beta)
-
-            self.alpha = alpha
-            self.beta = beta
-
-        else:
-            state = self.state
-
-        self.state = state
+        self.center.generate_states(self.magnetic_field, bath=self.bath,
+                                    projected_bath_state=self.projected_bath_state)
 
     def postprocess(self):
         """

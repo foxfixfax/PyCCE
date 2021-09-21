@@ -1,4 +1,5 @@
-import numpy as np
+import \
+    numpy as np
 
 from pycce.bath.array import check_gyro
 from pycce.constants import HBAR, PI2, ELECTRON_GYRO
@@ -303,6 +304,27 @@ def self_central(svec, mfield, zfs=None, gyro=ELECTRON_GYRO):
         H1 = np.einsum('lij,ljk->ik', mfield, gsvec, dtype=np.complex128)
 
     return H1 + H0
+
+
+def center_interactions(center, vectors):
+    if center.imap is None:
+        return 0
+
+    ncenters = len(center)
+    ham = 0
+
+    for i in range(ncenters):
+        for j in range(i + 1, ncenters):
+            try:
+                vec_1 = vectors[i]
+                vec_2 = vectors[j]
+                tensor = center.imap[i, j]
+                tensor_ivec = np.einsum('ij,jkl->ikl', tensor, vec_2,
+                                        dtype=np.complex128)  # p_ivec = Ptensor @ Ivector
+                ham += np.einsum('lij,ljk->ik', vec_1, tensor_ivec, dtype=np.complex128)
+            except KeyError:
+                pass
+    return ham
 
 
 def overhauser_central(svec, others_hyperfines, others_state):

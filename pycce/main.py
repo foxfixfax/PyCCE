@@ -14,6 +14,7 @@ import numpy as np
 import warnings
 
 from pycce.io.xyz import read_xyz
+from .center import CenterArray
 from .bath.array import BathArray, SpinDict, check_gyro
 from .bath.cube import Cube
 from .constants import ELECTRON_GYRO
@@ -215,238 +216,9 @@ _args = r"""
 
                 Default is **False**."""
 
-class Environment:
-    def __init__(self, position, gyro, *arg, **kwarg):
-        # Properties of the central spin
-        self.position = position
-        self.gyro = gyro
-
-        # Properties of the total bath
-        self.total_bath = None
-        # self.total_imap = None
-        # The reduced bath
-        self._r_bath = None
-        self._bath = None
-        # self.imap = None
-        self._hyperfine = None
-        # External bath properties
-        self._external_bath = None
-        self._ext_r_bath = None
-        self._error_range = 0.2
-
-        self.read_bath(*arg, **kwarg)
-
-    @property
-    def r_bath(self):
-        """
-        float: Cutoff size of the spin bath.
-        """
-        return self._r_bath
-
-    @r_bath.setter
-    def r_bath(self, r_bath):
-        self.read_bath(r_bath=r_bath)
-
-    @property
-    def external_bath(self):
-        """
-        BathArray: Array with spins read from DFT output (see ``pycce.io``).
-        """
-        return self._external_bath
-
-    @external_bath.setter
-    def external_bath(self, external_bath):
-        self.read_bath(external_bath=external_bath)
-
-    @property
-    def ext_r_bath(self):
-        """
-        float: Maximum distance from the central spins of the bath spins
-            for which to use the data from ``external_bath``.
-        """
-        return self._ext_r_bath
-
-    @ext_r_bath.setter
-    def ext_r_bath(self, ext_r_bath):
-        self.read_bath(ext_r_bath=ext_r_bath)
-
-    @property
-    def error_range(self):
-        """
-        float: Maximum distance between positions in bath and external
-            bath to consider two positions the same (default 0.2).
-        """
-        return self._error_range
-
-    @error_range.setter
-    def error_range(self, error_range):
-        self.read_bath(error_range=error_range)
-
-    @property
-    def hyperfine(self):
-        """
-        str, func, or Cube instance: This argument tells the code how to generate hyperfine couplings.
-            If (``hyperfine = None`` and all A in provided bath are 0) or (``hyperfine = 'pd'``),
-            use point dipole approximation. Otherwise can be an instance of ``Cube`` object,
-            or callable with signature:
-
-                ``func(coord, gyro, central_gyro)``
-
-            where coord is array of the bath spin coordinate, gyro is the gyromagnetic ratio of bath spin,
-            central_gyro is the gyromagnetic ratio of the central bath spin.
-        """
-        return self._hyperfine
-
-    @hyperfine.setter
-    def hyperfine(self, hyperfine):
-        self.read_bath(hyperfine=hyperfine)
-
-    @property
-    def bath(self):
-        """
-        BathArray: Array of bath spins used in CCE simulations.
-        """
-        return self._bath
-
-    @bath.setter
-    def bath(self, bath_array):
-        try:
-            self._bath = bath_array.view(BathArray)
-        except AttributeError as e:
-            print('Bath array should be ndarray or a subclass')
-            raise e
-
-        self.total_bath = self._bath
-
-        self._r_bath = None
-        self.external_bath = None
-        self._ext_r_bath = None
-        self.hyperfine = None
-
-    def read_bath(self, bath=None, r_bath=None,
-                  skiprows=1,
-                  external_bath=None,
-                  hyperfine=None,
-                  types=None,
-                  error_range=None,
-                  ext_r_bath=None,
-                  imap=None):
-        r"""
-        Read spin bath from the file or from the ``BathArray``.
-
-        Args:
-            bath (ndarray, BathArray or str): Either:
-
-                * Instance of BathArray class;
-                * ndarray with ``dtype([('N', np.unicode_, 16), ('xyz', np.float64, (3,))])`` containing names
-                  of bath spins (same ones as stored in self.ntype) and positions of the spins in angstroms;
-                * the name of the xyz text file containing 4 cols: name of the bath spin and xyz coordinates in A.
-
-            r_bath (float): Cutoff size of the spin bath.
-
-            skiprows (int, optional): If ``bath`` is name of the file, this argument
-                gives number of rows to skip while reading the .xyz file (default 1).
-
-            external_bath (BathArray, optional):
-                BathArray containing spins read from DFT output (see ``pycce.io``).
-
-            hyperfine (str, func, or Cube instance, optional):
-                This argument tells the code how to generate hyperfine couplings.
-
-                If (``hyperfine = None`` and all A in provided bath are 0) or (``hyperfine = 'pd'``),
-                use point dipole approximation.
-
-                Otherwise can be an instance of ``Cube`` object,
-                or callable with signature:
-                ``func(coord, gyro, central_gyro)``, where coord is array of the bath spin coordinate,
-                gyro is the gyromagnetic ratio of bath spin,
-                central_gyro is the gyromagnetic ratio of the central bath spin.
-
-            types (SpinDict): SpinDict or input to create one.
-                Contains either SpinTypes of the bath spins or tuples which will initialize those.
-
-                See ``pycce.bath.SpinDict`` documentation for details.
-
-            error_range (float, optional): Maximum distance between positions in bath and external
-                bath to consider two positions the same (default 0.2).
-
-            ext_r_bath (float, optional): Maximum distance from the central spins of the bath spins
-                for which to use the DFT positions.
-
-            imap (InteractionMap): Instance of ``InteractionMap`` class, containing interaction tensors for bath spins.
-                Each key of the ``InteractionMap`` is a tuple with indexes of two bath spins.
-                The value is the 3x3 tensor describing the interaction between two spins in a format:
-
-                .. math::
-
-                    I^iJI^j = I^i_{x}J_{xx}I^j_{x} + I^i_{x}J_{xy}I^j_{y} ...
-
-        .. note::
-
-            For each bath spin pair without interaction tensor in ``imap``, coupling is approximated assuming
-            magnetic point dipole–dipole interaction.  If ``imap = None`` all interactions between bath spins
-            are approximated in this way. Then interaction tensor between spins `i` and `j` is computed as:
-
-            .. math::
-
-                \mathbf{J}_{ij} = -\gamma_{i} \gamma_{j} \frac{\hbar^2}{4\pi \mu_0}
-                                   \left[ \frac{3 \vec{r}_{ij} \otimes \vec{r}_{ij} - |r_{ij}|^2 I}{|r_{ij}|^5} \right]
-
-            Where :math:`\gamma_{i}` is gyromagnetic ratio of `i` spin, :math:`I` is 3x3 identity matrix, and
-            :math:`\vec{r}_{ij}` is distance between two spins.
-
-        Returns:
-            BathArray: The view of ``Simulator.bath`` attribute, generated by the method.
-        """
-
-        self._bath = None
-
-        if bath is not None:
-            self.total_bath = read_xyz(bath, skiprows=skiprows, spin_types=types, imap=imap)
-
-        bath = self.total_bath
-
-        if bath is None:
-            return
-
-        self._r_bath = r_bath if r_bath is not None else self._r_bath
-        self._external_bath = external_bath if external_bath is not None else self._external_bath
-        self._ext_r_bath = ext_r_bath if ext_r_bath is not None else self._ext_r_bath
-        self._hyperfine = hyperfine if hyperfine is not None else self._hyperfine
-        self._error_range = error_range if error_range is not None else self._error_range
-
-        if self.r_bath is not None:
-            mask = np.linalg.norm(bath['xyz'] - np.asarray(self.position), axis=-1) < self.r_bath
-            bath = bath[mask]
-
-        if self.ext_r_bath is not None and self.external_bath is not None:
-            where = np.linalg.norm(self.external_bath['xyz'] - self.position, axis=1) <= self.ext_r_bath
-            self._external_bath = self.external_bath[where]
-
-        if self._hyperfine == 'pd' or (self._hyperfine is None and not np.any(bath['A'])):
-            bath.from_point_dipole(self.position, gyro_e=self.gyro)
-            self._hyperfine = 'pd'
-
-        elif isinstance(self._hyperfine, Cube):
-            bath.from_cube(self._hyperfine, gyro_e=self.gyro)
-
-        elif self._hyperfine:
-            bath.from_function(self._hyperfine, gyro_e=self.gyro)
-
-        if self.external_bath is not None:
-            bath.update(self.external_bath, error_range=self._error_range, ignore_isotopes=True,
-                        inplace=True)
-
-        if not bath.size:
-            warnings.warn('Provided bath is empty.', stacklevel=2)
-
-        self._bath = bath
-
-        return self.bath
-
 
 # TODO unit conversion
-class Simulator(Environment):
+class Simulator:
     r"""
     The main class for CCE calculations.
 
@@ -585,30 +357,25 @@ class Simulator(Environment):
 
     """
 
-    def __init__(self, spin, position=None, alpha=None, beta=None, gyro=ELECTRON_GYRO, magnetic_field=None,
+    def __init__(self, spin, position=None, alpha=0, beta=1, gyro=ELECTRON_GYRO, magnetic_field=None,
                  D=0., E=0., r_dipole=None, order=None, bath=None, pulses=None, as_delay=False, n_clusters=None,
                  **bath_kw):
 
         if position is None:
             position = np.zeros(3)
 
-        self.position = np.asarray(position, dtype=np.float64)
-        """ndarray with shape (3, ): Position of the central spin in Cartesian coordinates."""
+
         self.spin = spin
-        """float: Value of the central spin s."""
-        self.gyro = gyro
-        """gyro (float or ndarray with shape (3,3)): Gyromagnetic ratio of central spin in rad / ms / G.
+        self.center = None
+        """CenterArray: Array of central spins."""
+        if isinstance(spin, CenterArray):
+            self.center = spin
+        else:
+            self.center = CenterArray(spin=spin, gyro=gyro, position=position, D=D, E=E,
+                                      alpha=alpha, beta=beta)
 
-        *OR*
-
-        Tensor describing central spin interactions with the magnetic field.
-
-        Default -17608.597050 kHz * rad / G - gyromagnetic ratio of the free electron spin."""
-        self.zfs = zfs_tensor(D, E)
-        """ndarray with shape (3,3): Zero field splitting tensor of the central spin"""
         self._magnetic_field = None
         self.magnetic_field = magnetic_field
-        self.set_states(alpha, beta)
 
         self._r_dipole = r_dipole
         self._n_clusters = n_clusters
@@ -622,7 +389,21 @@ class Simulator(Environment):
         Each row  of this array contains indexes of the bath spins included in the given cluster.
         Generated during ``.generate_clusters`` call."""
         # Bath setting up
-        super().__init__(self.position, self.gyro, bath, **bath_kw)
+
+        # Properties of the total bath
+        self.total_bath = None
+        # self.total_imap = None
+        # The reduced bath
+        self._r_bath = None
+        self._bath = None
+        # self.imap = None
+        self._hyperfine = None
+        # External bath properties
+        self._external_bath = None
+        self._ext_r_bath = None
+        self._error_range = 0.2
+
+        self.read_bath(bath=bath, **bath_kw)
 
         # Parameters of the calculations
         self.pulses = pulses
@@ -631,10 +412,6 @@ class Simulator(Environment):
         """bool: True if time points are delay between pulses (for equispaced pulses),
         False if time points are total time. Ignored if ``pulses`` contains the time delays."""
         # Initial entangled state of the qubit
-        self.state = None
-        r"""
-        ndarray: Innitial state of the qubit in gCCE simulations.
-            Assumed to be :math:`1/\sqrt{2}(\ket{0} + \ket{1}` unless provided during ``Simulator.compute`` call."""
 
         # hybrid CCE
         self.interlaced = False
@@ -701,17 +478,11 @@ class Simulator(Environment):
         ndarray or int: :math:`\ket{0}` qubit state of the central spin in Sz basis
             **OR** index of the energy state to be considered as one.
         """
-        return self._alpha
+        return self.center.alpha
 
     @alpha.setter
     def alpha(self, alpha_state):
-        try:
-            if len(alpha_state) > 1:
-                self._alpha = np.asarray(alpha_state, dtype=np.complex128)
-            else:
-                self._alpha = np.asarray(alpha_state, dtype=np.int32)
-        except TypeError:
-            self._alpha = np.asarray(alpha_state, dtype=np.int32)
+        self.center.alpha = alpha_state
 
     @property
     def beta(self):
@@ -719,17 +490,11 @@ class Simulator(Environment):
         ndarray or int: :math:`\ket{1}` qubit state of the central spin in Sz basis
             **OR** index of the energy state to be considered as one.
         """
-        return self._beta
+        return self.center.beta
 
     @beta.setter
     def beta(self, beta_state):
-        try:
-            if len(beta_state) > 1:
-                self._beta = np.asarray(beta_state, dtype=np.complex128)
-            else:
-                self._beta = np.int(beta_state)
-        except TypeError:
-            self._beta = np.int(beta_state)
+        self.center.beta = beta_state
 
     @property
     def magnetic_field(self):
@@ -826,6 +591,94 @@ class Simulator(Environment):
 
         self._pulses = Sequence(pulses)
 
+    # Properties of the bath
+    @property
+    def r_bath(self):
+        """
+        float: Cutoff size of the spin bath.
+        """
+        return self._r_bath
+
+    @r_bath.setter
+    def r_bath(self, r_bath):
+        self.read_bath(r_bath=r_bath)
+
+    @property
+    def external_bath(self):
+        """
+        BathArray: Array with spins read from DFT output (see ``pycce.io``).
+        """
+        return self._external_bath
+
+    @external_bath.setter
+    def external_bath(self, external_bath):
+        self.read_bath(external_bath=external_bath)
+
+    @property
+    def ext_r_bath(self):
+        """
+        float: Maximum distance from the central spins of the bath spins
+            for which to use the data from ``external_bath``.
+        """
+        return self._ext_r_bath
+
+    @ext_r_bath.setter
+    def ext_r_bath(self, ext_r_bath):
+        self.read_bath(ext_r_bath=ext_r_bath)
+
+    @property
+    def error_range(self):
+        """
+        float: Maximum distance between positions in bath and external
+            bath to consider two positions the same (default 0.2).
+        """
+        return self._error_range
+
+    @error_range.setter
+    def error_range(self, error_range):
+        self.read_bath(error_range=error_range)
+
+    @property
+    def hyperfine(self):
+        """
+        str, func, or Cube instance: This argument tells the code how to generate hyperfine couplings.
+            If (``hyperfine = None`` and all A in provided bath are 0) or (``hyperfine = 'pd'``),
+            use point dipole approximation. Otherwise can be an instance of ``Cube`` object,
+            or callable with signature:
+
+                ``func(coord, gyro, central_gyro)``
+
+            where coord is array of the bath spin coordinate, gyro is the gyromagnetic ratio of bath spin,
+            central_gyro is the gyromagnetic ratio of the central bath spin.
+        """
+        return self._hyperfine
+
+    @hyperfine.setter
+    def hyperfine(self, hyperfine):
+        self.read_bath(hyperfine=hyperfine)
+
+    @property
+    def bath(self):
+        """
+        BathArray: Array of bath spins used in CCE simulations.
+        """
+        return self._bath
+
+    @bath.setter
+    def bath(self, bath_array):
+        try:
+            self._bath = bath_array.view(BathArray)
+        except AttributeError as e:
+            print('Bath array should be ndarray or a subclass')
+            raise e
+
+        self.total_bath = self._bath
+
+        self._r_bath = None
+        self.external_bath = None
+        self._ext_r_bath = None
+        self.hyperfine = None
+
     def set_zfs(self, D=None, E=0):
         """
         Set Zero Field Splitting of the central spin from longitudinal ZFS *D* and transverse ZFS *E*.
@@ -842,7 +695,7 @@ class Simulator(Environment):
                  Default 0. Ignored if ``D`` is None or tensor.
         """
 
-        self.zfs = zfs_tensor(D, E)
+        self.center.set_zfs(D, E)
 
     def set_magnetic_field(self, magnetic_field=None):
         """
@@ -867,97 +720,6 @@ class Simulator(Environment):
         assert magnetic_field.size == 3, "Improper magnetic field format."
 
         self._magnetic_field = magnetic_field
-
-    def set_states(self, alpha=None, beta=None):
-        r"""
-        Set :math:`\ket{0}` and :math:`\ket{1}` Qubit states of the ``Simulator`` object.
-
-        Args:
-
-            alpha (int or ndarray with shape (2s+1, )): :math:`\ket{0}` state of the qubit in :math:`S_z`
-                basis or the index of eigenstate to be used as one.
-
-                Default: Lowest energy eigenstate of the central spin Hamiltonian.
-                Otherwise state with :math:`m_s = +s` where :math:`m_s` is the z-projection of the spin
-                and :math:`s` is the total spin if no information of central spin Hamiltonian is provided.
-
-            beta (int or ndarray with shape (2s+1, )): :math:`\ket{1}` state of the qubit in :math:`S_z` basis
-                or the index of the eigenstate to be used as one.
-
-                Default: Second lowest energy eigenstate of the central spin Hamiltonian.
-                Otherwise state with :math:`m_s = +s - 1` where :math:`m_s` is the z-projection of the spin
-                and :math:`s` is the total spin if no information of central spin Hamiltonian is provided.
-        """
-        if alpha is None:
-            alpha = 0
-
-        if beta is None:
-            beta = 1
-
-        if np.asarray(alpha).size == 1 or np.asarray(beta).size == 1:
-            if self.zfs.any() or self.magnetic_field.any():
-                self.alpha = alpha
-                self.beta = beta
-
-            else:
-                self.alpha = np.zeros(round(self.spin * 2 + 1))
-                self.alpha[alpha] = 1
-
-                self.beta = np.zeros(round(self.spin * 2 + 1))
-                self.beta[beta] = 1
-        else:
-            self.alpha = alpha
-            self.beta = beta
-
-    def eigenstates(self, alpha=None, beta=None,
-                    magnetic_field=None, D=None, E=0,
-                    return_eigen=True):
-        """
-        Compute eigenstates of the central spin Hamiltonian.
-
-        If ``alpha`` is provided, set alpha state as eigenstate.
-        Similarly, if ``beta`` is provided, set beta state as eigenstate
-
-        Args:
-            alpha (int):
-                Index of the state to be considered as 0 (alpha) qubit state in order of increasing energy
-                (0 - lowest energy).
-            beta (int):
-                Index of the state to be considered as 1 (beta) qubit state.
-            magnetic_field (ndarray with shape (3,)): Array containing external magnetic field as (Sx, By, Bz).
-            D (float or ndarray with shape (3, 3)): D (longitudinal splitting) parameter of central spin
-                in kHz *OR* total ZFS tensor.
-            E (float): E (transverse splitting) parameter of central spin in kHz.
-                Ignored if ``D`` is None or tensor.
-            return_eigen (bool): If true, returns eigenvalues and eigenvectors of the central spin Hamiltonian.
-
-        Returns:
-            tuple: *tuple* containing:
-
-                * **ndarray with shape (2s+1,)**: Array with eigenvalues of the central spin Hamiltonian.
-                * **ndarray with shape (2s+1, 2s+1)**: Array with eigenvectors of the central spin Hamiltonian.
-                  Each column of the array is eigenvector.
-        """
-
-        if D is not None:
-            self.zfs = zfs_tensor(D, E)
-
-        if magnetic_field is not None:
-            self.magnetic_field = magnetic_field
-
-        hamilton = total_hamiltonian(BathArray((0,)), self.magnetic_field, self.zfs,
-                                     central_spin=self.spin,
-                                     central_gyro=self.gyro)
-
-        en, eiv = np.linalg.eigh(hamilton)
-
-        if alpha is not None:
-            self.alpha = eiv[:, alpha]
-        if beta is not None:
-            self.beta = eiv[:, beta]
-
-        if return_eigen:
-            return en, eiv
 
     def generate_clusters(self, order=None, r_dipole=None, r_inner=0, strong=False, ignore=None, n_clusters=None):
         r"""
@@ -1036,18 +798,129 @@ class Simulator(Environment):
                   error_range=None,
                   ext_r_bath=None,
                   imap=None):
+        r"""
+        Read spin bath from the file or from the ``BathArray``.
 
-        out = super().read_bath(bath=bath, r_bath=r_bath, skiprows=skiprows,
-                                external_bath=external_bath, hyperfine=hyperfine,
-                                types=types, error_range=error_range, ext_r_bath=ext_r_bath, imap=imap)
+        Args:
+            bath (ndarray, BathArray or str): Either:
+
+                * Instance of BathArray class;
+                * ndarray with ``dtype([('N', np.unicode_, 16), ('xyz', np.float64, (3,))])`` containing names
+                  of bath spins (same ones as stored in self.ntype) and positions of the spins in angstroms;
+                * the name of the xyz text file containing 4 cols: name of the bath spin and xyz coordinates in A.
+
+            r_bath (float): Cutoff size of the spin bath.
+
+            skiprows (int, optional): If ``bath`` is name of the file, this argument
+                gives number of rows to skip while reading the .xyz file (default 1).
+
+            external_bath (BathArray, optional):
+                BathArray containing spins read from DFT output (see ``pycce.io``).
+
+            hyperfine (str, func, or Cube instance, optional):
+                This argument tells the code how to generate hyperfine couplings.
+
+                If (``hyperfine = None`` and all A in provided bath are 0) or (``hyperfine = 'pd'``),
+                use point dipole approximation.
+
+                Otherwise can be an instance of ``Cube`` object,
+                or callable with signature:
+                ``func(coord, gyro, central_gyro)``, where coord is array of the bath spin coordinate,
+                gyro is the gyromagnetic ratio of bath spin,
+                central_gyro is the gyromagnetic ratio of the central bath spin.
+
+            types (SpinDict): SpinDict or input to create one.
+                Contains either SpinTypes of the bath spins or tuples which will initialize those.
+
+                See ``pycce.bath.SpinDict`` documentation for details.
+
+            error_range (float, optional): Maximum distance between positions in bath and external
+                bath to consider two positions the same (default 0.2).
+
+            ext_r_bath (float, optional): Maximum distance from the central spins of the bath spins
+                for which to use the DFT positions.
+
+            imap (InteractionMap): Instance of ``InteractionMap`` class, containing interaction tensors for bath spins.
+                Each key of the ``InteractionMap`` is a tuple with indexes of two bath spins.
+                The value is the 3x3 tensor describing the interaction between two spins in a format:
+
+                .. math::
+
+                    I^iJI^j = I^i_{x}J_{xx}I^j_{x} + I^i_{x}J_{xy}I^j_{y} ...
+
+        .. note::
+
+            For each bath spin pair without interaction tensor in ``imap``, coupling is approximated assuming
+            magnetic point dipole–dipole interaction.  If ``imap = None`` all interactions between bath spins
+            are approximated in this way. Then interaction tensor between spins `i` and `j` is computed as:
+
+            .. math::
+
+                \mathbf{J}_{ij} = -\gamma_{i} \gamma_{j} \frac{\hbar^2}{4\pi \mu_0}
+                                   \left[ \frac{3 \vec{r}_{ij} \otimes \vec{r}_{ij} - |r_{ij}|^2 I}{|r_{ij}|^5} \right]
+
+            Where :math:`\gamma_{i}` is gyromagnetic ratio of `i` spin, :math:`I` is 3x3 identity matrix, and
+            :math:`\vec{r}_{ij}` is distance between two spins.
+
+        Returns:
+            BathArray: The view of ``Simulator.bath`` attribute, generated by the method.
+        """
+
+        self._bath = None
+
+        if bath is not None:
+            self.total_bath = read_xyz(bath, skiprows=skiprows, spin_types=types, imap=imap)
+
+        bath = self.total_bath
+
+        if bath is None:
+            return
+
+        self._r_bath = r_bath if r_bath is not None else self._r_bath
+        self._external_bath = external_bath if external_bath is not None else self._external_bath
+        self._ext_r_bath = ext_r_bath if ext_r_bath is not None else self._ext_r_bath
+        self._hyperfine = hyperfine if hyperfine is not None else self._hyperfine
+        self._error_range = error_range if error_range is not None else self._error_range
+
+        bath = bath.expand(self.center.size)
+        if self.r_bath is not None:
+            mask = False
+            for c in self.center:
+                mask += np.linalg.norm(bath['xyz'] - np.asarray(c.xyz), axis=-1) < self.r_bath
+            bath = bath[mask]
+
+        if self.ext_r_bath is not None and self.external_bath is not None:
+            where = False
+            for c in self.center:
+                where += np.linalg.norm(self.external_bath['xyz'] - c.xyz, axis=1) <= self.ext_r_bath
+
+            self._external_bath = self.external_bath[where]
+
+        if self._hyperfine == 'pd' or (self._hyperfine is None and not np.any(bath['A'])):
+            bath = bath.from_center(self.center)
+
+            self._hyperfine = 'pd'
+
+        elif isinstance(self._hyperfine, Cube):
+            bath = bath.from_cube(self._hyperfine, gyro_center=self.center.gyro)
+
+        elif self._hyperfine:
+            bath = bath.from_function(self._hyperfine, gyro_e=self.center.gyro)
+
+        if self.external_bath is not None:
+            bath = bath.update(self.external_bath, error_range=self._error_range, ignore_isotopes=True,
+                               inplace=True)
+
+        if not bath.size:
+            warnings.warn('Provided bath is empty.', stacklevel=2)
+
+        self._bath = bath
 
         if self.r_dipole and self.order:
             assert self.bath is not None, "Bath spins were not provided to compute clusters"
             self.generate_clusters()
 
-        return out
-
-    read_bath.__doc__ = Environment.read_bath.__doc__
+        return self.bath
 
     @_add_args(_args + _returns)
     def compute(self, timespace, quantity='coherence', method='cce', **kwargs):
@@ -1208,18 +1081,8 @@ class Simulator(Environment):
         }
     }
 
-    def _gen_state(self, state=None):
-
-        if state is None:
-            if not (self.alpha.shape and self.beta.shape):
-                self.state = None
-            else:
-                self.state = (self.alpha + self.beta) / np.linalg.norm((self.alpha + self.beta))
-        else:
-            self.state = state
-
     @_add_args(_args)
-    def _prepare(self, state=None,
+    def _prepare(self,
                  pulses=None,
                  D=None, E=0,
                  magnetic_field=None,
@@ -1244,15 +1107,13 @@ class Simulator(Environment):
         """
 
         if D is not None:
-            self.zfs = zfs_tensor(D, E)
+            self.set_zfs(D, E)
 
         if alpha is not None:
             self.alpha = alpha
 
         if beta is not None:
             self.beta = beta
-
-        self._gen_state(state)
 
         if pulses is not None:
             self.pulses = pulses

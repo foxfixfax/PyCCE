@@ -333,7 +333,17 @@ class CCE(RunObject):
             number = len(self.initial_pulses)
 
             angles = [p.angle for p in pulses]
+
             c1 = not (None in angles)
+            c2 = all([p.bath_names is None for p in pulses])
+            c3 = all([not p._has_delay for p in pulses])
+
+            if (c1 & c2 & c3) or not number:
+                self.pulses = number
+
+            else:
+                self.pulses = self.initial_pulses
+                self.use_pulses = True
 
             if not c1:
                 pure_angles = [value for value in angles if value]
@@ -342,45 +352,12 @@ class CCE(RunObject):
 
             if not all(np.isclose(pure_angles, np.pi)):
                 raise ValueError('Only pi-pulses are supported for CCE. Use gCCE for user-defined sequences.')
-
-            c2 = all([p.bath_names is None for p in pulses])
-            c3 = all([not p._has_delay for p in pulses])
-
-            if (c1 & c2 & c3) or not number:
-                self.pulses = number
-            else:
-                self.pulses = self.initial_pulses
-                self.use_pulses = True
-
+            if not all(p.which is None for p in pulses):
+                raise ValueError('Only full flip pulses are supported for CCE. Use gCCE for separate spin sequences.')
         except TypeError:
             self.pulses = self.initial_pulses
 
-        if self.second_order:
-            ai = _close_state_index(self.alpha, self.eigenvectors, level_confidence=self.level_confidence)
-            bi = _close_state_index(self.beta, self.eigenvectors, level_confidence=self.level_confidence)
-
-            alpha = self.eigenvectors[:, ai]
-            beta = self.eigenvectors[:, bi]
-
-            self.energy_alpha = self.energies[ai]
-            self.energy_beta = self.energies[bi]
-
-            self.energies = self.energies
-
-            self.projections_alpha_all = np.array([generate_projections(alpha, s) for s in self.eigenvectors.T])
-            self.projections_beta_all = np.array([generate_projections(beta, s) for s in self.eigenvectors.T])
-
-        else:
-
-            self.energy_alpha = None
-            self.energy_beta = None
-            self.energies = None
-
-            self.projections_alpha_all = None
-            self.projections_beta_all = None
-
-        self.projections_alpha = generate_projections(self.alpha)
-        self.projections_beta = generate_projections(self.beta)
+        self.center.generate_projections(second_order=self.second_order, level_confidence=self.level_confidence)
 
     def postprocess(self):
         pass
@@ -400,13 +377,9 @@ class CCE(RunObject):
                   Cluster hamiltonian when qubit in the alpha state.
 
         """
-        hamil = projected_hamiltonian(self.cluster, self.projections_alpha, self.projections_beta, self.magnetic_field,
+        hamil = projected_hamiltonian(self.cluster, self.center, self.magnetic_field,
                                       others=self.others,
-                                      other_states=self.other_states,
-                                      energies=self.energies,
-                                      projections_beta_all=self.projections_beta_all,
-                                      projections_alpha_all=self.projections_alpha_all,
-                                      energy_alpha=self.energy_alpha, energy_beta=self.energy_beta)
+                                      other_states=self.other_states)
 
         if self.use_pulses:
             self.pulses.generate_pulses(dimensions=hamil[0].dimensions, bath=self.cluster,

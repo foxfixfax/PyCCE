@@ -1,10 +1,9 @@
 import numpy as np
-from numpy import ma as ma
 from pycce.bath.array import BathArray
 from pycce.constants import PI2
 from pycce.h import total_hamiltonian, expand
-
-from .base import RunObject
+from pycce.utilities import shorten_dimensions
+from pycce.run.base import RunObject
 
 
 def propagator(timespace, hamiltonian,
@@ -102,7 +101,7 @@ def propagator(timespace, hamiltonian,
     return U
 
 
-def compute_dm(dm0, H, timespace, pulse_sequence=None, as_delay=False, states=None):
+def compute_dm(dm0, H, timespace, pulse_sequence=None, as_delay=False, states=None, ncenters=1):
     """
     Function to compute density matrix of the central spin, given Hamiltonian H.
 
@@ -124,13 +123,13 @@ def compute_dm(dm0, H, timespace, pulse_sequence=None, as_delay=False, states=No
         ndarray: Array of density matrices evaluated at all time points in timespace.
     """
     center_shape = dm0.shape
+    dimensions = shorten_dimensions(H.dimensions, ncenters)
 
-    dm0 = generate_dm0(dm0, H.dimensions, states)
+    dm0 = generate_dm0(dm0, dimensions, states)
     dm = full_dm(dm0, H, timespace, pulse_sequence=pulse_sequence, as_delay=as_delay)
     initial_shape = dm.shape
-
-    dm.shape = (initial_shape[0], *H.dimensions, *H.dimensions)
-    for d in range(len(H.dimensions) + 1, 2, -1):  # The last one is el spin
+    dm.shape = (initial_shape[0], *dimensions, *dimensions)
+    for d in range(len(dimensions) + 1, 2, -1):  # The last one is el spin
         dm = np.trace(dm, axis1=1, axis2=d)
         if dm.shape[1:] == center_shape:  # break if shape is the same
             break
@@ -328,24 +327,26 @@ class gCCE(RunObject):
                 check = False
 
         if check:
-            self.dm0 = self.state
+            self.dm0 = self.center.state
         else:
-            self.dm0 = np.tensordot(self.state, self.state, axes=0)
+            self.dm0 = np.outer(self.center.state, self.center.state)
 
         if self.pulses is not None:
-            self.pulses.set_central_spin(self.alpha, self.beta)
-            self.pulses.generate_pulses(dimensions=self.hamiltonian.dimensions,
-                                        bath=BathArray(0, ), vectors=self.hamiltonian.vectors)
+            self.center.generate_sigma()
+            self.pulses.generate_pulses(dimensions=self.center.hamiltonian.dimensions,
+                                        bath=BathArray(0, ), vectors=self.center.hamiltonian.vectors,
+                                        central_spin=self.center)
 
-        res = full_dm(self.dm0, self.hamiltonian, self.timespace,
+        res = full_dm(self.dm0, self.center.hamiltonian, self.timespace,
                       pulse_sequence=self.pulses, as_delay=self.as_delay)
 
-        res = self.alpha.conj() @ res @ self.beta
+        res = self.center.alpha.conj() @ res @ self.center.beta
 
         if len(self.dm0.shape) > 1:
-            self.normalization = (self.alpha.conj() @ self.dm0 @ self.beta)
+            self.normalization = (self.center.alpha.conj() @ self.dm0 @ self.center.beta)
         else:
-            self.normalization = np.inner(self.alpha.conj(), self.dm0) * np.inner(self.dm0.conj(), self.beta)
+            self.normalization = np.inner(self.center.alpha.conj(), self.dm0) * np.inner(self.dm0.conj(),
+                                                                                         self.center.beta)
 
         self.zero_cluster = res
 
@@ -362,11 +363,12 @@ class gCCE(RunObject):
             Hamiltonian: Cluster hamiltonian.
 
         """
-        ham = total_hamiltonian(self.cluster, self.magnetic_field, others=self.others,
-                                other_states=self.other_states, central_spin=self.center)
+        ham = total_hamiltonian(self.cluster, self.center, self.magnetic_field, others=self.others,
+                                other_states=self.other_states)
 
         if self.pulses is not None:
-            self.pulses.generate_pulses(dimensions=ham.dimensions, bath=self.cluster, vectors=ham.vectors)
+            self.pulses.generate_pulses(dimensions=ham.dimensions, bath=self.cluster, vectors=ham.vectors,
+                                        central_spin=self.center)
 
         return ham
 
@@ -381,8 +383,8 @@ class gCCE(RunObject):
 
         """
         result = compute_dm(self.dm0, self.cluster_hamiltonian, self.timespace, self.pulses,
-                            as_delay=self.as_delay, states=self.states)
+                            as_delay=self.as_delay, states=self.states, ncenters=self.center.size)
 
-        result = (self.alpha.conj() @ result @ self.beta) / self.zero_cluster
+        result = (self.center.alpha.conj() @ result @ self.center.beta) / self.zero_cluster
 
         return result

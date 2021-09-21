@@ -54,8 +54,8 @@ def expand(matrix, i, dim):
     Returns:
         ndarray with shape (prod(dim), prod(dim)): Expanded matrix.
     """
-    dbefore = np.asarray(dim[:i]).prod()
-    dafter = np.asarray(dim[i + 1:]).prod()
+    dbefore = np.asarray(dim[:i], dtype=int).prod()
+    dafter = np.asarray(dim[i + 1:], dtype=int).prod()
 
     expanded_matrix = np.kron(np.kron(np.eye(dbefore, dtype=np.complex128), matrix),
                               np.eye(dafter, dtype=np.complex128))
@@ -63,12 +63,12 @@ def expand(matrix, i, dim):
     return expanded_matrix
 
 
-def dimensions_spinvectors(nspin, central_spin=None):
+def dimensions_spinvectors(bath=None, central_spin=None):
     """
     Generate two arrays, containing dimensions of the spins in the cluster and the vectors with spin matrices.
 
     Args:
-        nspin (BathArray with shape (n,)): Array of the n spins within cluster.
+        bath (BathArray with shape (n,)): Array of the n spins within cluster.
         central_spin (CenterArray, optional): If provided, include dimensions of the central spins.
 
     Returns:
@@ -80,25 +80,28 @@ def dimensions_spinvectors(nspin, central_spin=None):
               (Including central spin if ``central_spin`` is not None). Each with  shape (3, N, N) where
               ``N = prod(dimensions)``.
     """
+    spins = []
+    dimensions = []
 
-    ntype = nspin.types
+    if bath is not None:
+        types = bath.types
 
-    spins = [ntype[n].s for n in nspin['N']]
-    dimensions = [_smc[s].dim for s in spins]
+        spins += [types[n].s for n in bath.N]
+        dimensions += [_smc[s].dim for s in spins]
 
     if central_spin is not None:
         for c in central_spin:
             dimensions += [c.dim]
             spins += [c.s]
 
-    dimensions = np.asarray(dimensions, dtype=np.int32)
+    dimensions = np.array(dimensions, dtype=np.int32)
 
     vectors = []
 
     for j, s in enumerate(spins):
         vectors.append(spinvec(s, j, dimensions))
 
-    vectors = np.asarray(vectors)
+    vectors = np.array(vectors)
 
     return dimensions, vectors
 
@@ -306,3 +309,13 @@ def partial_inner_product(avec, total, dimensions, index=-1):
         matrix = np.moveaxis(total, index, -1)
         matrix = matrix.reshape([total.shape[0], np.prod(np.delete(dimensions, index)), dimensions[index]])
     return avec @ matrix
+
+
+def shorten_dimensions(dimensions, central_number):
+    if central_number > 1:
+        shortdims = dimensions[:-central_number + 1].copy()
+        # reduced dimension so all central spin dimensions are gathered in one
+        shortdims[-1] = np.prod(dimensions[-central_number:])
+    else:
+        shortdims = dimensions
+    return shortdims

@@ -48,8 +48,7 @@ def compute_correlations(nspin, dm0_expanded, U, central_spin=None):
             Initial density matrix of the cluster.
         U (ndarray with shape (t, n, n)):
             Time evolution propagator, evaluated over t time points.
-        central_spin (float):
-            Value of the central spin.
+        central_spin (CenterArray): Array of central spins.
 
     Returns:
         ndarray with shape (t,):
@@ -59,6 +58,9 @@ def compute_correlations(nspin, dm0_expanded, U, central_spin=None):
     a_is = np.zeros((3, *U.shape[1:]), dtype=np.complex128)
 
     dimensions, vectors = dimensions_spinvectors(nspin, central_spin=central_spin)
+    if central_spin is not None and central_spin.size > 1:
+        raise ValueError('Correlation calculations are supported only for single central spin')
+
     for j, n in enumerate(nspin):
         ivec = vectors[j]
         hyperfine_tensor = n['A']
@@ -110,7 +112,7 @@ class gCCENoise(RunObject):
     def preprocess(self):
         super().preprocess()
 
-        self.dm0 = np.tensordot(self.state, self.state, axes=0)
+        self.dm0 = np.tensordot(self.center.state, self.center.state, axes=0)
 
     def postprocess(self):
         pass
@@ -124,8 +126,8 @@ class gCCENoise(RunObject):
             Hamiltonian: Cluster hamiltonian.
 
         """
-        ham = total_hamiltonian(self.cluster, self.magnetic_field, self.zfs, others=self.others,
-                                other_states=self.other_states, central_gyro=self.gyro, central_spin=self.spin)
+        ham = total_hamiltonian(self.cluster, self.center, self.magnetic_field,others=self.others,
+                                other_states=self.other_states)
         return ham
 
     def compute_result(self):
@@ -141,7 +143,7 @@ class gCCENoise(RunObject):
 
         dmtotal0 = generate_dm0(self.dm0, self.cluster_hamiltonian.dimensions, self.states)
 
-        return compute_correlations(self.cluster, dmtotal0, time_propagator, central_spin=self.spin)
+        return compute_correlations(self.cluster, dmtotal0, time_propagator, central_spin=self.center)
 
 
 class CCENoise(RunObject):
@@ -186,7 +188,11 @@ class CCENoise(RunObject):
 
     def preprocess(self):
         super().preprocess()
-        self.projections = (np.abs(generate_projections(self.alpha)) + np.abs(generate_projections(self.beta))) / 2
+        self.center.generate_projections()
+        if self.center.size > 1:
+            raise ValueError('Correlation calculations are supported only for single central spin')
+
+        self.projections = (np.abs(self.center.projections_alpha[0]) + np.abs(self.center.projections_beta)) / 2
         # self.projections = generate_projections(self.state)
 
     def postprocess(self):

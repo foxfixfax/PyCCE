@@ -115,6 +115,7 @@ class BathArray(np.ndarray):
     """
 
     _dtype_names = ('N', 'xyz', 'A', 'Q')
+
     def __new__(subtype, shape=None, array=None,
                 names=None, hyperfines=None, quadrupoles=None,
                 types=None, imap=None,
@@ -126,10 +127,8 @@ class BathArray(np.ndarray):
         # It also triggers a call to BathArray.__array_finalize__
         if center == 1:
             atupl = (3, 3)
-        elif center > 1:
-            atupl = (center, 3, 3)
         else:
-            raise ValueError
+            atupl = (center, 3, 3)
 
         _dtype_bath = np.dtype([('N', np.unicode_, 16),
                                 ('xyz', np.float64, (3,)),
@@ -152,10 +151,15 @@ class BathArray(np.ndarray):
             # set the new 'info' attribute to the value passed
             obj = super(BathArray, subtype).__new__(subtype, shape, dtype=_dtype_bath)
         else:
+
             for a in (array, hyperfines, quadrupoles):
                 if a is not None:
-                    obj = super(BathArray, subtype).__new__(subtype, (np.asarray(a).shape[0],),
-                                                            dtype=_dtype_bath)
+                    try:
+                        obj = super(BathArray, subtype).__new__(subtype, (np.asarray(a).shape[0],),
+                                                                dtype=_dtype_bath)
+                    except IndexError:  # Empty tuple
+                        obj = super(BathArray, subtype).__new__(subtype, np.asarray(a).shape,
+                                                                dtype=_dtype_bath)
                     break
             else:
                 raise ValueError('No shape provided')
@@ -180,7 +184,7 @@ class BathArray(np.ndarray):
         if names is not None:
             obj['N'] = np.asarray(names).reshape(-1)
         if hyperfines is not None:
-            obj['A'] = np.asarray(hyperfines).reshape(-1, 3, 3)
+            obj['A'] = np.asarray(hyperfines).reshape(-1, *atupl)
         if quadrupoles is not None:
             obj['Q'] = np.asarray(quadrupoles).reshape(-1, 3, 3)
         elif efg is not None:
@@ -394,6 +398,12 @@ class BathArray(np.ndarray):
     def Q(self, val):
         self['Q'] = val
 
+    @property
+    def nc(self):
+        """int: Number of centeral spins."""
+        selfdim = len(self.shape)
+        return self.A.shape[selfdim] if len(self.A.shape) == selfdim + 3 else 1
+
     def __getitem__(self, item):
         # if string then return ndarray view of the field
         if isinstance(item, (int, np.int32, np.int64)):
@@ -466,8 +476,8 @@ class BathArray(np.ndarray):
         try:
 
             xyzs = (self['xyz'] == other['xyz']).all(axis=1)
-            hfs = (self['A'] == other['A']).all(axis=(1, 2))
-            qds = (self['Q'] == other['Q']).all(axis=(1, 2))
+            hfs = (self['A'] == other['A']).reshape(self['A'].shape[0], -1).all(axis=1)
+            qds = (self['Q'] == other['Q']).reshape(self['Q'].shape[0], -1).all(axis=1)
 
             return xyzs & hfs & qds
 
@@ -577,7 +587,25 @@ class BathArray(np.ndarray):
                          style=style, inplace=inplace)
         return bath
 
-    def from_point_dipole(self, position, gyro_e=ELECTRON_GYRO, inplace=True):
+    def from_center(self, center, inplace=True):
+        if inplace:
+            array = self
+        else:
+            array = self.copy()
+
+        if array.nc != center.size:
+            array = array.expand(center.size)
+            if inplace:
+                warnings.warn("Cannot change array inplace, using a copy instead.")
+
+        if center.size == 1:
+            array.from_point_dipole(center[0].xyz, center[0].gyro, inplace=True)
+        else:
+            array.from_point_dipole(center.xyz, center.gyro, inplace=True)
+
+        return array
+
+    def from_point_dipole(self, position, gyro_center=ELECTRON_GYRO, inplace=True):
         """
         Generate hyperfine couplings, assuming that bath spins interaction with central spin is the same as the
         one between two magnetic point dipoles.
@@ -585,7 +613,7 @@ class BathArray(np.ndarray):
         Args:
             position (ndarray with shape (3,)): position of the central spin
 
-            gyro_e (float or ndarray with shape (3,3)):
+            gyro_center (float or ndarray with shape (3,3)):
                 gyromagnetic ratio of the central spin
 
                 **OR**
@@ -597,35 +625,30 @@ class BathArray(np.ndarray):
         Returns:
             BathArray: updated BathArray instance with changed hyperfine couplings.
         """
-
         if inplace:
             array = self
         else:
             array = self.copy()
 
-        identity = np.eye(3, dtype=np.float64)
-        pos = array['xyz'] - position
-        try:
-            posxpos = np.einsum('ki,kj->kij', pos, pos)
-        except ValueError:
-            posxpos = np.tensordot(pos, pos, axes=0)
+        position = np.asarray(position)
 
-        r = np.linalg.norm(pos, axis=-1)[..., np.newaxis, np.newaxis]
-        gyro_e, check = check_gyro(gyro_e)
+        if array.nc > 1:
+            position = np.broadcast_to(position, (array.nc, 3))
+            gyro_center = np.asarray(gyro_center)
+            gyro_center = np.broadcast_to(gyro_center, (array.nc, *gyro_center.shape[1:]))
 
-        if check:
-            pref = np.asarray(gyro_e * array.gyro * HBAR / PI2)[..., np.newaxis, np.newaxis]
+            for i in range(array.nc):
+                pos = array.xyz - position[i]
+                array.A[:, i] = point_dipole(pos, array.gyro, gyro_center[i])
 
-            array['A'] = -(3 * posxpos[np.newaxis, ...] - identity[np.newaxis, ...] * r ** 2) / (r ** 5) * pref
+            return array
 
-        else:
-            pref = (gyro_e[np.newaxis, :, :] * np.asarray(array.gyro)[..., np.newaxis, np.newaxis] * HBAR / PI2)
-            postf = -(3 * posxpos[np.newaxis, :] - identity[np.newaxis, :] * r ** 2) / (r ** 5)
-            np.matmul(pref, postf, out=array['A'])
+        pos = array.xyz - position
+        array.A = point_dipole(pos, array.gyro, gyro_center)
 
         return array
 
-    def from_cube(self, cube, gyro_e=ELECTRON_GYRO, inplace=True):
+    def from_cube(self, cube, gyro_center=ELECTRON_GYRO, inplace=True):
         """
         Generate hyperfine couplings, assuming that bath spins interaction with central spin can be approximated as
         a point dipole, interacting with given spin density distribution.
@@ -634,7 +657,7 @@ class BathArray(np.ndarray):
             cube (Cube): An instance of `Cube` object, which contains spatial distribution of spin density.
                 For details see documentation of `Cube` class.
 
-            gyro_e (float): Gyromagnetic ratio of the central spin.
+            gyro_center (float): Gyromagnetic ratio of the central spin.
 
             inplace (bool): True if changes parameters of the array in place. If False, returns copy of the array.
 
@@ -647,10 +670,10 @@ class BathArray(np.ndarray):
             array = self.copy()
 
         gyros = array.types[array].gyro
-        array['A'] = cube.integrate(array['xyz'], gyros, gyro_e)
+        array['A'] = cube.integrate(array['xyz'], gyros, gyro_center)
         return array
 
-    def from_func(self, func, gyro_e=ELECTRON_GYRO, vectorized=False, inplace=True):
+    def from_func(self, func, gyro_center=ELECTRON_GYRO, vectorized=False, inplace=True):
         """
         Generate hyperfine couplings from user-defined function.
 
@@ -665,7 +688,7 @@ class BathArray(np.ndarray):
                 ``gyro`` is the gyromagnetic ratio of bath spin,
                 ``central_gyro`` is the gyromagnetic ratio of the central bath spin.
 
-            gyro_e (float): gyromagnetic ratio of the central spin to be used in the function.
+            gyro_center (float): gyromagnetic ratio of the central spin to be used in the function.
 
             vectorized (bool): If True, assume that func takes arrays of all bath spin coordinates and array of
                 gyromagnetic ratios as arguments.
@@ -682,10 +705,10 @@ class BathArray(np.ndarray):
             array = self.copy()
 
         if vectorized:
-            array['A'] = func(array['xyz'], array.gyro, gyro_e)
+            array['A'] = func(array['xyz'], array.gyro, gyro_center)
         else:
             for a in array:
-                a['A'] = func(a['xyz'], array.types[a].gyro, gyro_e)
+                a['A'] = func(a['xyz'], array.types[a].gyro, gyro_center)
         return array
 
     def from_efg(self, efg, inplace=True):
@@ -771,6 +794,29 @@ class BathArray(np.ndarray):
 
         kwargs.setdefault('header', header)
         np.savetxt(filename, ar, fmt=('%s', fmt, fmt, fmt), **kwargs)
+
+    def expand(self, ncenters):
+
+        array = BathArray(array=self.xyz, quadrupoles=self.Q, names=self.N, center=ncenters, imap=self.imap,
+                          types=self.types)
+
+        hyperfine = self.A
+        if hyperfine.any():
+            ocs = self.nc  # old central spin
+            if ocs == ncenters:
+                array.A = hyperfine
+
+            elif ocs == 1 and ncenters > 1:
+                array.A[..., 0, :, :] = hyperfine
+
+            elif ocs > 1 and ncenters == 1:
+                array.A[..., :, :] = hyperfine[..., 0, :, :]
+
+            else:
+                limit = ocs if ocs < ncenters else ncenters
+                array.A[..., :limit + 1, :, :] = hyperfine[..., :limit + 1, :, :]
+
+        return array
 
 
 def implements(numpy_function):
@@ -871,6 +917,46 @@ def check_gyro(gyro):
 # def broadcast_to(array, shape):
 #     ...  # implementation of broadcast_to for MyArray objects
 
+def point_dipole(pos, gyro_array, gyro_center):
+    """
+    Generate an array hyperfine couplings, assuming point dipole approximation.
+
+    Args:
+        pos (ndarray with shape (n, 3)): Relative position of the bath spins.
+        gyro_array (ndarray with shape (n,)): Array of the gyromagnetic ratios of the bath spins.
+
+        gyro_center (float or ndarray with shape (3, 3)):
+            gyromagnetic ratio of the central spin
+
+            **OR**
+
+            tensor corresponding to interaction between magnetic field and central spin.
+
+    Returns:
+        ndarray with shape (n, 3, 3): Array of hyperfine tensors.
+    """
+    identity = np.eye(3, dtype=np.float64)
+
+    try:
+        posxpos = np.einsum('...i,...j->...ij', pos, pos)
+    except ValueError:
+        posxpos = np.outer(pos, pos)
+
+    r = np.linalg.norm(pos, axis=-1)[..., np.newaxis, np.newaxis]
+    gyro_center, check = check_gyro(gyro_center)
+
+    if check:
+        pref = np.asarray(gyro_center * gyro_array * HBAR / PI2)[..., np.newaxis, np.newaxis]
+
+        out = -(3 * posxpos[np.newaxis, ...] - identity[np.newaxis, ...] * r ** 2) / (r ** 5) * pref
+
+    else:
+        pref = (gyro_center[np.newaxis, :, :] * np.asarray(gyro_array)[..., np.newaxis, np.newaxis] * HBAR / PI2)
+        postf = -(3 * posxpos[np.newaxis, :] - identity[np.newaxis, :] * r ** 2) / (r ** 5)
+        out = np.matmul(pref, postf)
+
+    return out
+
 
 def same_bath_indexes(barray_1, barray_2, error_range=0.2, ignore_isotopes=True):
     """
@@ -937,6 +1023,9 @@ def update_bath(total_bath, added_bath, error_range=0.2, ignore_isotopes=True, i
         total_bath = total_bath.copy()
 
     indexes, ext_indexes = same_bath_indexes(total_bath, added_bath, error_range, ignore_isotopes)
+    if total_bath.nc != added_bath.nc:
+        raise ValueError('Arrays correspond to different number of central spins.')
+
     for n in added_bath.dtype.names:
         if ignore_isotopes and n == 'N':
             continue
