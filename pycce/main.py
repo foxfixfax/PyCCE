@@ -797,7 +797,8 @@ class Simulator:
                   types=None,
                   error_range=None,
                   ext_r_bath=None,
-                  imap=None):
+                  imap=None,
+                  func_kw={}):
         r"""
         Read spin bath from the file or from the ``BathArray``.
 
@@ -905,7 +906,7 @@ class Simulator:
             bath = bath.from_cube(self._hyperfine, gyro_center=self.center.gyro)
 
         elif self._hyperfine:
-            bath = bath.from_function(self._hyperfine, gyro_e=self.center.gyro)
+            bath = bath.from_func(self._hyperfine, **func_kw)
 
         if self.external_bath is not None:
             bath = bath.update(self.external_bath, error_range=self._error_range, ignore_isotopes=True,

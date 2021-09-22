@@ -82,11 +82,16 @@ def projected_hamiltonian(bath, center, mfield,
         hbeta += hsingle + hf_beta
 
     if center.energy_alpha is not None:
-        for c in center:
-            halpha += bath_mediated(bath, vectors, center.energy_alpha,
+        for i, c in enumerate(center):
+            if center.size > 1:
+                hf = bath.A[:, i]
+            else:
+                hf = bath.A
+
+            halpha += bath_mediated(hf, vectors, center.energy_alpha,
                                     center.energies, c.projections_alpha_all)
 
-            hbeta += bath_mediated(bath, vectors, center.energy_beta,
+            hbeta += bath_mediated(hf, vectors, center.energy_beta,
                                    center.energies, c.projections_beta_all)
 
     halpha = Hamiltonian(dims, vectors, data=halpha)
@@ -127,7 +132,7 @@ def total_hamiltonian(bath, center, mfield, others=None, other_states=None):
             if center.size == 1:
                 hf = others['A']
             else:
-                hf = others['A'][i]
+                hf = others['A'][:, i]
             totalh += overhauser_central(vectors[bath.size + i], hf, other_states)
 
     totalh += center_interactions(center, vectors[bath.size:])
@@ -166,7 +171,7 @@ def central_hamiltonian(center, magnetic_field, bath=None, bath_state=None):
             if center.size == 1:
                 hf = bath['A']
             else:
-                hf = bath['A'][i]
+                hf = bath['A'][:, i]
 
             totalh += overhauser_central(vectors[i], hf, bath_state)
 

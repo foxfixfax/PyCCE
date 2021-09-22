@@ -673,7 +673,7 @@ class BathArray(np.ndarray):
         array['A'] = cube.integrate(array['xyz'], gyros, gyro_center)
         return array
 
-    def from_func(self, func, gyro_center=ELECTRON_GYRO, vectorized=False, inplace=True):
+    def from_func(self, func, *args, inplace=True, **kwargs):
         """
         Generate hyperfine couplings from user-defined function.
 
@@ -682,17 +682,14 @@ class BathArray(np.ndarray):
             func (func):
                 Callable with signature::
 
-                    func(coord, gyro, central_gyro)
+                    func(array, *args, **kwargs)
 
-                where ``coord`` is array of the bath spin coordinate,
+                where ``array`` is array of the bath spins,
                 ``gyro`` is the gyromagnetic ratio of bath spin,
                 ``central_gyro`` is the gyromagnetic ratio of the central bath spin.
 
-            gyro_center (float): gyromagnetic ratio of the central spin to be used in the function.
-
-            vectorized (bool): If True, assume that func takes arrays of all bath spin coordinates and array of
-                gyromagnetic ratios as arguments.
-
+            *args: Positional arguments of the ``func``.
+            **kwargs: Keyword arguments of the ``func``.
             inplace (bool): True if changes parameters of the array in place. If False, returns copy of the array.
 
         Returns:
@@ -704,11 +701,8 @@ class BathArray(np.ndarray):
         else:
             array = self.copy()
 
-        if vectorized:
-            array['A'] = func(array['xyz'], array.gyro, gyro_center)
-        else:
-            for a in array:
-                a['A'] = func(a['xyz'], array.types[a].gyro, gyro_center)
+        func(array, *args, **kwargs)
+
         return array
 
     def from_efg(self, efg, inplace=True):

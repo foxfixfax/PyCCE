@@ -140,12 +140,12 @@ def bath_interactions(nspin, ivectors):
     return dd
 
 
-def bath_mediated(nspin, ivectors, energy_state, energies, projections):
+def bath_mediated(hyperfines, ivectors, energy_state, energies, projections):
     r"""
     Compute all hyperfine-mediated interactions between bath spins.
 
     Args:
-        nspin (BathArray): Array of the bath spins in the given cluster.
+        hyperfines (ndarray with shape (n, 3,3)): Array of hyperfine tensors of the bath spins in the given cluster.
         ivectors (array-like): array of expanded spin vectors, each with shape (3,n,n).
         energy_state (float): Energy of the qubit state on which the interaction is conditioned.
         energies (ndarray with shape (2s-1,)): Array of energies of all states of the central spin.
@@ -172,10 +172,10 @@ def bath_mediated(nspin, ivectors, energy_state, energies, projections):
         element_ij = 0
         element_ji = 0
 
-        for n, ivec in zip(nspin, ivectors):
-            element_ij += conditional_hyperfine(n['A'], ivec, s_ij)
-            element_ji += conditional_hyperfine(n['A'], ivec, s_ij.conj())
+        for hf, ivec in zip(hyperfines, ivectors):
 
+                element_ij += conditional_hyperfine(hf, ivec, s_ij)
+                element_ji += conditional_hyperfine(hf, ivec, s_ij.conj())
         mediated += element_ij @ element_ji / (energy_state - energy_j)
 
     return mediated

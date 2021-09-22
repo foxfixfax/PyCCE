@@ -120,7 +120,7 @@ def optimized_approach(function, self, *arg,
     # Then for this subcluster nelements < maximum CCE order
     if norders == 1 and subclusters[revorders[0]].shape[0] == 1:
         verticles = subclusters[revorders[0]][0]
-        return function(self, verticles, *arg, **kwarg)
+        return function(verticles, *arg, **kwarg)
 
     result = 1
     result = contribution_operator(result, 0)
@@ -253,7 +253,7 @@ def direct_approach(function, self, *arg,
     if norders == 1 and subclusters[orders[0]].shape[0] == 1:
         verticles = subclusters[orders[0]][0]
 
-        return function(self, verticles, *arg, **kwarg)
+        return function(verticles, *arg, **kwarg)
 
         # print(zero_power)
     # The Highest possible L will have all powers of 1
