@@ -88,4 +88,4 @@ How to cite
 If you make use of **PyCCE** in a scientific publication, please cite the following paper:
 
    Mykyta  Onizhuk and Giulia Galli. "PyCCE: A Python Package for Cluster Correlation Expansion Simulations of Spin Qubit Dynamic"
-   arXiv:2107.05843. https://arxiv.org/abs/2107.05843
+   Adv. Theory Simul. 2021, 2100254 https://onlinelibrary.wiley.com/doi/10.1002/adts.202100254
