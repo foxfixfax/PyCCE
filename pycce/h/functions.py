@@ -173,9 +173,8 @@ def bath_mediated(hyperfines, ivectors, energy_state, energies, projections):
         element_ji = 0
 
         for hf, ivec in zip(hyperfines, ivectors):
-
-                element_ij += conditional_hyperfine(hf, ivec, s_ij)
-                element_ji += conditional_hyperfine(hf, ivec, s_ij.conj())
+            element_ij += conditional_hyperfine(hf, ivec, s_ij)
+            element_ji += conditional_hyperfine(hf, ivec, s_ij.conj())
         mediated += element_ij @ element_ji / (energy_state - energy_j)
 
     return mediated
@@ -307,10 +306,10 @@ def self_central(svec, mfield, zfs=None, gyro=ELECTRON_GYRO):
 
 
 def center_interactions(center, vectors):
-    if center.imap is None:
+    ncenters = len(center)
+    if (ncenters == 1) or (not center.imap):
         return 0
 
-    ncenters = len(center)
     ham = 0
 
     for i in range(ncenters):

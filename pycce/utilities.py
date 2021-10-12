@@ -90,9 +90,14 @@ def dimensions_spinvectors(bath=None, central_spin=None):
         dimensions += [_smc[s].dim for s in spins]
 
     if central_spin is not None:
-        for c in central_spin:
-            dimensions += [c.dim]
-            spins += [c.s]
+        try:
+            for c in central_spin:
+                dimensions += [c.dim]
+                spins += [c.s]
+
+        except TypeError:
+            dimensions += [central_spin.dim]
+            spins += [central_spin.s]
 
     dimensions = np.array(dimensions, dtype=np.int32)
 
@@ -156,7 +161,9 @@ def generate_projections(state_a, state_b=None, spins=None):
     else:
         projections = []
         dim = (np.asarray(spins) * 2 + 1 + 1e-8).astype(int)
+
         for i, s in enumerate(spins):
+
             sm = _smc[s]
             smx = expand(sm.x, i, dim)
             smy = expand(sm.y, i, dim)
@@ -167,6 +174,7 @@ def generate_projections(state_a, state_b=None, spins=None):
                           state_a.conj() @ smz @ state_b],
                          dtype=np.complex128)
             projections.append(p)
+
     return projections
 
 
@@ -203,22 +211,29 @@ def project_bath_states(states):
     """
 
     ndstates = np.asarray(states)
+    projected_bath_state = None
 
-    if len(ndstates.shape) > 1:
+    if ndstates.dtype == object:
+        try:
+            ndstates = np.stack(ndstates)
+        except ValueError:
+            with warnings.catch_warnings(record=True) as w:
+                projected_bath_state = _loop_trace(list(states))
 
-        spin = (ndstates.shape[1] - 1) / 2
-        projected_bath_state = np.empty((ndstates.shape[0], 3))
+    if projected_bath_state is None:
 
-        projected_bath_state[:, 0] = np.trace(np.matmul(ndstates, _smc[spin].x), axis1=1, axis2=2)
-        projected_bath_state[:, 1] = np.trace(np.matmul(ndstates, _smc[spin].y), axis1=1, axis2=2)
-        projected_bath_state[:, 2] = np.trace(np.matmul(ndstates, _smc[spin].z), axis1=1, axis2=2)
+        if len(ndstates.shape) > 1:
 
-    elif ndstates.dtype == object:
-        with warnings.catch_warnings(record=True) as w:
-            projected_bath_state = _loop_trace(list(states))
+            spin = (ndstates.shape[1] - 1) / 2
 
-    else:
-        projected_bath_state = ndstates
+            projected_bath_state = np.empty((ndstates.shape[0], 3))
+
+            projected_bath_state[:, 0] = np.trace(np.matmul(ndstates, _smc[spin].x), axis1=1, axis2=2)
+            projected_bath_state[:, 1] = np.trace(np.matmul(ndstates, _smc[spin].y), axis1=1, axis2=2)
+            projected_bath_state[:, 2] = np.trace(np.matmul(ndstates, _smc[spin].z), axis1=1, axis2=2)
+
+        else:
+            projected_bath_state = ndstates
 
     if len(projected_bath_state.shape) > 1 and not np.any(projected_bath_state[:, :2]):
         projected_bath_state = projected_bath_state[:, 2]

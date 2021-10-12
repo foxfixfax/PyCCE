@@ -1,9 +1,8 @@
 import copy
+import numpy as np
 import warnings
 from collections import UserDict
 from collections.abc import Mapping
-
-import numpy as np
 from numpy.lib.recfunctions import repack_fields
 
 from .map import InteractionMap
@@ -166,6 +165,11 @@ class BathArray(np.ndarray):
 
         obj.types = SpinDict()
         obj.imap = imap
+
+        obj._state = np.asarray([None]*obj.size, dtype=object)
+        obj._has_state = np.zeros(obj.shape, dtype=bool)
+        obj._projected_state = np.zeros(obj.shape, dtype=np.float64)
+        obj._has_projected_state = np.zeros(obj.shape, dtype=bool)
 
         if types is not None:
             try:
@@ -400,19 +404,38 @@ class BathArray(np.ndarray):
 
     @property
     def nc(self):
-        """int: Number of centeral spins."""
+        """int: Number of central spins."""
         selfdim = len(self.shape)
         return self.A.shape[selfdim] if len(self.A.shape) == selfdim + 3 else 1
+
+    @property
+    def state(self):
+        return self._state[()]
+
+    @state.setter
+    def state(self, rho_list):
+        try:
+            self._state[()] = rho_list
+        except ValueError:
+            self._state[()] = [rho for rho in rho_list]
+        self._has_state[()] = True
+
+    @property
+    def projected_state(self):
+        return self._projected_state
 
     def __getitem__(self, item):
         # if string then return ndarray view of the field
         if isinstance(item, (int, np.int32, np.int64)):
-            return np.ndarray.__getitem__(self, (Ellipsis, item))
+            obj = np.ndarray.__getitem__(self, (Ellipsis, item))
+            obj.imap = None
+            return obj
+
         elif isinstance(item, (str, np.str_)):
             try:
                 value = self.view(np.ndarray).__getitem__(item)
 
-                if value.shape == ():
+                if not value.shape:
                     return value[()]
 
                 return value
@@ -475,9 +498,9 @@ class BathArray(np.ndarray):
     def __eq__(self, other):
         try:
 
-            xyzs = (self['xyz'] == other['xyz']).all(axis=1)
-            hfs = (self['A'] == other['A']).reshape(self['A'].shape[0], -1).all(axis=1)
-            qds = (self['Q'] == other['Q']).reshape(self['Q'].shape[0], -1).all(axis=1)
+            xyzs = (self['xyz'] == other['xyz']).all(axis=-1)
+            hfs = (self['A'] == other['A']).reshape(*self.shape, -1).all(axis=-1)
+            qds = (self['Q'] == other['Q']).reshape(*self.shape, -1).all(axis=-1)
 
             return xyzs & hfs & qds
 
@@ -877,6 +900,10 @@ def concatenate(arrays, axis=0, out=None):
     return new_array
 
 
+# @implements(np.broadcast_to)
+# def broadcast_to(array, shape):
+#     ...  # implementation of broadcast_to for MyArray objects
+
 def check_gyro(gyro):
     """
     Check if gyro is matrix or scalar.
@@ -894,22 +921,24 @@ def check_gyro(gyro):
 
     if not check:
         gyro = np.asarray(gyro)
-        if gyro.size == 1:
+        if not gyro.shape or gyro.shape[0] == 1:
             check = True
             gyro = gyro.reshape(1)[0]
+        elif gyro.ndim == 1:  # Assume array
+            check = True
         else:
-            diag_check = (gyro == np.diag(np.diag(gyro))).all()
-            same_check = gyro[0, 0] == gyro[1, 1] == gyro[2, 2]
+            test_gyros = gyro.copy()
+            indexes = np.arange(gyro.shape[-1])
+            test_gyros[..., indexes, indexes] = 0
+
+            diag_check = np.isclose(test_gyros, 0).all()
+            same_check = ((gyro[..., 0, 0] == gyro[..., 1, 1]) & (gyro[..., 1, 1] == gyro[..., 2, 2])).all()
             check = diag_check & same_check
             if check:
-                gyro = gyro[0, 0]
+                gyro = gyro[..., 0, 0][()]
 
     return gyro, check
 
-
-# @implements(np.broadcast_to)
-# def broadcast_to(array, shape):
-#     ...  # implementation of broadcast_to for MyArray objects
 
 def point_dipole(pos, gyro_array, gyro_center):
     """
@@ -938,17 +967,32 @@ def point_dipole(pos, gyro_array, gyro_center):
 
     r = np.linalg.norm(pos, axis=-1)[..., np.newaxis, np.newaxis]
     gyro_center, check = check_gyro(gyro_center)
+    gyro_array, check_array = check_gyro(gyro_array)
 
-    if check:
-        pref = np.asarray(gyro_center * gyro_array * HBAR / PI2)[..., np.newaxis, np.newaxis]
+    gyro_center = np.asarray(gyro_center)
+    gyro_array = np.asarray(gyro_array)
 
-        out = -(3 * posxpos[np.newaxis, ...] - identity[np.newaxis, ...] * r ** 2) / (r ** 5) * pref
+    if check and check_array:
 
+        if gyro_center.shape and gyro_array.shape:
+            pref = gyro_center[:, np.newaxis] * gyro_array[np.newaxis, :]
+
+        else:
+            pref = gyro_center * gyro_array
+        out = -(3 * posxpos - identity * r ** 2) / (r ** 5)
+        out = out * pref.reshape(*pref.shape, 1, 1) * HBAR / PI2
+        return out
+
+    out = -(3 * posxpos - identity * r ** 2) / (r ** 5) * HBAR / PI2
+
+    if not check_array:
+        out = np.matmul(out, gyro_array)
     else:
-        pref = (gyro_center[np.newaxis, :, :] * np.asarray(gyro_array)[..., np.newaxis, np.newaxis] * HBAR / PI2)
-        postf = -(3 * posxpos[np.newaxis, :] - identity[np.newaxis, :] * r ** 2) / (r ** 5)
-        out = np.matmul(pref, postf)
-
+        out *= gyro_array.reshape(*gyro_array.shape, 1, 1)
+    if not check:
+        out = np.matmul(gyro_center, out)
+    else:
+        out *= gyro_center.reshape(*gyro_center.shape, 1, 1)
     return out
 
 
@@ -1492,15 +1536,16 @@ filepath = os.path.join(__location__, 'isotopes.txt')
 all_spins = pd.read_csv(filepath, delim_whitespace=True, header=None, comment='%',
                         names=['protons', 'nucleons', 'radioactive', 'symbol', 'name', 'spin', 'g', 'conc', 'q'])
 
-stable_spins = all_spins[(all_spins['spin'] > 0) & (all_spins['conc'] > 0)]
+# only stable isotopes with nonzero spins
+spins = all_spins[(all_spins['spin'] > 0) & (all_spins['conc'] > 0)]
 
-_names = stable_spins['nucleons'].astype(str) + stable_spins['symbol']
-_gyros = stable_spins['g'] / HBAR_SI * NUCLEAR_MAGNETON / 1e7
-_quads = stable_spins['q']
-_spins = stable_spins['spin']
+_names = spins['nucleons'].astype(str) + spins['symbol']
+_gyros = spins['g'] / HBAR_SI * NUCLEAR_MAGNETON / 1e7
+_quads = spins['q']
+_spins = spins['spin']
 
-_mi = pd.MultiIndex.from_arrays([stable_spins['symbol'], _names])
-_ser = pd.Series((stable_spins['conc'] / 100).values, index=_mi)
+_mi = pd.MultiIndex.from_arrays([spins['symbol'], _names])
+_ser = pd.Series((spins['conc'] / 100).values, index=_mi)
 
 common_concentrations = {level: _ser.xs(level).to_dict() for level in _ser.index.levels[0]}
 """

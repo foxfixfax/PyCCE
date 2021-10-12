@@ -2,8 +2,8 @@ import numpy as np
 from pycce.bath.array import BathArray
 from pycce.constants import PI2
 from pycce.h import total_hamiltonian, expand
-from pycce.utilities import shorten_dimensions
 from pycce.run.base import RunObject
+from pycce.utilities import shorten_dimensions
 
 
 def propagator(timespace, hamiltonian,
@@ -43,8 +43,8 @@ def propagator(timespace, hamiltonian,
 
         if pulses.delays is None:
             if not as_delay:
-                N = len(pulses)
-                timespace = timespace / (2 * N)
+                n = len(pulses)
+                timespace = timespace / (2 * n)
 
             eigexp = np.exp(-1j * np.tensordot(timespace, evalues, axes=0),
                             dtype=np.complex128)
@@ -119,6 +119,8 @@ def compute_dm(dm0, H, timespace, pulse_sequence=None, as_delay=False, states=No
 
         states (ndarray): ndarray of bath states in any accepted format.
 
+        ncenters (int): Number of central spins.
+
     Returns:
         ndarray: Array of density matrices evaluated at all time points in timespace.
     """
@@ -158,7 +160,7 @@ def full_dm(dm0, H, timespace, pulse_sequence=None, as_delay=False):
     """
     U = propagator(timespace, H.data, pulse_sequence, as_delay=as_delay)
     if len(dm0.shape) > 1:
-        dmUdagger = np.matmul(dm0, np.transpose(U.conj(), axes=(0, 2, 1)))
+        dmUdagger = np.matmul(dm0, U.conj().transpose(0, 2, 1))
         dm = np.matmul(U, dmUdagger)
     else:
         dm = U @ dm0
@@ -269,13 +271,7 @@ def gen_density_matrix(states=None, dimensions=None):
             dm_nucleus[state_number, state_number] = 1
 
         else:
-            if s.shape.__len__() == 1:
-                d = dimensions[i]
-                dm_nucleus = np.zeros((d, d), dtype=np.complex128)
-                np.fill_diagonal(dm_nucleus, s)
-
-            else:
-                dm_nucleus = s
+            dm_nucleus = s
 
         dmtotal0 = np.kron(dmtotal0, dm_nucleus)
 
@@ -298,11 +294,14 @@ class gCCE(RunObject):
         as_delay (bool):
             True if time points are delay between pulses, False if time points are total time.
 
+        fulldm (bool):
+            True if return full density matrix. Default False.
+
         **kwargs: Keyword arguments of the ``RunObject``.
 
     """
 
-    def __init__(self, *args, as_delay=False, pulses=None, **kwargs):
+    def __init__(self, *args, as_delay=False, pulses=None, fulldm=False, **kwargs):
         self.pulses = pulses
         """ Sequence: Sequence object, containing series of pulses, applied to the system."""
         self.as_delay = as_delay
@@ -314,6 +313,11 @@ class gCCE(RunObject):
         """ float: Coherence at time 0."""
         self.zero_cluster = None
         """ ndarray with shape (n,): Coherence computed for the isolated central spin."""
+        self.alpha = None
+        self.beta = None
+        self.fulldm = fulldm
+        """ bool: True if return full density matrix."""
+
         super().__init__(*args, **kwargs)
 
     def preprocess(self):
@@ -328,31 +332,38 @@ class gCCE(RunObject):
 
         if check:
             self.dm0 = self.center.state
+            self.normalization = np.outer(self.center.state, self.center.state)
         else:
             self.dm0 = np.outer(self.center.state, self.center.state)
+            self.normalization = self.dm0
+
+        self.alpha = self.center.alpha
+        self.beta = self.center.beta
 
         if self.pulses is not None:
             self.center.generate_sigma()
             self.pulses.generate_pulses(dimensions=self.center.hamiltonian.dimensions,
-                                        bath=BathArray(0, ), vectors=self.center.hamiltonian.vectors,
+                                        bath=BathArray((0,)), vectors=self.center.hamiltonian.vectors,
                                         central_spin=self.center)
+            for p in self.pulses:
+                if p.rotation is not None:
+                    self.alpha = p.rotation @ self.alpha
+                    self.beta = p.rotation @ self.beta
+                    self.normalization = p.rotation @ self.normalization @ p.rotation.conj()
 
         res = full_dm(self.dm0, self.center.hamiltonian, self.timespace,
                       pulse_sequence=self.pulses, as_delay=self.as_delay)
 
-        res = self.center.alpha.conj() @ res @ self.center.beta
-
-        if len(self.dm0.shape) > 1:
-            self.normalization = (self.center.alpha.conj() @ self.dm0 @ self.center.beta)
-        else:
-            self.normalization = np.inner(self.center.alpha.conj(), self.dm0) * np.inner(self.dm0.conj(),
-                                                                                         self.center.beta)
+        if not self.fulldm:
+            res = self.alpha.conj() @ res @ self.beta
+            self.normalization = (self.alpha.conj() @ self.normalization @ self.beta)
 
         self.zero_cluster = res
 
     def postprocess(self):
-
-        self.result = self.zero_cluster * self.result / self.normalization
+        self.result = self.zero_cluster * self.result
+        if not self.fulldm:
+            self.result = self.result / self.normalization
 
     def generate_hamiltonian(self):
         """
@@ -384,7 +395,9 @@ class gCCE(RunObject):
         """
         result = compute_dm(self.dm0, self.cluster_hamiltonian, self.timespace, self.pulses,
                             as_delay=self.as_delay, states=self.states, ncenters=self.center.size)
-
-        result = (self.center.alpha.conj() @ result @ self.center.beta) / self.zero_cluster
+        if self.fulldm:
+            result = result / self.zero_cluster
+        else:
+            result = (self.alpha.conj() @ result @ self.beta) / self.zero_cluster
 
         return result

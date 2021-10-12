@@ -364,8 +364,6 @@ class Simulator:
         if position is None:
             position = np.zeros(3)
 
-
-        self.spin = spin
         self.center = None
         """CenterArray: Array of central spins."""
         if isinstance(spin, CenterArray):
@@ -447,6 +445,8 @@ class Simulator:
         """bath_state (ndarray): Array of bath states."""
         self.timespace = None
         """timespace (ndarray with shape (n,)): Time points at which compute the desired property."""
+        self.runner = None
+        self.fulldm = False
 
     def __repr__(self):
         bm = (f"Simulator for spin-{self.spin}.\n"
@@ -884,6 +884,7 @@ class Simulator:
         self._error_range = error_range if error_range is not None else self._error_range
 
         bath = bath.expand(self.center.size)
+
         if self.r_bath is not None:
             mask = False
             for c in self.center:
@@ -891,6 +892,7 @@ class Simulator:
             bath = bath[mask]
 
         if self.ext_r_bath is not None and self.external_bath is not None:
+
             where = False
             for c in self.center:
                 where += np.linalg.norm(self.external_bath['xyz'] - c.xyz, axis=1) <= self.ext_r_bath
@@ -1042,6 +1044,7 @@ class Simulator:
         self._prepare(**kwargs)
 
         runner = self._compute_func[method.lower()][quantity.lower()].from_simulator(self)
+        self.runner = runner
 
         if not self.interlaced:
 
@@ -1100,7 +1103,8 @@ class Simulator:
                  level_confidence=0.95,
                  direct=False,
                  parallel=False,
-                 interlaced=False):
+                 interlaced=False,
+                 fulldm=False):
         """
 
         Args:
@@ -1139,6 +1143,7 @@ class Simulator:
         self.seed = seed
         self.masked = masked
         self.interlaced = interlaced
+        self.fulldm = fulldm
 
         if parallel or parallel_states:
             self._broadcast()

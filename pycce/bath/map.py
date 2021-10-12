@@ -86,7 +86,7 @@ class InteractionMap(MutableMapping):
 
         if value.size == 9:
             value = value.reshape(3, 3)
-        else:
+        elif value.size // 9 > 0:
             value = value.reshape(-1, 3, 3)
         a, b = _index(key)
 

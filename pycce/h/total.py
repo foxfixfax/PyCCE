@@ -26,30 +26,6 @@ def projected_hamiltonian(bath, center, mfield,
         other_states (ndarray with shape (m,) or (m, 3)):
             Array of Iz projections for each bath spin outside of the given cluster.
 
-        energy_alpha (float): Energy of the alpha state
-
-        energy_beta (float): Energy of the beta state
-
-        energies (ndarray with shape (2s-1,)): Array of energies of all states of the central spin.
-
-        projections_alpha_all (ndarray with shape (2s-1, 3)):
-            Array of vectors of the central spin matrix elements of form:
-
-            .. math::
-
-                [\bra{\alpha}\hat{S}_x\ket{j}, \bra{\alpha}\hat{S}_y\ket{j}, \bra{\alpha}\hat{S}_z\ket{j}],
-
-            where :math:`\ket{\alpha}` is the alpha qubit state, and :math:`\ket{\j}` are all states.
-
-        projections_beta_all (ndarray with shape (2s-1, 3)):
-            Array of vectors of the central spin matrix elements of form:
-
-            .. math::
-
-                [\bra{\beta}\hat{S}_x\ket{j}, \bra{\beta}\hat{S}_y\ket{j}, \bra{\beta}\hat{S}_z\ket{j}],
-
-            where :math:`\ket{\beta}` is the beta qubit state, and :math:`\ket{\j}` are all states.
-
     Returns:
         tuple: *tuple* containing:
 
@@ -61,7 +37,7 @@ def projected_hamiltonian(bath, center, mfield,
 
     halpha = 0 + clusterint
     hbeta = 0 + clusterint
-
+    ncenters = len(center)
     for ivec, n in zip(vectors, bath):
         hsingle = expanded_single(ivec, n.gyro, mfield, n['Q'], n.detuning)
 
@@ -71,7 +47,7 @@ def projected_hamiltonian(bath, center, mfield,
         hf_alpha = 0
         hf_beta = 0
         for i, c in enumerate(center):
-            if center.size > 1:
+            if ncenters > 1:
                 hf = n['A'][i]
             else:
                 hf = n['A']
@@ -83,7 +59,7 @@ def projected_hamiltonian(bath, center, mfield,
 
     if center.energy_alpha is not None:
         for i, c in enumerate(center):
-            if center.size > 1:
+            if ncenters > 1:
                 hf = bath.A[:, i]
             else:
                 hf = bath.A
@@ -114,8 +90,6 @@ def total_hamiltonian(bath, center, mfield, others=None, other_states=None):
             array of all bath spins outside the cluster
         other_states (ndarray with shape (m,) or (m, 3)):
             Array of Iz projections for each bath spin outside of the given cluster.
-        zfs (ndarray with shape (3,3)):
-            Zero Field Splitting tensor of the central spin.
 
     Returns:
         Hamiltonian: hamiltonian of the given cluster, including central spin.
@@ -124,12 +98,13 @@ def total_hamiltonian(bath, center, mfield, others=None, other_states=None):
     dims, vectors = dimensions_spinvectors(bath, central_spin=center)
 
     totalh = bath_interactions(bath, vectors)
+    ncenters = len(center)
 
     for i, c in enumerate(center):
         totalh += self_central(vectors[bath.size + i], mfield, c.zfs, c.gyro)
 
         if others is not None and other_states is not None:
-            if center.size == 1:
+            if ncenters == 1:
                 hf = others['A']
             else:
                 hf = others['A'][:, i]
@@ -147,8 +122,8 @@ def total_hamiltonian(bath, center, mfield, others=None, other_states=None):
 
         hhyperfine = 0
 
-        for i in range(center.size):
-            if center.size == 1:
+        for i in range(ncenters):
+            if ncenters == 1:
                 hf = n['A']
             else:
                 hf = n['A'][i]
@@ -160,18 +135,32 @@ def total_hamiltonian(bath, center, mfield, others=None, other_states=None):
     return Hamiltonian(dims, vectors, data=totalh)
 
 
-def central_hamiltonian(center, magnetic_field, bath=None, bath_state=None):
+def central_hamiltonian(center, magnetic_field, hyperfine=None, bath_state=None):
     dims, vectors = dimensions_spinvectors(central_spin=center)
+    try:
+        ncenters = len(center)
+        single_center = False
+    except TypeError:
+        single_center = True
+        ncenters = None
+
+    if single_center:
+        totalh = self_central(vectors[0], magnetic_field,
+                              center.zfs, center.gyro)
+        if hyperfine is not None and bath_state is not None:
+            totalh += overhauser_central(vectors[0], hyperfine, bath_state)
+        return totalh
+
     totalh = 0
 
     for i, c in enumerate(center):
         totalh += self_central(vectors[i], magnetic_field, c.zfs, c.gyro)
 
-        if bath is not None and bath_state is not None:
-            if center.size == 1:
-                hf = bath['A']
+        if hyperfine is not None and bath_state is not None:
+            if ncenters == 1:
+                hf = hyperfine
             else:
-                hf = bath['A'][:, i]
+                hf = hyperfine[..., i, :, :]
 
             totalh += overhauser_central(vectors[i], hf, bath_state)
 
@@ -230,4 +219,3 @@ def central_hamiltonian(center, magnetic_field, bath=None, bath_state=None):
 #         return inner_hamiltonian_wrapper
 #     else:
 #         return inner_hamiltonian_wrapper(_func)
-

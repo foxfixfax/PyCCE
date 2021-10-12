@@ -50,9 +50,7 @@ def filterfunc(ts, tau, npulses):
         ndarray with shape (n,): Filter function for the given CPMG sequence
     """
     fs = np.empty(ts.shape)
-    ks = np.empty(npulses) * 2
-    ks[:npulses] = np.arange(npulses)
-    ks[npulses:] = np.arange(npulses)
+    ks = np.r_[np.arange(npulses), np.arange(npulses)]
 
     for i, u in enumerate(ts):
         bad_points = (2 * ks + 1) * tau / npulses
@@ -90,7 +88,7 @@ def gaussian_phase(timespace, corr, npulses, units='khz'):
     if 'rad' not in units:
         corr *= PI2**2
     timespace = np.asarray(timespace)
-    chis = np.zeros(timespace.shape)
+    chis = np.zeros(timespace.shape, dtype=np.complex128)
     for i, tau in enumerate(timespace):
         if tau == 0:
             chis[i] = 0

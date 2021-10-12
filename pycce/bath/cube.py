@@ -34,7 +34,6 @@ chemical_symbols = [
 
 
 class Cube:
-
     """
     Class to process the .cube datafiles with spin polarization.
 
@@ -175,14 +174,25 @@ class Cube:
         if np.around(spin * 2) != np.around(self.integral):
             warnings.warn(f'provided spin: {spin:.2f} is not equal to one from spin density: {self.integral / 2:.2f}')
 
+        gyro_e, _ = check_gyro(gyro_e)
+        gyro_n, _ = check_gyro(gyro_n)
+
+        gyro_e = np.asarray(gyro_e)
+        gyro_n = np.asarray(gyro_n)
+
         position = np.asarray(position)
 
         if len(position.shape) > 1:
-            hyperfine = _cube_integrate_array(self.data, self.grid, self.voxel, spin,
-                                      position, gyro_n, gyro_e)
+            nshape = (position.shape[0], *gyro_n.shape[1:])
+            gyro_n = np.broadcast_to(gyro_n, nshape)
+            if gyro_n.ndim < 3:
+                gyro_n = gyro_n[:, np.newaxis, ...]
+            hyperfine = _cube_integrate_array(self.data, self.grid, self.voxel, spin, position,
+                                              gyro_n, gyro_e)
         else:
             hyperfine = _cube_integrate(self.data, self.grid, self.voxel, spin,
-                                position, gyro_n, gyro_e)
+                                        position, gyro_n, gyro_e)
+
         return hyperfine
 
         # d['A'] = -(3 * np.outer(pos, pos) - identity * r ** 2) / (r ** 5) * pre
@@ -200,8 +210,8 @@ def _cube_integrate(data, grid, voxel, spin, position, gyro_n, gyro_e=ELECTRON_G
         spin (float): Total central spin.
         position (ndarray with shape (3,)): Position of the bath spin at which to compute
             hyperfine tensor
-        gyro_n (float): Gyromagnetic ratio of the bath spin.
-        gyro_e (float): Gyromagnetic ratio of central spin.
+        gyro_n (ndarray): Gyromagnetic ratio of the bath spin.
+        gyro_e (ndarray): Gyromagnetic ratio of central spin.
 
     Returns:
         ndarray with shape (3, 3): Hyperfine tensor.
@@ -209,8 +219,6 @@ def _cube_integrate(data, grid, voxel, spin, position, gyro_n, gyro_e=ELECTRON_G
     pos = grid - position
 
     dist = np.sqrt(np.sum(pos ** 2, axis=-1))
-
-    gyro_e, check = check_gyro(gyro_e)
 
     hyperfine = np.zeros((3, 3), dtype=np.float64)
     for i in range(3):
@@ -221,14 +229,17 @@ def _cube_integrate(data, grid, voxel, spin, position, gyro_n, gyro_e=ELECTRON_G
             else:
                 integrand = - data * (3 * pos[:, :, :, i] * pos[:, :, :, j]) / dist ** 5
 
-            hyperfine[i, j] = np.trapz(np.trapz(np.trapz(integrand)))
+            hyperfine[i, j] = np.trapz(np.trapz(np.trapz(integrand))) * HBAR / (2 * spin * PI2) * np.linalg.det(voxel)
 
-    pre = gyro_e * gyro_n * HBAR / (2 * spin * PI2) * np.linalg.det(voxel)
-
-    if check:
-        hyperfine = hyperfine * pre
+    if gyro_e.ndim < 2:
+        hyperfine = hyperfine * gyro_e
     else:
-        hyperfine = pre @ hyperfine
+        hyperfine = gyro_e @ hyperfine
+
+    if gyro_n.ndim < 2:
+        hyperfine = hyperfine * gyro_n
+    else:
+        hyperfine = hyperfine @ gyro_n
 
     return hyperfine
 
@@ -245,7 +256,7 @@ def _cube_integrate_array(data, grid, voxel, spin, coordinates, gyros, gyro_e=EL
         coordinates (ndarray with shape (n, 3)): Positions of the bath spins at which to compute
                 hyperfine tensors.
         gyros (ndarray with shape (n,) ): Array of gyromagnetic ratio of the bath spins.
-        gyro_e (float): Gyromagnetic ratio of central spin.
+        gyro_e (ndarray): Gyromagnetic ratio of central spin.
 
     Returns:
         ndarray with shape (n, 3, 3): Array of hyperfine tensors.
@@ -253,6 +264,6 @@ def _cube_integrate_array(data, grid, voxel, spin, coordinates, gyros, gyro_e=EL
     hyperfines = np.zeros((coordinates.shape[0], 3, 3), dtype=np.float64)
 
     for i, position in enumerate(coordinates):
-        hyperfines[i] = _cube_integrate(data, grid, voxel, spin, position, gyros[i], gyro_e)
+        hyperfines[i] = _cube_integrate(data, grid, voxel, spin, position, gyros[i, ...], gyro_e)
 
     return hyperfines

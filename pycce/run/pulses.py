@@ -244,7 +244,7 @@ class Sequence(UserList):
                         c = cs[i]
                         if p.axis not in separate_sigma[i]:
                             separate_sigma[i][p.axis] = expand(c.sigma[p.axis], ndims - nc, shortdims)
-                        rotation = np.dot(center_rotation(total_sigma, p.axis, p.angle), rotation)
+                        rotation = np.dot(center_rotation(separate_sigma[i], p.axis, p.angle), rotation)
 
             if p.bath_names is not None:
                 if vectors.shape != bath.shape:

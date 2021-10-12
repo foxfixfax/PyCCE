@@ -8,6 +8,31 @@ from pycce.utilities import generate_projections
 
 from .gcce import generate_dm0, gen_density_matrix, propagator
 
+_rows = None
+_cols = None
+_newcols = None
+
+
+# def _gen_indexes(size):
+#     r = np.arange(size)
+#     global _rows
+#     global _cols
+#     global _newcols
+#
+#     _rows = np.concatenate([r[:i] for i in range(r.size, 0, -1)])
+#     _cols = np.concatenate([r[i:] for i in range(r.size, )])
+#     _newcols = np.concatenate([np.ones(i, dtype=int) * (r.size - i) for i in range(r.size, 0, -1)])
+#
+#     if equispaced:
+#         if _rows is None:
+#             _gen_indexes(corr.size)
+#
+#         res = np.zeros((corr.size, corr.size), dtype=np.complex128)
+#         res[_rows, _newcols] = np.triu(corr[np.newaxis, :] - corr[:, np.newaxis])[_rows, _cols]
+#         top = res.sum(axis=0)
+#         bottom = np.count_nonzero(res, axis=0)
+#         bottom[bottom == 0] = 1
+#         corr = top / bottom
 
 def correlation_it_j0(operator_i, operator_j, dm0_expanded, U):
     """
@@ -28,10 +53,10 @@ def correlation_it_j0(operator_i, operator_j, dm0_expanded, U):
 
     """
 
-    operator_i_t = np.matmul(np.transpose(U.conj(), axes=(0, 2, 1)), np.matmul(operator_i, U))
+    operator_i_t = np.matmul(U.conj().transpose(0, 2, 1), np.matmul(operator_i, U))
     # operator_j_t = np.matmul(np.transpose(U.conj(), axes=(0, 2, 1)), np.matmul(operator_j, U))
-    it_j0 = np.matmul(operator_i_t, operator_j)  # + np.matmul(operator_j, operator_i_t)) / 2
-    matmul = np.matmul(dm0_expanded, it_j0)
+    it_j0 = (np.matmul(operator_i_t, operator_j) + np.matmul(operator_j, operator_i_t)) / 2
+    matmul = np.matmul(it_j0, dm0_expanded)
     corr = matmul.trace(axis1=1, axis2=2, dtype=np.complex128)
 
     return corr
@@ -61,18 +86,35 @@ def compute_correlations(nspin, dm0_expanded, U, central_spin=None):
     if central_spin is not None and central_spin.size > 1:
         raise ValueError('Correlation calculations are supported only for single central spin')
 
-    for j, n in enumerate(nspin):
-        ivec = vectors[j]
-        hyperfine_tensor = n['A']
-        aivec = np.array([hyperfine_tensor[0, 0] * ivec[0],
-                          hyperfine_tensor[1, 1] * ivec[1],
-                          hyperfine_tensor[2, 2] * ivec[2]])
-        # aivec = np.einsum('ij,jkl->ikl', hyperfine_tensor, ivec)
-        a_is += aivec
+    if len(nspin.A.shape) == len(nspin.shape) + 2:
+        for j, n in enumerate(nspin):
+            ivec = vectors[j]
+            hyperfine_tensor = n['A']
+            aivec = np.array([hyperfine_tensor[0, 0] * ivec[0],
+                              hyperfine_tensor[1, 1] * ivec[1],
+                              hyperfine_tensor[2, 2] * ivec[2]])
+            # aivec = np.einsum('ij,jkl->ikl', hyperfine_tensor, ivec)
+            # Still don't understand why this doesn't work
+            a_is += aivec
 
-    # AI_x = correlation_it_j0(AIs[0], AIs[0], dm0_expanded, U)
-    # AI_y = correlation_it_j0(AIs[1], AIs[1], dm0_expanded, U)
-    AI_z = correlation_it_j0(a_is[2], a_is[2], dm0_expanded, U)
+        # AI_x = correlation_it_j0(AIs[0], AIs[0], dm0_expanded, U)
+        # AI_y = correlation_it_j0(AIs[1], AIs[1], dm0_expanded, U)
+        AI_z = correlation_it_j0(a_is[2], a_is[2], dm0_expanded, U)
+
+    else:
+
+        AI_z = []
+
+        for i in range(nspin.A.shape[len(nspin.shape)]):
+            for j, n in enumerate(nspin):
+                ivec = vectors[j]
+                hyperfine_tensor = n['A'][i]
+                aivec = np.array([hyperfine_tensor[0, 0] * ivec[0],
+                                  hyperfine_tensor[1, 1] * ivec[1],
+                                  hyperfine_tensor[2, 2] * ivec[2]])
+                a_is += aivec
+
+            AI_z.append(correlation_it_j0(a_is[2], a_is[2], dm0_expanded, U))
 
     return AI_z  # np.array([AI_x, AI_y, AI_z])
 
@@ -105,7 +147,6 @@ class gCCENoise(RunObject):
     one contribution in the direct approach: ``numpy.sum``."""
 
     def __init__(self, *args, **kwargs):
-
         self.dm0 = None
         super().__init__(*args, **kwargs)
 
@@ -126,7 +167,7 @@ class gCCENoise(RunObject):
             Hamiltonian: Cluster hamiltonian.
 
         """
-        ham = total_hamiltonian(self.cluster, self.center, self.magnetic_field,others=self.others,
+        ham = total_hamiltonian(self.cluster, self.center, self.magnetic_field, others=self.others,
                                 other_states=self.other_states)
         return ham
 
@@ -192,11 +233,17 @@ class CCENoise(RunObject):
         if self.center.size > 1:
             raise ValueError('Correlation calculations are supported only for single central spin')
 
-        self.projections = (np.abs(self.center.projections_alpha[0]) + np.abs(self.center.projections_beta)) / 2
+        self.projections = (np.abs(self.center.projections_alpha) + np.abs(self.center.projections_beta)) / 2
         # self.projections = generate_projections(self.state)
 
     def postprocess(self):
-        pass
+        global _cols
+        global _rows
+        global _newcols
+
+        _cols = None
+        _rows = None
+        _newcols = None
 
     def generate_hamiltonian(self):
         """
@@ -207,22 +254,28 @@ class CCENoise(RunObject):
             Hamiltonian: Cluster hamiltonian.
 
         """
-        dimensions, ivectors = dimensions_spinvectors(self.cluster, central_spin=None)
 
-        totalh = Hamiltonian(dimensions, vectors=ivectors)
+        dims, vectors = dimensions_spinvectors(self.cluster, central_spin=None)
+        totalh = bath_interactions(self.cluster, vectors)
 
-        for ivec, n in zip(ivectors, self.cluster):
+        for ivec, n in zip(vectors, self.cluster):
             hsingle = expanded_single(ivec, n.gyro, self.magnetic_field, n['Q'], n.detuning)
 
             if self.others is not None and self.other_states is not None:
                 hsingle += overhauser_bath(ivec, n['xyz'], n.gyro, self.others.gyro,
                                            self.others['xyz'], self.other_states)
 
-            hf = conditional_hyperfine(n['A'], ivec, self.projections)
+            for i, proj in enumerate(self.projections):
+                if self.center.size > 1:
+                    hf = n['A'][i]
+                else:
+                    hf = n['A']
 
-            totalh.data += hsingle + hf
+                hsingle += conditional_hyperfine(hf, ivec, proj)
 
-        totalh.data += bath_interactions(self.cluster, ivectors)
+            totalh += hsingle
+
+        totalh = Hamiltonian(dims, vectors, data=totalh)
 
         return totalh
         # ham = total_hamiltonian(self.cluster, self.magnetic_field, self.zfs, others=self.others,
