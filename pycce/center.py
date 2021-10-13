@@ -24,14 +24,14 @@ class Center:
 
         energy_beta (float): Energy of the beta state
 
-        energies (ndarray with shape (2s-1,)): Array of energies of all states of the central spin.
+        energies (
 
 
 
     """
     def __init__(self, position=None,
                  spin=0, D=0, E=0,
-                 gyro=ELECTRON_GYRO, alpha=None, beta=None):
+                 gyro=ELECTRON_GYRO, alpha=None, beta=None, detuning=0):
         if position is None:
             position = [0, 0, 0]
 
@@ -39,11 +39,14 @@ class Center:
         self._gyro = None
         self._xyz = None
         self._s = None
+        self._detuning = None
+
 
         self.xyz = position
         self.s = spin
         self.set_zfs(D, E)
         self.set_gyro(gyro)
+        self.detuning = detuning
 
         self.projections_alpha = None
         self.projections_beta = None
@@ -74,6 +77,7 @@ class Center:
         """
 
         self.energies = None
+        """ndarray with shape (2s-1,): Array of energies of all states of the central spin."""
         self.eigenvectors = None
         self.hamiltonian = None
 
@@ -86,7 +90,17 @@ class Center:
         self.alpha = alpha
         self.beta = beta
 
-        self.sigma = None
+        self._sigma = None
+
+    @property
+    def detuning(self):
+        """ndarray with shape (3, ): Position of the central spin in Cartesian coordinates."""
+        return self._xyz
+
+    @detuning.setter
+    def detuning(self, detune):
+        attr_arr_setter(self, '_detuning', detune)
+
 
     @property
     def xyz(self):
@@ -207,9 +221,15 @@ class Center:
         alpha_x_beta = np.outer(self.alpha, self.beta)
         beta_x_alpha = np.outer(self.beta, self.alpha)
 
-        self.sigma = {'x': alpha_x_beta + beta_x_alpha,
-                      'y': -1j * alpha_x_beta + 1j * beta_x_alpha,
-                      'z': alpha_x_alpha - beta_x_beta}
+        self._sigma = {'x': alpha_x_beta + beta_x_alpha,
+                       'y': -1j * alpha_x_beta + 1j * beta_x_alpha,
+                       'z': alpha_x_alpha - beta_x_beta}
+
+    @property
+    def sigma(self):
+        if self._sigma is None:
+            self.generate_sigma()
+        return self._sigma
 
     def _set_state(self, name, state):
         if state is not None:
@@ -223,6 +243,7 @@ class Center:
                 setattr(self, name + '_index', None)
         else:
             setattr(self, '_' + name, state)
+        self._sigma = None
 
     def _get_state(self, name):
         state = getattr(self, '_' + name)
@@ -266,7 +287,8 @@ class CenterArray(Center, Sequence):
                  spin=None, D=0, E=0,
                  gyro=ELECTRON_GYRO, imap=None,
                  alpha=None,
-                 beta=None):
+                 beta=None,
+                 detuning=0):
 
         if size is None:
             if spin is not None:
@@ -291,12 +313,17 @@ class CenterArray(Center, Sequence):
         if spin.size != self.size:
             spin = np.array(np.broadcast_to(spin, self.size))
 
+        detuning = np.asarray(detuning).reshape(-1)
+        if detuning.size != self.size:
+            detuning = np.array(np.broadcast_to(detuning, self.size))
+
         self._state = None
 
-        super().__init__(position=position, spin=spin, D=D, E=E, gyro=gyro, alpha=alpha, beta=beta)
+        super().__init__(position=position, spin=spin, D=D, E=E, gyro=gyro, alpha=alpha, beta=beta, detuning=detuning)
 
-        self._array = np.array([Center(position=p, spin=s[..., 0], D=zfs, gyro=g) for p, s, zfs, g in
-                                zip(self.xyz, self.s[:, np.newaxis], self.zfs, self.gyro)], dtype=object)
+        self._array = np.array([Center(position=p, spin=s[..., 0], D=zfs, gyro=g, detuning=d) for p, s, zfs, g, d in
+                                zip(self.xyz, self.s[:, np.newaxis], self.zfs, self.gyro, self.detuning)],
+                               dtype=object)
 
         if imap is not None and not isinstance(imap, InteractionMap):
 
