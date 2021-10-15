@@ -21,7 +21,8 @@ def expanded_single(ivec, gyro, mfield, self_tensor, detuning=.0):
         ndarray with shape (n, n): Single bath spin term.
 
     """
-    if isinstance(gyro, (float, int)):
+    gyro, check = check_gyro(gyro)
+    if check:
         hzeeman = -gyro / PI2 * (mfield[0] * ivec[0] + mfield[1] * ivec[1] + mfield[2] * ivec[2])
     # else assume tensor
     else:
@@ -38,28 +39,6 @@ def expanded_single(ivec, gyro, mfield, self_tensor, detuning=.0):
         hself += detuning * ivec[2]
 
     return hself + hzeeman
-
-
-# def bath_single(bath, vectors, mfield):
-#     """
-#     Compute isolated bath spin terms for all spins in the bath
-#
-#     Args:
-#         bath (BathArray): Array of the bath spins in the given cluster.
-#         vectors (array-like): array of expanded spin vectors, each with shape (3, n, n).
-#         mfield (ndarray wtih shape (3,): Magnetic field of type ``mfield = np.array([Bx, By, Bz])``.
-#
-#     Returns:
-#         ndarray with shape (n, n): All single bath spin terms.
-#
-#     """
-#     hsingle = 0
-#
-#     for j, n in enumerate(bath):
-#         ivec = vectors[j]
-#         hsingle += expanded_single(ivec, n.gyro, mfield, n['Q'], n.detuning)
-#
-#     return hsingle
 
 
 def dipole_dipole(coord_1, coord_2, g1, g2, ivec_1, ivec_2):
@@ -180,43 +159,6 @@ def bath_mediated(hyperfines, ivectors, energy_state, energies, projections):
     return mediated
 
 
-# def bath_mediated_old(nspin, ivectors, energy_state,
-#                   energies, projections):
-#     """
-#     Compute all hyperfine mediated interactions between bath spins.
-#
-#     Args:
-#         nspin (BathArray): Array of the bath spins in the given cluster.
-#         ivectors (array-like): array of expanded spin vectors, each with shape (3,n,n).
-#         energy_state (float): Energy of the qubit state on which the interaction is conditioned.
-#         energies (ndarray with shape (2s-1,)): Array of energies of all states of the central spin.
-#         projections (ndarray with shape (2s-1, 3)):
-#             Array of vectors of the central spin matrix elements of form:
-#             [<state|Sx|other>, <state|Sy|other>, <state|Sz|other>],
-#             where |state> is the qubit state on which the interaction is conditioned, and |other> are all states.
-#
-#     Returns:
-#         hamiltonian (ndarray with shape (n, n)): hyperfine-mediated interactions.
-#
-#     """
-#     nnuclei = nspin.shape[0]
-#     mediated = 0
-#
-#     others_mask = energies != energy_state
-#     energies = energies[others_mask]
-#     projections = projections[others_mask]
-#
-#     for i in range(nnuclei):
-#         for j in range(i + 1, nnuclei):
-#             n1 = nspin[i]
-#             n2 = nspin[j]
-#
-#             ivec_1 = ivectors[i]
-#             ivec_2 = ivectors[j]
-#
-#             mediated += hyperfine_mediated_old(n1['A'], n2['A'], ivec_1, ivec_2, energy_state, projections, energies)
-#     return mediated
-
 
 def conditional_hyperfine(hyperfine_tensor, ivec, projections):
     r"""
@@ -266,18 +208,19 @@ def hyperfine(hyperfine_tensor, svec, ivec):
     return h_hf
 
 
-def self_central(svec, mfield, zfs=None, gyro=ELECTRON_GYRO):
+def self_central(svec, mfield, tensor=None, gyro=ELECTRON_GYRO, detuning=0):
     """
     Function to compute the central spin term in the Hamiltonian.
  
     Args:
         svec (ndarray with shape (3, n, n)): Spin vector of the central spin in the full Hilbert space of the cluster.
         mfield (ndarray wtih shape (3,): Magnetic field of type ``mfield = np.array([Bx, By, Bz])``.
-        zfs (ndarray with shape (3, 3)):
+        tensor (ndarray with shape (3, 3)):
             Zero Field Splitting tensor of the central spin.
         gyro (float or ndarray with shape (3,3)):
             gyromagnetic ratio of the central spin OR tensor corresponding to interaction between magnetic field and
             central spin.
+        detuning (float): Energy detuning from the Zeeman splitting in kHz.
 
     Returns:
         ndarray with shape (n, n): Central spin term.
@@ -285,7 +228,7 @@ def self_central(svec, mfield, zfs=None, gyro=ELECTRON_GYRO):
     """
     H0 = 0
     if svec[2, 0, 0] > 1 / 2:
-        dsvec = np.einsum('ij,jkl->ikl', zfs, svec,
+        dsvec = np.einsum('ij,jkl->ikl', tensor, svec,
                           dtype=np.complex128)  # AIvec = Atensor @ Ivector
         # H0 = SDS = SxDxxSx + SxDxySy + ..
         H0 = np.einsum('lij,ljk->ik', svec, dsvec, dtype=np.complex128)
@@ -301,7 +244,8 @@ def self_central(svec, mfield, zfs=None, gyro=ELECTRON_GYRO):
                           dtype=np.complex128)  # AIvec = Atensor @ Ivector
         # H0 = SDS = SxDxxSx + SxDxySy + ..
         H1 = np.einsum('lij,ljk->ik', mfield, gsvec, dtype=np.complex128)
-
+    if detuning:
+        H1 += svec[-1] * detuning
     return H1 + H0
 
 

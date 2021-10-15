@@ -101,7 +101,7 @@ def total_hamiltonian(bath, center, mfield, others=None, other_states=None):
     ncenters = len(center)
 
     for i, c in enumerate(center):
-        totalh += self_central(vectors[bath.size + i], mfield, c.zfs, c.gyro)
+        totalh += self_central(vectors[bath.size + i], mfield, c.zfs, c.gyro, c.detuning)
 
         if others is not None and other_states is not None:
             if ncenters == 1:
@@ -146,7 +146,7 @@ def central_hamiltonian(center, magnetic_field, hyperfine=None, bath_state=None)
 
     if single_center:
         totalh = self_central(vectors[0], magnetic_field,
-                              center.zfs, center.gyro)
+                              center.zfs, center.gyro, center.detuning)
         if hyperfine is not None and bath_state is not None:
             totalh += overhauser_central(vectors[0], hyperfine, bath_state)
         return totalh

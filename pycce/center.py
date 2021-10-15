@@ -17,7 +17,6 @@ def attr_arr_setter(self, attr, value, dtype=np.float64):
 
 
 class Center:
-
     r"""
 
         energy_alpha (
@@ -29,6 +28,7 @@ class Center:
 
 
     """
+
     def __init__(self, position=None,
                  spin=0, D=0, E=0,
                  gyro=ELECTRON_GYRO, alpha=None, beta=None, detuning=0):
@@ -40,7 +40,6 @@ class Center:
         self._xyz = None
         self._s = None
         self._detuning = None
-
 
         self.xyz = position
         self.s = spin
@@ -93,16 +92,6 @@ class Center:
         self._sigma = None
 
     @property
-    def detuning(self):
-        """ndarray with shape (3, ): Position of the central spin in Cartesian coordinates."""
-        return self._xyz
-
-    @detuning.setter
-    def detuning(self, detune):
-        attr_arr_setter(self, '_detuning', detune)
-
-
-    @property
     def xyz(self):
         """ndarray with shape (3, ): Position of the central spin in Cartesian coordinates."""
         return self._xyz
@@ -142,6 +131,15 @@ class Center:
     @s.setter
     def s(self, spin):
         attr_arr_setter(self, '_s', spin)
+
+    @property
+    def detuning(self):
+        """ndarray with shape (3, ): Position of the central spin in Cartesian coordinates."""
+        return self._detuning[()]
+
+    @detuning.setter
+    def detuning(self, detune):
+        attr_arr_setter(self, '_detuning', detune)
 
     def set_zfs(self, D=0, E=0):
         """
@@ -280,6 +278,16 @@ class Center:
             self._alpha = self.eigenvectors[:, self.alpha_index]
         if self.beta_index is not None:
             self._beta = self.eigenvectors[:, self.beta_index]
+
+    def __repr__(self):
+        message = f"{self.__class__.__name__}" + ("(s: " + self.s.__str__() +
+                                                  ",\nxyz: " + self.xyz.__str__() +
+                                                  ",\nzfs: " + self.zfs.__str__() +
+                                                  ",\ngyro: " + self.gyro.__str__())
+        if self._detuning.any():
+            message += "\ndetuning: " + self.gyro.__str__()
+        message += ")"
+        return message
 
 
 class CenterArray(Center, Sequence):

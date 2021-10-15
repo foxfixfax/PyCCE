@@ -3,159 +3,14 @@ import numpy as np
 import warnings
 from collections import UserDict
 from collections.abc import Mapping
-from numba import jit
-from numba.typed import List
 from numpy.lib.recfunctions import repack_fields
 
 from .map import InteractionMap
 from ..constants import HBAR, ELECTRON_GYRO, HBAR_SI, NUCLEAR_MAGNETON, PI2
-from ..utilities import project_bath_states
-
+from .state import BathState
 HANDLED_FUNCTIONS = {}
 
 _set_str_kinds = {'U', 'S'}
-
-
-class BathState:
-    def __init__(self, size, state=None, has_state=None):
-        if state is not None:
-            assert state.size == size, "Incorrect states format"
-            self.state = state
-        else:
-            self.state = np.asarray([None] * size, dtype=object)
-        if has_state is not None:
-            self.has_state = has_state
-        else:
-            self.has_state = np.zeros(size, dtype=bool)
-
-        self.__projected_state = None
-        self.__has_projected_state = None
-
-        self.__up_to_date = None
-
-    def __getitem__(self, item):
-        if isinstance(item, tuple):
-            try:
-                key = item[0]
-                within = item[1:]
-
-                return self.state.__getitem__(key)[within]
-
-            except IndexError:
-                pass
-
-        return self.state.__getitem__(item)
-
-    def __setitem__(self, key, value):
-        # Only allowed values are density matrices or None
-        self._up_to_date = False
-
-        self._has_projected_state[key] = False
-
-        if value is None:
-            self.state[key] = None
-            self.has_state[key] = False
-            return
-
-        if isinstance(key, tuple):
-            within = key[1:]
-
-            if within:
-                self.state[key[0]][within] = value
-                self.has_state[key[0]] = True
-                return
-
-            else:
-                try:
-                    key = key[0]
-                except IndexError:
-                    pass
-
-        if isinstance(key, int):
-
-            self.state[key] = value
-            self.has_state[key] = np.bool_(value).any()
-
-        else:
-            try:
-                self.state[key] = value
-                self.has_state[key] = np.bool_(value).reshape(*np.asarray(self.state[key]).shape, -1).any(axis=-1)
-            except ValueError:
-                value = np.asarray(value)
-                if len(value.shape) > 1:
-                    inshape = np.asarray(self.state[key]).shape
-                    if not inshape:
-                        self.state[key][()] = value
-                        self.has_state[key] = True
-                    else:
-                        broadcasted = np.broadcast_to(value, inshape + value.shape[-2:])
-                        self.state[key] = [rho for rho in broadcasted]
-                        self.has_state[key] = [rho is not None for rho in broadcasted]
-                else:
-                    self.state[key] = [rho for rho in value]
-                    self.has_state[key] = [rho is not None for rho in value]
-
-    @property
-    def _up_to_date(self):
-
-        if self.__up_to_date is None:
-            self.__up_to_date = np.asarray(False)
-
-        return self.__up_to_date
-
-    @_up_to_date.setter
-    def _up_to_date(self, item):
-
-        if self.__up_to_date is None:
-            self.__up_to_date = np.asarray(False)
-
-        self.__up_to_date[()] = item
-
-    @property
-    def s_z(self):
-        if not self._up_to_date:
-            self._project()
-
-        return self._projected_state
-
-    @property
-    def _has_projected_state(self):
-        if self.__has_projected_state is None:
-            self.__has_projected_state = np.zeros(self.state.size, dtype=bool)
-        return self.__has_projected_state
-
-    @property
-    def _projected_state(self):
-        if self.__projected_state is None:
-            self.__projected_state = np.zeros(self.state.size, dtype=np.float64)
-        return self.__projected_state
-
-    def project(self):
-        self._has_projected_state[:] = False
-        self._project()
-
-        pass
-
-    def _project(self):
-        which = self.has_state & ~self._has_projected_state
-        if which.any():
-            projected = project_bath_states(self.state[which])
-            self._projected_state[which] = projected
-            self._has_projected_state[which] = True
-        self._up_to_date = True
-
-    def _get_state(self, item):
-
-        has_state = self.has_state[item]
-        state = self.state[item]
-        bs = BathState(state.size, state, has_state)
-        bs.__projected_state = self.s_z[item]
-        bs.__up_to_date = self._up_to_date
-
-        return bs
-
-    def __repr__(self):
-        return self.state.__repr__()
 
 
 class BathArray(np.ndarray):
@@ -314,7 +169,7 @@ class BathArray(np.ndarray):
         obj.types = SpinDict()
         obj.imap = imap
 
-        # obj._state = BathState(obj.size)
+        obj._state = BathState(obj.size)
         # obj.__projected_state = np.zeros(obj.shape, dtype=np.float64)
 
         if types is not None:
@@ -372,9 +227,9 @@ class BathArray(np.ndarray):
         #                   'This can lead to unexpected results.',
         #                   RuntimeWarning, stacklevel=2)
 
-        self.types = getattr(obj, 'types')
+        self.types = getattr(obj, 'types', None)
         self.imap = getattr(obj, 'imap', None)
-
+        self._state = getattr(obj, '_state', None)
         # We do not need to return anything
 
     def __array_function__(self, func, types, args, kwargs):
@@ -555,25 +410,30 @@ class BathArray(np.ndarray):
         selfdim = len(self.shape)
         return self.A.shape[selfdim] if len(self.A.shape) == selfdim + 3 else 1
 
-    # @property
-    # def state(self):
-    #     return self._state
-    #
-    # @state.setter
-    # def state(self, rho):
-    #     self._state[()] = rho
-    #
-    # @property
-    # def projected_state(self):
-    #     return self._projected_state
+    @property
+    def state(self):
+        return self._state
+
+    @state.setter
+    def state(self, rho):
+        self._state[()] = rho
 
     def __getitem__(self, item):
         if isinstance(item, (int, np.int32, np.int64)):
             item = (Ellipsis, item)
             obj = np.ndarray.__getitem__(self, item)
-            # obj._state = self._state._get_state(item)
+            # obj._state = self._state[item]
+            obj._state = self._state._get_state(item)
 
             return obj
+
+        elif isinstance(item, tuple) and not item:
+            return np.ndarray.__getitem__(self, item)
+        #     else:
+        #         item = (Ellipsis,) + item
+        #         obj = np.ndarray.__getitem__(self, item)
+        #         # obj._state = self._state[item]
+        #         return obj
 
         # if string then return ndarray view of the field
         elif isinstance(item, (str, np.str_)):
@@ -591,15 +451,22 @@ class BathArray(np.ndarray):
         else:
 
             obj = np.ndarray.__getitem__(self, item)
-            # obj._state = self._state._get_state(item)
-            if self.imap is not None:
-                if not isinstance(item, tuple):
 
-                    if isinstance(item, slice):
-                        item = np.arange(self.size)[item]
-                    smap = self.imap.subspace(item)
-                    if smap:
-                        obj.imap = smap
+            try:
+                obj._state = self._state._get_state(item)
+
+                if self.imap is not None:
+                    if not isinstance(item, tuple):
+
+                        if isinstance(item, slice):
+                            item = np.arange(self.size)[item]
+                        smap = self.imap.subspace(item)
+                        if smap:
+                            obj.imap = smap
+
+            except AttributeError:
+                pass
+
             return obj
 
     def __setitem__(self, key, val):
@@ -1706,3 +1573,5 @@ The isotope is considered common if it is stable and has nonzero concentration i
 
 # electron spin
 common_isotopes['e'] = SpinType('e', 1 / 2, ELECTRON_GYRO, 0)
+# allias for common_isotopes
+ci = common_isotopes
