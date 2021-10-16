@@ -374,8 +374,7 @@ class gCCE(RunObject):
             Hamiltonian: Cluster hamiltonian.
 
         """
-        ham = total_hamiltonian(self.cluster, self.center, self.magnetic_field, others=self.others,
-                                other_states=self.other_states)
+        ham = total_hamiltonian(self.cluster, self.center, self.magnetic_field, others=self.others)
 
         if self.pulses is not None:
             self.pulses.generate_pulses(dimensions=ham.dimensions, bath=self.cluster, vectors=ham.vectors,

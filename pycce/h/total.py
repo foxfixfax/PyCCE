@@ -3,7 +3,7 @@ from .functions import *
 
 
 def projected_hamiltonian(bath, center, mfield,
-                          others=None, other_states=None):
+                          others=None):
     r"""
     Compute projected hamiltonian on state and beta qubit states. Wrapped function so the actual call does not
     follow the one above!
@@ -41,9 +41,9 @@ def projected_hamiltonian(bath, center, mfield,
     for ivec, n in zip(vectors, bath):
         hsingle = expanded_single(ivec, n.gyro, mfield, n['Q'], n.detuning)
 
-        if others is not None and other_states is not None:
+        if others is not None:
             hsingle += overhauser_bath(ivec, n['xyz'], n.gyro, others.gyro,
-                                       others['xyz'], other_states)
+                                       others['xyz'], others.proj)
         hf_alpha = 0
         hf_beta = 0
         for i, c in enumerate(center):
@@ -76,7 +76,7 @@ def projected_hamiltonian(bath, center, mfield,
     return halpha, hbeta
 
 
-def total_hamiltonian(bath, center, mfield, others=None, other_states=None):
+def total_hamiltonian(bath, center, mfield, others=None):
     """
     Compute total Hamiltonian for the given cluster including mean field effect of all bath spins.
     Wrapped function so the actual call does not follow the one above!
@@ -103,12 +103,12 @@ def total_hamiltonian(bath, center, mfield, others=None, other_states=None):
     for i, c in enumerate(center):
         totalh += self_central(vectors[bath.size + i], mfield, c.zfs, c.gyro, c.detuning)
 
-        if others is not None and other_states is not None:
+        if others is not None:
             if ncenters == 1:
                 hf = others['A']
             else:
                 hf = others['A'][:, i]
-            totalh += overhauser_central(vectors[bath.size + i], hf, other_states)
+            totalh += overhauser_central(vectors[bath.size + i], hf, others.proj)
 
     totalh += center_interactions(center, vectors[bath.size:])
 
@@ -117,8 +117,8 @@ def total_hamiltonian(bath, center, mfield, others=None, other_states=None):
 
         hsingle = expanded_single(ivec, n.gyro, mfield, n['Q'], n.detuning)
 
-        if others is not None and other_states is not None:
-            hsingle += overhauser_bath(ivec, n['xyz'], n.gyro, others.gyro, others['xyz'], other_states)
+        if others is not None:
+            hsingle += overhauser_bath(ivec, n['xyz'], n.gyro, others.gyro, others['xyz'], others.proj)
 
         hhyperfine = 0
 

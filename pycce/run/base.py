@@ -191,12 +191,13 @@ class RunObject:
         self.cluster = None
         """BathArray: Array of the bath spins inside the given cluster."""
 
-        self.states = None
-        """ndarray: Array of the states of bath spins inside the given cluster."""
         self.others = None
         """BathArray: Array of the bath spins outside the given cluster."""
-        self.other_states = None
-        """ndarray: Array of the z-projections of the states of bath spins outside the given cluster."""
+        self.has_states = False
+        """bool: Whether there are states provided in the bath during the run."""
+        self.initial_states_mask = bath.has_state
+        """ndarray: Bool array of the states, initially present in the bath."""
+
         self.cluster_hamiltonian = None
         """Hamiltonian or tuple: Full hamiltonian of the given cluster. In conventional CCE, tuple with two 
         projected hamiltonians."""
@@ -209,6 +210,7 @@ class RunObject:
         """
         self.center.generate_states(self.magnetic_field, bath=self.bath,
                                     projected_bath_state=self.projected_bath_state)
+        self.has_states = self.bath.state.any()
 
     def postprocess(self):
         """
@@ -238,8 +240,10 @@ class RunObject:
         """
         self.cluster = self.bath[cluster]
 
-        self.states, self.others, self.other_states = _check_projected_states(cluster, self.bath, self.bath_state,
-                                                                              self.projected_bath_state)
+        if self.has_states:
+            others_mask = np.ones(self.bath.shape, dtype=bool)
+            others_mask[cluster] = False
+            self.others = self.bath[others_mask]
 
         self.cluster_hamiltonian = self.generate_hamiltonian()
 
@@ -318,8 +322,10 @@ class RunObject:
 
         self.cluster = self.bath[cluster]
 
-        self.states, self.others, self.other_states = _check_projected_states(supercluster, self.bath, self.bath_state,
-                                                                              self.projected_bath_state)
+        if self.has_states:
+            others_mask = np.ones(self.bath.shape, dtype=bool)
+            others_mask[supercluster] = False
+            self.others = self.bath[others_mask]
 
         self.cluster_hamiltonian = self.generate_hamiltonian()
 
@@ -337,33 +343,42 @@ class RunObject:
         else:
             initial_h0 = self.cluster_hamiltonian.data
             initial_h1 = None
+
             vectors = self.cluster_hamiltonian.vectors
 
         result = 0
-        i = 0
+        index_state = 0
 
-        for i, state in enumerate(generate_supercluser_states(self, supercluster)):
+        for index_state, state in enumerate(self.generate_supercluser_states(supercluster)):
 
-            self.states = state[~sc_mask]
+            self.cluster.state = state[~sc_mask]
             outer_states = state[sc_mask]
 
             if outer_spin.size > 0:
-                addition = 0 if projected else overhauser_central(vectors[-1], outer_spin['A'], outer_states)
+                addition = 0
+                if not projected:
+
+                    for v, c in zip(vectors[self.cluster.size:], self.center):
+
+                        addition += overhauser_central(v, outer_spin.A, outer_states)
 
                 for ivec, n in zip(vectors, self.cluster):
-                    addition += overhauser_bath(ivec, n['xyz'], n.gyro, outer_spin.gyro,
-                                                outer_spin['xyz'], outer_states)
+
+                    addition += overhauser_bath(ivec, n.xyz, n.gyro, outer_spin.gyro,
+                                                outer_spin.xyz, outer_states)
 
                 if projected:
+
                     self.cluster_hamiltonian[0].data = initial_h0 + addition
                     self.cluster_hamiltonian[1].data = initial_h1 + addition
 
                 else:
+
                     self.cluster_hamiltonian.data = initial_h0 + addition
 
             result += self.compute_result()
 
-        result /= i + 1
+        result /= index_state + 1
         return result
 
     @property
@@ -435,37 +450,49 @@ class RunObject:
 
         return run
 
+    def generate_supercluser_states(self, supercluster):
+        """
+        Helper function to generate all possible pure states of the given supercluster.
 
-def generate_supercluser_states(self, supercluster):
-    """
-    Helper function to generate all possible pure states of the given supercluster.
+        Args:
+            supercluster (ndarray with shape (n, )): Indexes of the bath spins in the supercluster.
 
-    Args:
-        self (RunObject): Instance of the ``RunObject`` class, used in the calculation.
-        supercluster (ndarray with shape (n, )): Indexes of the bath spins in the supercluster.
+        Yields:
+            ndarray with shape (n, ): Pure state of the given supercluster.
 
-    Yields:
-        ndarray with shape (n, ): Pure state of the given supercluster.
+        """
+        sc = self.bath[supercluster]
+        his = self.initial_states_mask[supercluster] # have initial states
 
-    """
-    scspins = self.bath[supercluster]
-    states = np.asarray(np.meshgrid(*(np.linspace(-s.s, s.s, s.dim) for s in scspins))).T.reshape(-1, scspins.size)
+        if not his.any():
+            states = np.asarray(np.meshgrid(*[np.linspace(-s.s, s.s, s.dim) for s in sc])).T.reshape(-1, sc.size)
+        else:
+            # one liner I'm hecking proud of
+            # 1) generate list of linspaces spanning the possible Sz projections if no initial state provided
+            #    othervise give an zero-sized array of the projection
+            # 2) Create meshgrid out of this list with the dimensions (sc.size, dim_1, dim_2, 1, dim_4, ..., dim_n)
+            #    where dim is dimensions of the nuclear spin and 1 in case only one projection is given
+            # 3) Transpose to change to (dim_n, dim_n-1, ..., dim_4, 1, dim_2, dim_1, sc.size)
+            states = np.asarray(np.meshgrid(
+                *[np.linspace(-sc[i].s, sc[i].s, sc[i].dim) if not his[i] else sc[i].proj for i in
+                  range(sc.size)])).T.reshape(-1, sc.size)
+        #
+        # if self.fixstates is not None:
+        #
+        #     indexes = np.fromiter((ind for ind in self.fixstates.keys()), dtype=np.int32)
+        #
+        #     which = np.isin(supercluster, indexes)
+        #
+        #     if any(which):
+        #
+        #         newindexes = np.arange(supercluster.size)
+        #
+        #         for k, nk in zip(supercluster[which], newindexes[which]):
+        #             states = states[states[:, nk] == self.fixstates[which]]
 
-    if self.fixstates is not None:
 
-        indexes = np.fromiter((ind for ind in self.fixstates.keys()), dtype=np.int32)
-
-        which = np.isin(supercluster, indexes)
-
-        if any(which):
-
-            newindexes = np.arange(supercluster.size)
-
-            for k, nk in zip(supercluster[which], newindexes[which]):
-                states = states[states[:, nk] == self.fixstates[which]]
-
-    for single in states:
-        yield single
+        for single in states:
+            yield single
 
 
 def _check_projected_states(cluster, allspin, states=None, projected_states=None):

@@ -3,7 +3,6 @@ import warnings
 import numpy as np
 from numba import jit
 from numba.typed import List
-
 from pycce.sm import _smc
 
 
@@ -163,7 +162,6 @@ def generate_projections(state_a, state_b=None, spins=None):
         dim = (np.asarray(spins) * 2 + 1 + 1e-8).astype(int)
 
         for i, s in enumerate(spins):
-
             sm = _smc[s]
             smx = expand(sm.x, i, dim)
             smy = expand(sm.y, i, dim)
@@ -200,7 +198,7 @@ def zfs_tensor(D, E=0):
     return tensor
 
 
-def project_bath_states(states):
+def project_bath_states(states, single=False):
     r"""
     Generate projections of bath states on :math:`S_z` axis from any type of states input.
     Args:
@@ -209,8 +207,14 @@ def project_bath_states(states):
     Returns:
         ndarray: Array of :math:`S_z` projections of the bath states
     """
+    # Ask for single b/c check against shape cannot distinguish 2x2 dm and 2 vectors of 2
+    # Other checks are kinda expensive
 
     ndstates = np.asarray(states)
+
+    if not ndstates.shape and ndstates.dtype == object:
+        ndstates = ndstates[()]
+
     projected_bath_state = None
 
     if ndstates.dtype == object:
@@ -221,33 +225,75 @@ def project_bath_states(states):
                 projected_bath_state = _loop_trace(list(states))
 
     if projected_bath_state is None:
+        spin = (ndstates.shape[1] - 1) / 2
+        if len(ndstates.shape) == 2 + (not single):
+            # projected_bath_state = np.empty((ndstates.shape[0], 3))
 
-        if len(ndstates.shape) > 1:
-
-            spin = (ndstates.shape[1] - 1) / 2
-
-            projected_bath_state = np.empty((ndstates.shape[0], 3))
-
-            projected_bath_state[:, 0] = np.trace(np.matmul(ndstates, _smc[spin].x), axis1=1, axis2=2)
-            projected_bath_state[:, 1] = np.trace(np.matmul(ndstates, _smc[spin].y), axis1=1, axis2=2)
-            projected_bath_state[:, 2] = np.trace(np.matmul(ndstates, _smc[spin].z), axis1=1, axis2=2)
+            # projected_bath_state[:, 0] = np.trace(np.matmul(ndstates, _smc[spin].x), axis1=-2, axis2=-1)
+            # projected_bath_state[:, 1] = np.trace(np.matmul(ndstates, _smc[spin].y), axis1=-2, axis2=-1)
+            projected_bath_state = np.trace(np.matmul(ndstates, _smc[spin].z), axis1=-2, axis2=-1)  # [:, 2]
 
         else:
-            projected_bath_state = ndstates
+            # Assume vectors
+            projected_bath_state = np.einsum('ij,...j->...i', _smc[spin].z, ndstates)
+            # projected_bath_state = ndstates
 
-    if len(projected_bath_state.shape) > 1 and not np.any(projected_bath_state[:, :2]):
-        projected_bath_state = projected_bath_state[:, 2]
+    # if len(projected_bath_state.shape) > 1 and not np.any(projected_bath_state[:, :2]):
+    #     projected_bath_state = projected_bath_state[:, 2]
 
     return projected_bath_state
 
 
+#
+#
+# def project_bath_states(states):
+#     r"""
+#     Generate projections of bath states on :math:`S_z` axis from any type of states input.
+#     Args:
+#         states (array-like): Array of bath spin states.
+#
+#     Returns:
+#         ndarray: Array of :math:`S_z` projections of the bath states
+#     """
+#
+#     ndstates = np.asarray(states)
+#     projected_bath_state = None
+#
+#     if ndstates.dtype == object:
+#         try:
+#             ndstates = np.stack(ndstates)
+#         except ValueError:
+#             with warnings.catch_warnings(record=True) as w:
+#                 projected_bath_state = _loop_trace(list(states))
+#
+#     if projected_bath_state is None:
+#
+#         if len(ndstates.shape) > 1:
+#
+#             spin = (ndstates.shape[1] - 1) / 2
+#
+#             projected_bath_state = np.empty((ndstates.shape[0], 3))
+#
+#             projected_bath_state[:, 0] = np.trace(np.matmul(ndstates, _smc[spin].x), axis1=1, axis2=2)
+#             projected_bath_state[:, 1] = np.trace(np.matmul(ndstates, _smc[spin].y), axis1=1, axis2=2)
+#             projected_bath_state[:, 2] = np.trace(np.matmul(ndstates, _smc[spin].z), axis1=1, axis2=2)
+#
+#         else:
+#             projected_bath_state = ndstates
+#
+#     if len(projected_bath_state.shape) > 1 and not np.any(projected_bath_state[:, :2]):
+#         projected_bath_state = projected_bath_state[:, 2]
+#
+#     return projected_bath_state
+
+
 @jit(nopython=True)
 def _loop_trace(states):
-    proj_states = np.empty((len(states), 3), dtype=np.complex128)
+    proj_states = np.empty((len(states),), dtype=np.complex128)  # (len(states), 3)
     dims = List()
 
-    sx = List()
-    sy = List()
+    # sx = List()
+    # sy = List()
     sz = List()
 
     for j, dm in enumerate(states):
@@ -258,23 +304,32 @@ def _loop_trace(states):
         except:
             sxnew, synew, sznew = _gen_sm(dim)
 
-            sx.append(sxnew)
-            sy.append(synew)
+            # sx.append(sxnew)
+            # sy.append(synew)
             sz.append(sznew)
             dims.append(dim)
 
             ind = -1
+        if len(dm.shape) == 2:
+            # xproj = np.trace(dm @ sx[ind])
+            # yproj = np.trace(dm @ sy[ind])
+            zproj = np.trace(dm @ sz[ind])
+        else:
+            # xproj = dm.conj() @ sx[ind] @ dm
+            # yproj = dm.conj() @ sy[ind] @ dm
+            zproj = dm.conj() @ sz[ind] @ dm
 
-        xproj = np.trace(dm @ sx[ind])
-        yproj = np.trace(dm @ sy[ind])
-        zproj = np.trace(dm @ sz[ind])
-
-        proj_states[j, 0] = xproj
-        proj_states[j, 1] = yproj
-        proj_states[j, 2] = zproj
+        # proj_states[j, 0] = xproj
+        # proj_states[j, 1] = yproj
+        proj_states[j] = zproj  # [j, 2]
 
     return proj_states
 
+@jit(nopython=True)
+def gen_sz(dim):
+    s = (dim - 1) / 2
+    projections = np.linspace(s, -s, dim).astype(np.complex128)
+    return np.diag(projections[::-1])
 
 @jit(nopython=True)
 def _gen_sm(dim):

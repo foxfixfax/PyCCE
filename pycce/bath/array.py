@@ -416,7 +416,39 @@ class BathArray(np.ndarray):
 
     @state.setter
     def state(self, rho):
-        self._state[()] = rho
+        # rho can be either (on the example of s = 1)
+        # projection of pure state:  rho = 1 for ms = 1
+        # pure state: rho = [0,0,1] for ms = - 1
+        # density matrix rho: = [[0,0,0],[0,1,0],[0,0,0]] for ms = 0
+        rho = np.asarray(rho)
+
+        if rho.dtype != np.object_ and len(rho.shape) <= len(self.shape):
+            if not rho.shape:
+                # assume s is int or float showing the spin projection in the pure state
+                d = self.dim
+                vec_nucleus = np.zeros(d, dtype=np.complex128)
+                state_number = ((d - 1) / 2 - rho).astype(np.int32)
+                vec_nucleus[state_number] = 1
+                rho = vec_nucleus
+            else:
+                rhos = []
+                for i, s in enumerate(rho):
+
+                    d = self[i].dim
+                    dm_nucleus = np.zeros((d, d), dtype=np.complex128)
+                    state_number = int(round((d - 1) / 2 - s))
+
+                    dm_nucleus[state_number, state_number] = 1
+
+                    rhos.append(dm_nucleus)
+
+                rho = rhos
+
+        self._state[...] = rho
+
+    @property
+    def proj(self):
+        return self.state.proj
 
     def __getitem__(self, item):
         if isinstance(item, (int, np.int32, np.int64)):

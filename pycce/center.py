@@ -264,14 +264,7 @@ class Center:
                 Array of Iz projections for each bath spin.
         """
 
-        if magnetic_field is None:
-            magnetic_field = [0, 0, 0]
-        if isinstance(bath, BathArray):
-            bath = bath['A']
-
-        self.hamiltonian = central_hamiltonian(self, magnetic_field, hyperfine=bath,
-                                               bath_state=projected_bath_state)
-
+        self.generate_hamiltonian(magnetic_field=magnetic_field, bath=bath, projected_bath_state=projected_bath_state)
         self.energies, self.eigenvectors = np.linalg.eigh(self.hamiltonian)
 
         if self.alpha_index is not None:
@@ -288,6 +281,18 @@ class Center:
             message += "\ndetuning: " + self.gyro.__str__()
         message += ")"
         return message
+
+    def generate_hamiltonian(self, magnetic_field=None, bath=None, projected_bath_state=None):
+        if magnetic_field is None:
+            magnetic_field = [0, 0, 0]
+
+        if isinstance(bath, BathArray):
+            bath = bath.A
+            projected_bath_state = bath.proj
+
+        self.hamiltonian = central_hamiltonian(self, magnetic_field, hyperfine=bath,
+                                               bath_state=projected_bath_state)
+        return self.hamiltonian
 
 
 class CenterArray(Center, Sequence):
@@ -476,7 +481,8 @@ class CenterArray(Center, Sequence):
     def generate_states(self, magnetic_field=None, bath=None, projected_bath_state=None):
 
         if isinstance(bath, BathArray):
-            bath = bath['A']
+            bath = bath.A
+            projected_bath_state = bath.proj
 
         for i, c in enumerate(self):
             if bath is None:
