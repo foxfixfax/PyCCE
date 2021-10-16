@@ -210,7 +210,7 @@ class BathArray(np.ndarray):
                           'This can lead to unexpected results.',
                           RuntimeWarning, stacklevel=2)
 
-        self.types = getattr(obj, 'types', SpinDict())
+        self.types = getattr(obj, 'types', None)
         self.imap = getattr(obj, 'imap', None)
 
         # We do not need to return anything
@@ -390,6 +390,10 @@ class BathArray(np.ndarray):
         # if string then return ndarray view of the field
         if isinstance(item, (int, np.int32, np.int64)):
             return super().__getitem__((Ellipsis, item))
+
+        elif isinstance(item, tuple) and not item:
+            return super().__getitem__(item)
+
         elif isinstance(item, (str, np.str_)):
             try:
                 return self.view(np.ndarray).__getitem__(item)
@@ -450,9 +454,9 @@ class BathArray(np.ndarray):
     def __eq__(self, other):
         try:
 
-            xyzs = (self['xyz'] == other['xyz']).all(axis=1)
-            hfs = (self['A'] == other['A']).all(axis=(1, 2))
-            qds = (self['Q'] == other['Q']).all(axis=(1, 2))
+            xyzs = (self['xyz'] == other['xyz']).all(axis=-1)
+            hfs = (self['A'] == other['A']).all(axis=(-2, -1))
+            qds = (self['Q'] == other['Q']).all(axis=(-2, -1))
 
             return xyzs & hfs & qds
 

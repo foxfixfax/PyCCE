@@ -1,8 +1,10 @@
+import warnings
+
 import numpy as np
-from pycce.sm import _smc
 from numba import jit
 from numba.typed import List
-import warnings
+from pycce.sm import _smc
+
 
 def rotmatrix(initial_vector, final_vector):
     r"""
@@ -251,7 +253,7 @@ def _gen_sm(dim):
         ndarray:
     """
     s = (dim - 1) / 2
-    projections = np.linspace(s, -s, dim).astype(np.complex128)
+    projections = np.linspace(-s, s, dim, dtype=np.complex128)
     plus = np.zeros((dim, dim), dtype=np.complex128)
 
     for i in range(dim - 1):
@@ -288,4 +290,3 @@ def partial_inner_product(avec, total, dimensions, index=-1):
         matrix = np.moveaxis(total, index, -1)
         matrix = matrix.reshape([total.shape[0], np.prod(np.delete(dimensions, index)), dimensions[index]])
     return avec @ matrix
-
