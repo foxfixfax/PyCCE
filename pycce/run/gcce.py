@@ -327,7 +327,7 @@ class gCCE(RunObject):
         if check:
             self.dm0 = self.state
         else:
-            self.dm0 = np.outer(self.state, self.state.conj(), axes=0)
+            self.dm0 = np.outer(self.state, self.state.conj())
 
         if self.pulses is not None:
             self.pulses.set_central_spin(self.alpha, self.beta)
