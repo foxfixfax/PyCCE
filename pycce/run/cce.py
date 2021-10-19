@@ -1,10 +1,8 @@
 import numpy as np
 from pycce.constants import PI2
 from pycce.h import projected_hamiltonian
-from pycce.utilities import generate_projections
-
-from .base import RunObject
-from .gcce import gen_density_matrix
+from pycce.run.base import RunObject
+from pycce.utilities import generate_initial_state
 
 
 def _rotmul(rotation, u, **kwargs):
@@ -12,6 +10,44 @@ def _rotmul(rotation, u, **kwargs):
         u = np.matmul(rotation, u, **kwargs)
     return u
 
+
+def simple_propagators(delays, H0, H1):
+    eval0, evec0 = np.linalg.eigh(H0 * PI2)
+    eval1, evec1 = np.linalg.eigh(H1 * PI2)
+
+    eigen_exp0 = np.exp(-1j * np.outer(delays, eval0), dtype=np.complex128)
+    eigen_exp1 = np.exp(-1j * np.outer(delays, eval1), dtype=np.complex128)
+
+
+    v0 = np.matmul(np.einsum('ij,kj->kij', evec0, eigen_exp0,
+                             dtype=np.complex128),
+                   evec0.conj().T, dtype=np.complex128)
+
+    v1 = np.matmul(np.einsum('ij,kj->kij', evec1, eigen_exp1,
+                             dtype=np.complex128),
+                   evec1.conj().T, dtype=np.complex128)
+
+    return v0, v1
+
+
+def propagate_propagators(v0, v1, number):
+    V0_HE = np.matmul(v0, v1, dtype=np.complex128)
+    V1_HE = np.matmul(v1, v0, dtype=np.complex128)
+
+    if number == 1:
+        return V0_HE, V1_HE
+
+    V0 = np.matmul(V0_HE, V1_HE, dtype=np.complex128)  # v0 @ v1 @ v1 @ v0
+    V1 = np.matmul(V1_HE, V0_HE, dtype=np.complex128)  # v1 @ v0 @ v0 @ v1
+
+    U0 = np.linalg.matrix_power(V0, number // 2)
+    U1 = np.linalg.matrix_power(V1, number // 2)
+
+    if number % 2 == 1:
+        U0 = np.matmul(U0, V0_HE)
+        U1 = np.matmul(U1, V1_HE)
+
+    return U0, U1
 
 def propagators(timespace, H0, H1, pulses, as_delay=False):
     """
@@ -51,63 +87,25 @@ def propagators(timespace, H0, H1, pulses, as_delay=False):
     if check and number:
         timespace = timespace / (2 * number)
 
-    eval0, evec0 = np.linalg.eigh(H0 * PI2)
-    eval1, evec1 = np.linalg.eigh(H1 * PI2)
 
     if not use_rotations:
-        eigen_exp0 = np.exp(-1j * np.tensordot(timespace,
-                                               eval0, axes=0), dtype=np.complex128)
-        eigen_exp1 = np.exp(-1j * np.tensordot(timespace,
-                                               eval1, axes=0), dtype=np.complex128)
-
-        v0 = np.matmul(np.einsum('ij,kj->kij', evec0, eigen_exp0,
-                                 dtype=np.complex128),
-                       evec0.conj().T, dtype=np.complex128)
-
-        v1 = np.matmul(np.einsum('ij,kj->kij', evec1, eigen_exp1,
-                                 dtype=np.complex128),
-                       evec1.conj().T, dtype=np.complex128)
+        v0, v1 = simple_propagators(timespace, H0, H1)
 
         if not number:
             return v0, v1
+        else:
+            return propagate_propagators(v0, v1, number)
 
-        V0_HE = np.matmul(v0, v1, dtype=np.complex128)
-        V1_HE = np.matmul(v1, v0, dtype=np.complex128)
-
-        if number == 1:
-            return V0_HE, V1_HE
-
-        V0 = np.matmul(V0_HE, V1_HE, dtype=np.complex128)  # v0 @ v1 @ v1 @ v0
-        V1 = np.matmul(V1_HE, V0_HE, dtype=np.complex128)  # v1 @ v0 @ v0 @ v1
-
-        U0 = np.linalg.matrix_power(V0, number // 2)
-        U1 = np.linalg.matrix_power(V1, number // 2)
-
-        if number % 2 == 1:
-            U0 = np.matmul(U0, V0_HE)
-            U1 = np.matmul(U1, V1_HE)
-
-        return U0, U1
 
     if pulses.delays is None:
 
-        eigen_exp0 = np.exp(-1j * np.tensordot(timespace,
-                                               eval0, axes=0), dtype=np.complex128)
-        eigen_exp1 = np.exp(-1j * np.tensordot(timespace,
-                                               eval1, axes=0), dtype=np.complex128)
-
-        v0 = np.matmul(np.einsum('ij,kj->kij', evec0, eigen_exp0,
-                                 dtype=np.complex128),
-                       evec0.conj().T, dtype=np.complex128)
-
-        v1 = np.matmul(np.einsum('ij,kj->kij', evec1, eigen_exp1,
-                                 dtype=np.complex128),
-                       evec1.conj().T, dtype=np.complex128)
+        v0, v1 = simple_propagators(timespace, H0, H1)
 
         vs = [v0, v1]
 
         U0 = np.eye(v0.shape[1], dtype=np.complex128)
         U1 = np.eye(v1.shape[1], dtype=np.complex128)
+
         Us = [U0, U1]
 
         for p in pulses:
@@ -128,6 +126,9 @@ def propagators(timespace, H0, H1, pulses, as_delay=False):
 
     times = 0
 
+    eval0, evec0 = np.linalg.eigh(H0 * PI2)
+    eval1, evec1 = np.linalg.eigh(H1 * PI2)
+
     # for timesteps, rotation in zip(pulses.delays, pulses.rotations):
     evalues = [eval0, eval1]
     evec = [evec0, evec1]
@@ -136,10 +137,10 @@ def propagators(timespace, H0, H1, pulses, as_delay=False):
         timesteps = p.delay
         rotation = p.rotation
 
-        eigen_exp0 = np.exp(-1j * np.tensordot(timesteps,
-                                               evalues[0], axes=0), dtype=np.complex128)
-        eigen_exp1 = np.exp(-1j * np.tensordot(timesteps,
-                                               evalues[1], axes=0), dtype=np.complex128)
+        eigen_exp0 = np.exp(-1j * np.outer(timesteps,
+                                           evalues[0]), dtype=np.complex128)
+        eigen_exp1 = np.exp(-1j * np.outer(timesteps,
+                                           evalues[1]), dtype=np.complex128)
 
         u0 = np.matmul(np.einsum('...ij,...j->...ij', evec[0], eigen_exp0, dtype=np.complex128),
                        evec[0].conj().T)
@@ -167,10 +168,10 @@ def propagators(timespace, H0, H1, pulses, as_delay=False):
     which = np.isclose(timespace, times)
     if ((timespace - times)[~which] >= 0).all():
 
-        eigen_exp0 = np.exp(-1j * np.tensordot(timespace - times,
-                                               evalues[0], axes=0), dtype=np.complex128)
-        eigen_exp1 = np.exp(-1j * np.tensordot(timespace - times,
-                                               evalues[1], axes=0), dtype=np.complex128)
+        eigen_exp0 = np.exp(-1j * np.outer(timespace - times,
+                                           evalues[0]), dtype=np.complex128)
+        eigen_exp1 = np.exp(-1j * np.outer(timespace - times,
+                                           evalues[1]), dtype=np.complex128)
 
         u0 = np.matmul(np.einsum('ij,kj->kij', evec[0], eigen_exp0, dtype=np.complex128),
                        evec[0].conj().T)
@@ -217,11 +218,16 @@ def compute_coherence(H0, H1, timespace, N, as_delay=False, states=None):
         coherence_function = np.einsum('zij,zij->z', U0, U1.conj()) / U0.shape[1]
 
     else:
-        dm = gen_density_matrix(states, dimensions=H0.dimensions)
+        dm = generate_initial_state(H0.dimensions, states=states)
         # tripple einsum is slow
         # coherence_function = np.einsum('zli,ij,zlj->z', U0, dm, U1.conj())
-        dmUdagger = np.matmul(dm, U1.conj().transpose(0, 2, 1))
-        coherence_function = np.trace(np.matmul(U0, dmUdagger), axis1=1, axis2=2)
+        if len(dm.shape) > 1:
+            dmUdagger = np.matmul(dm, U1.conj().transpose(0, 2, 1))
+            coherence_function = np.trace(np.matmul(U0, dmUdagger), axis1=1, axis2=2)
+        else:
+            rightside = U1 @ dm
+            leftside = U0 @ dm
+            coherence_function = np.einsum('ki,ki->k', leftside.conj(), rightside)
 
     return coherence_function
 
@@ -378,8 +384,7 @@ class CCE(RunObject):
 
         """
         hamil = projected_hamiltonian(self.cluster, self.center, self.magnetic_field,
-                                      others=self.others,
-                                      other_states=self.other_states)
+                                      others=self.others)
 
         if self.use_pulses:
             self.pulses.generate_pulses(dimensions=hamil[0].dimensions, bath=self.cluster,
@@ -400,86 +405,3 @@ class CCE(RunObject):
         return compute_coherence(self.cluster_hamiltonian[0], self.cluster_hamiltonian[1],
                                  self.timespace, self.pulses, as_delay=self.as_delay,
                                  states=self.states)
-
-    # def kernel(self, cluster, **kwargs):
-    #     """
-    #     Inner kernel function to compute coherence function in conventional CCE.
-    #
-    #     Args:
-    #         cluster (ndarray): Indexes of the bath spins in the given cluster.
-    #
-    #     Returns:
-    #         ndarray: Coherence function of the central spin.
-    #     """
-    #     nspin = self.bath[cluster]
-    #     states, others, other_states = _check_projected_states(cluster, self.bath, self.bath_state,
-    #                                                            self.projected_bath_state)
-    #     # print(other_states)
-    #     H0, H1 = projected_hamiltonian(nspin, self.projections_alpha, self.projections_beta, self.magnetic_field,
-    #                                    others=others,
-    #                                    other_states=other_states,
-    #                                    projections_beta_all=self.projections_beta_all,
-    #                                    projections_alpha_all=self.projections_alpha_all,
-    #                                    energy_alpha=self.energy_alpha, energy_beta=self.energy_beta,
-    #                                    **kwargs)
-    #
-    #     coherence = compute_coherence(H0, H1, self.timespace, self.pulses, as_delay=self.as_delay, states=states)
-    #
-    #     return coherence
-
-    # def interlaced_kernel(self, cluster, supercluster, *args, **kwargs):
-    #     """
-    #     Inner kernel function to compute coherence function in conventional CCE with interlaced averaging.
-    #
-    #     Args:
-    #         cluster (ndarray): Indexes of the bath spins in the given cluster.
-    #         cluster (ndarray): Indexes of the bath spins in the supercluster of the given cluster.
-    #
-    #     Returns:
-    #         ndarray: Coherence function of the central spin.
-    #     """
-    #     nspin = self.bath[cluster]
-    #
-    #     _, others, other_states = _check_projected_states(supercluster, self.bath, self.bath_state,
-    #                                                       self.projected_bath_state)
-    #
-    #     H0, H1 = projected_hamiltonian(nspin, self.projections_alpha, self.projections_beta, self.magnetic_field,
-    #                                    others=others,
-    #                                    other_states=other_states,
-    #                                    projections_beta_all=self.projections_beta_all,
-    #                                    projections_alpha_all=self.projections_alpha_all,
-    #                                    energy_alpha=self.energy_alpha, energy_beta=self.energy_beta,
-    #                                    **kwargs)
-    #
-    #     sc_mask = ~np.isin(supercluster, cluster)
-    #
-    #     outer_indexes = supercluster[sc_mask]
-    #     outer_spin = self.bath[outer_indexes]
-    #
-    #     initial_h0 = H0.data
-    #     initial_h1 = H1.data
-    #
-    #     coherence = 0
-    #     i = 0
-    #
-    #     for i, state in enumerate(generate_supercluser_states(self, supercluster)):
-    #
-    #         cluster_states = state[~sc_mask]
-    #         outer_states = state[sc_mask]
-    #
-    #         if outer_spin.size > 0:
-    #             addition = 0
-    #
-    #             for ivec, n in zip(H0.vectors, nspin):
-    #                 addition += overhauser_bath(ivec, n['xyz'], n.gyro, outer_spin.gyro,
-    #                                             outer_spin['xyz'], outer_states)
-    #
-    #             H0.data = initial_h0 + addition
-    #             H1.data = initial_h1 + addition
-    #
-    #         coherence += compute_coherence(H0, H1, self.timespace, self.pulses, as_delay=self.as_delay,
-    #                                        states=cluster_states)
-    #
-    #     coherence /= i + 1
-    #
-    #     return coherence

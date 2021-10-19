@@ -2,9 +2,10 @@ import functools
 
 import numpy as np
 from numpy import ma as ma
+from pycce.utilities import gen_state_list
 
 
-def generate_bath_state(bath, nbstates, seed=None, fixstates=None, parallel=False):
+def generate_bath_state(bath, nbstates, seed=None, parallel=False):
     r"""
     Generator of the random *pure* :math:`\hat{I}_z` bath eigenstates.
 
@@ -30,6 +31,7 @@ def generate_bath_state(bath, nbstates, seed=None, fixstates=None, parallel=Fals
             print('Parallel failed: mpi4py is not found. Running serial')
             parallel = False
 
+    dimensions = np.empty(bath.shape, dtype=np.int32)
     for _ in range(nbstates):
         bath_state = np.empty(bath.shape, dtype=np.float64)
         if rank == 0:
@@ -38,13 +40,12 @@ def generate_bath_state(bath, nbstates, seed=None, fixstates=None, parallel=Fals
                 snumber = int(round(2 * s + 1))
                 mask = bath['N'] == n
                 bath_state[mask] = rgen.integers(snumber, size=np.count_nonzero(mask)) - s
+                dimensions[mask] = snumber
 
-            if fixstates is not None:
-                for fs in fixstates:
-                    bath_state[fs] = fixstates[fs]
+        bath_state = gen_state_list(bath_state, dimensions)
 
         if parallel:
-            comm.Bcast(bath_state, root=0)
+            bath_state = comm.bcast(bath_state, root=0)
 
         yield bath_state
 
@@ -88,10 +89,9 @@ def monte_carlo_method_decorator(func):
 
         total = 0j
 
-        for bath_state in generate_bath_state(self.bath, nbstates, seed=seed,
-                                              fixstates=self.fixstates, parallel=self.parallel):
-            self.bath_state = bath_state
-            self.projected_bath_state = bath_state
+        his = self.bath.state.has_state.copy()  # have_initial_state
+        for bath_state in generate_bath_state(self.bath[~his], nbstates, seed=seed, parallel=self.parallel):
+            self.bath.state[~his] = bath_state
             result = func(self, *args, **kwargs)
 
             if self.masked:
@@ -101,6 +101,8 @@ def monte_carlo_method_decorator(func):
                 result[~proper] = 0.
 
             total += result
+
+        self.bath.state[~his] = None
 
         if self.parallel_states:
             if rank == 0:

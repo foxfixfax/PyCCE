@@ -4,7 +4,8 @@ import numpy as np
 from pycce.h import total_hamiltonian, bath_interactions, expanded_single, conditional_hyperfine, \
     dimensions_spinvectors, overhauser_bath, Hamiltonian
 from pycce.run.base import RunObject
-from .gcce import generate_dm0, gen_density_matrix, propagator
+from pycce.run.gcce import propagator
+from pycce.utilities import generate_initial_state
 
 _rows = None
 _cols = None
@@ -165,8 +166,7 @@ class gCCENoise(RunObject):
             Hamiltonian: Cluster hamiltonian.
 
         """
-        ham = total_hamiltonian(self.cluster, self.center, self.magnetic_field, others=self.others,
-                                other_states=self.other_states)
+        ham = total_hamiltonian(self.cluster, self.center, self.magnetic_field, others=self.others)
         return ham
 
     def compute_result(self):
@@ -180,7 +180,7 @@ class gCCENoise(RunObject):
         """
         time_propagator = propagator(self.timespace, self.cluster_hamiltonian.data)
 
-        dmtotal0 = generate_dm0(self.dm0, self.cluster_hamiltonian.dimensions, self.states)
+        dmtotal0 = generate_initial_state(self.cluster_hamiltonian.dimensions, central_state=self.dm0, states=self.states)
 
         return compute_correlations(self.cluster, dmtotal0, time_propagator, central_spin=self.center)
 
@@ -259,9 +259,9 @@ class CCENoise(RunObject):
         for ivec, n in zip(vectors, self.cluster):
             hsingle = expanded_single(ivec, n.gyro, self.magnetic_field, n['Q'], n.detuning)
 
-            if self.others is not None and self.other_states is not None:
+            if self.others is not None:
                 hsingle += overhauser_bath(ivec, n['xyz'], n.gyro, self.others.gyro,
-                                           self.others['xyz'], self.other_states)
+                                           self.others['xyz'], self.others.states)
 
             for i, proj in enumerate(self.projections):
                 if self.center.size > 1:
@@ -289,116 +289,9 @@ class CCENoise(RunObject):
 
             ndarray: Computed autocorrelation function.
         """
-        dm0_expanded = gen_density_matrix(self.states, dimensions=self.cluster_hamiltonian.dimensions)
+        dm0_expanded = generate_initial_state(self.cluster_hamiltonian.dimensions, states=self.states, central_state=None)
 
         time_propagator = propagator(self.timespace, self.cluster_hamiltonian.data)
 
         return compute_correlations(self.cluster, dm0_expanded, time_propagator)
 
-    #
-    # def kernel(self, cluster, **kwargs):
-    #     """
-    #     Inner decorated function to compute coherence function in conventional CCE.
-    #
-    #     Args:
-    #         cluster (dict):
-    #             clusters included in different CCE orders of structure ``{int order: ndarray([[i,j],[i,j]])}``.
-    #
-    #         **kwargs (any): Additional arguments for projected_hamiltonian.
-    #
-    #     Returns:
-    #         ndarray: Coherence function of the central spin.
-    #     """
-    #     nspin = self.bath[cluster]
-    #     states, others, other_states = _check_projected_states(cluster, self.bath, self.bath_state,
-    #                                                            self.projected_bath_state)
-    #
-    #     dimensions, ivectors = dimensions_spinvectors(nspin, central_spin=None)
-    #
-    #     totalh = 0
-    #
-    #     for ivec, n in zip(ivectors, nspin):
-    #         hsingle = expanded_single(ivec, n.gyro, self.magnetic_field, n['Q'], n.detuning)
-    #
-    #         if others is not None and other_states is not None:
-    #             hsingle += overhauser_bath(ivec, n['xyz'], n.gyro, others.gyro,
-    #                                        others['xyz'], other_states)
-    #
-    #         hf = conditional_hyperfine(n['A'], ivec, self.projections)
-    #
-    #         totalh += hsingle + hf
-    #
-    #     totalh += bath_interactions(nspin, ivectors)
-    #
-    #     dm0_expanded = gen_density_matrix(states, dimensions=dimensions)
-    #
-    #     time_propagator = propagator(self.timespace, totalh)
-    #
-    #     return compute_correlations(nspin, dm0_expanded, time_propagator)
-    #
-    # def interlaced_kernel(self, cluster, supercluster, *args, **kwargs):
-    #     """
-    #     Inner kernel function to compute coherence function in generalized CCE with interlaced averaging.
-    #
-    #     Args:
-    #         cluster (ndarray): Indexes of the bath spins in the given cluster.
-    #         supercluster (ndarray): Indexes of the bath spins in the supercluster of the given cluster.
-    #
-    #     Returns:
-    #         ndarray: Coherence function of the central spin.
-    #     """
-    #     nspin = self.bath[cluster]
-    #
-    #     _, others, other_states = _check_projected_states(supercluster, self.bath, self.bath_state,
-    #                                                       self.projected_bath_state)
-    #
-    #     dimensions, ivectors = dimensions_spinvectors(nspin, central_spin=None)
-    #
-    #     totalh = 0
-    #
-    #     for ivec, n in zip(ivectors, nspin):
-    #         hsingle = expanded_single(ivec, n.gyro, self.magnetic_field, n['Q'], n.detuning)
-    #
-    #         if others is not None and other_states is not None:
-    #             hsingle += overhauser_bath(ivec, n['xyz'], n.gyro, others.gyro,
-    #                                        others['xyz'], other_states)
-    #
-    #         hf = conditional_hyperfine(n['A'], ivec, self.projections)
-    #
-    #         totalh += hsingle + hf
-    #
-    #     totalh += bath_interactions(nspin, ivectors)
-    #
-    #     sc_mask = ~np.isin(supercluster, cluster)
-    #
-    #     outer_indexes = supercluster[sc_mask]
-    #     outer_spin = self.bath[outer_indexes]
-    #
-    #     initial_h = totalh.data
-    #
-    #     result = 0
-    #     i = 0
-    #
-    #     for i, state in enumerate(generate_supercluser_states(self, supercluster)):
-    #
-    #         cluster_states = state[~sc_mask]
-    #         outer_states = state[sc_mask]
-    #
-    #         if outer_spin.size > 0:
-    #             addition = 0
-    #
-    #             for ivec, n in zip(ivectors, nspin):
-    #                 addition += overhauser_bath(ivec, n['xyz'], n.gyro, outer_spin.gyro,
-    #                                             outer_spin['xyz'], outer_states)
-    #
-    #             totalh.data = initial_h + addition
-    #
-    #         dm0_expanded = gen_density_matrix(cluster_states, dimensions=dimensions)
-    #
-    #         time_propagator = propagator(self.timespace, totalh)
-    #
-    #         result += compute_correlations(nspin, dm0_expanded, time_propagator)
-    #
-    #     result /= i + 1
-    #
-    #     return result

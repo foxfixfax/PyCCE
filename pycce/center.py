@@ -37,6 +37,8 @@ class Center:
 
         self._zfs = None
         self._gyro = None
+
+
         self._xyz = None
         self._s = None
         self._detuning = None
@@ -107,8 +109,8 @@ class Center:
             with the magnetic field or array of spins.
 
             Default -17608.597050 rad / ms / G - gyromagnetic ratio of the free electron spin."""
-
-        return self._gyro
+        gyro, _ = check_gyro(self._gyro)
+        return gyro
 
     @gyro.setter
     def gyro(self, gyro):
@@ -176,7 +178,7 @@ class Center:
             if check:
                 gyro = np.eye(3) * gyro
 
-        self.gyro = gyro
+        self._gyro = gyro
 
     @property
     def alpha(self):
@@ -284,7 +286,7 @@ class Center:
 
     def generate_hamiltonian(self, magnetic_field=None, bath=None, projected_bath_state=None):
         if magnetic_field is None:
-            magnetic_field = [0, 0, 0]
+            magnetic_field = np.array([0., 0., 0.], dtype=np.float64)
 
         if isinstance(bath, BathArray):
             bath = bath.A
@@ -381,6 +383,19 @@ class CenterArray(Center, Sequence):
             assert state.size == np.prod(self.dim), 'Wrong state format.'
         self._state = state
 
+    @property
+    def gyro(self):
+        """
+        ndarray with shape (3,3) or (n,3,3): Tensor describing central spin interactions
+            with the magnetic field or array of spins.
+
+            Default -17608.597050 rad / ms / G - gyromagnetic ratio of the free electron spin."""
+        return self._gyro
+
+    @gyro.setter
+    def gyro(self, gyro):
+        attr_arr_setter(self, '_gyro', gyro)
+
     def __getitem__(self, item):
         if isinstance(item, int):
             return self._array.__getitem__(item)
@@ -464,9 +479,9 @@ class CenterArray(Center, Sequence):
                 g, check = check_gyro(g)
 
                 if check:
-                    self.gyro[i] = np.eye(3) * g
+                    self._gyro[i] = np.eye(3) * g
                 else:
-                    self.gyro[i] = g
+                    self._gyro[i] = g
 
     def point_dipole(self):
         """
@@ -481,8 +496,8 @@ class CenterArray(Center, Sequence):
     def generate_states(self, magnetic_field=None, bath=None, projected_bath_state=None):
 
         if isinstance(bath, BathArray):
-            bath = bath.A
             projected_bath_state = bath.proj
+            bath = bath.A
 
         for i, c in enumerate(self):
             if bath is None:

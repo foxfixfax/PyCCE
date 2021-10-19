@@ -1,13 +1,15 @@
 import copy
-import numpy as np
 import warnings
 from collections import UserDict
 from collections.abc import Mapping
-from numpy.lib.recfunctions import repack_fields
 
-from .map import InteractionMap
-from ..constants import HBAR, ELECTRON_GYRO, HBAR_SI, NUCLEAR_MAGNETON, PI2
-from .state import BathState
+import numpy as np
+from numpy.lib.recfunctions import repack_fields
+from pycce.bath.map import InteractionMap
+from pycce.bath.state import BathState
+from pycce.constants import HBAR, ELECTRON_GYRO, HBAR_SI, NUCLEAR_MAGNETON, PI2
+from pycce.utilities import gen_state_list, vector_from_s
+
 HANDLED_FUNCTIONS = {}
 
 _set_str_kinds = {'U', 'S'}
@@ -118,7 +120,7 @@ class BathArray(np.ndarray):
     def __new__(subtype, shape=None, array=None,
                 names=None, hyperfines=None, quadrupoles=None,
                 types=None, imap=None,
-                ca=None, sn=None, hf=None, q=None, efg=None,
+                ca=None, sn=None, hf=None, q=None, efg=None, state=None,
                 center=1):
         # Create the ndarray instance of our type, given the usual
         # ndarray input arguments. This will call the standard
@@ -170,6 +172,10 @@ class BathArray(np.ndarray):
         obj.imap = imap
 
         obj._state = BathState(obj.size)
+
+        if state is not None:
+            obj.state = state
+
         # obj.__projected_state = np.zeros(obj.shape, dtype=np.float64)
 
         if types is not None:
@@ -416,39 +422,39 @@ class BathArray(np.ndarray):
 
     @state.setter
     def state(self, rho):
+        self._state[...] = rho
+
+    @property
+    def proj(self):
+        return self.state.proj
+
+    @proj.setter
+    def proj(self, rho):
         # rho can be either (on the example of s = 1)
         # projection of pure state:  rho = 1 for ms = 1
         # pure state: rho = [0,0,1] for ms = - 1
         # density matrix rho: = [[0,0,0],[0,1,0],[0,0,0]] for ms = 0
         rho = np.asarray(rho)
 
-        if rho.dtype != np.object_ and len(rho.shape) <= len(self.shape):
-            if not rho.shape:
-                # assume s is int or float showing the spin projection in the pure state
-                d = self.dim
-                vec_nucleus = np.zeros(d, dtype=np.complex128)
-                state_number = ((d - 1) / 2 - rho).astype(np.int32)
-                vec_nucleus[state_number] = 1
-                rho = vec_nucleus
+        if not rho.shape:
+            # assume s is int or float showing the spin projection in the pure state
+
+            d = self.dim
+            if not self.shape:
+                rho = vector_from_s(rho, d)
             else:
-                rhos = []
-                for i, s in enumerate(rho):
-
-                    d = self[i].dim
-                    dm_nucleus = np.zeros((d, d), dtype=np.complex128)
-                    state_number = int(round((d - 1) / 2 - s))
-
-                    dm_nucleus[state_number, state_number] = 1
-
-                    rhos.append(dm_nucleus)
-
-                rho = rhos
-
+                if (d == d[0]).all():
+                    d = d[0]
+                    rho = np.broadcast_to(vector_from_s(rho, d), self.shape + (d,))
+                else:
+                    rho = [vector_from_s(rho, d_i) for d_i in d]
+        else:
+            rho = gen_state_list(rho, np.broadcast_to(self.dim, self.shape))
         self._state[...] = rho
 
     @property
-    def proj(self):
-        return self.state.proj
+    def has_state(self):
+        return self.state.has_state
 
     def __getitem__(self, item):
         if isinstance(item, (int, np.int32, np.int64)):
@@ -736,7 +742,7 @@ class BathArray(np.ndarray):
             array = self.copy()
 
         gyros = array.types[array].gyro
-        array['A'] = cube.integrate(array['xyz'], gyros, gyro_center)
+        array['A'] = cube.integrate(array.xyz, gyros, gyro_center)
         return array
 
     def from_func(self, func, *args, inplace=True, **kwargs):
@@ -807,7 +813,7 @@ class BathArray(np.ndarray):
             pref[where] = qmoments[where] / (2 * spins[where] * (2 * spins[where] - 1))
             pref = pref[..., np.newaxis, np.newaxis]
 
-        array['Q'] = pref * efg
+        array.Q = pref * efg
         return array
 
     def dist(self, position=None):
@@ -829,7 +835,7 @@ class BathArray(np.ndarray):
         else:
             position = np.asarray(position)
 
-        return np.linalg.norm(self['xyz'] - position, axis=-1)
+        return np.linalg.norm(self.xyz - position, axis=-1)
 
     def savetxt(self, filename, fmt='%18.8f', strip_isotopes=False, **kwargs):
         r"""
@@ -858,7 +864,7 @@ class BathArray(np.ndarray):
     def expand(self, ncenters):
 
         array = BathArray(array=self.xyz, quadrupoles=self.Q, names=self.N, center=ncenters, imap=self.imap,
-                          types=self.types)
+                          types=self.types, state=self.state)
 
         hyperfine = self.A
         if hyperfine.any():
@@ -960,15 +966,19 @@ def check_gyro(gyro):
             * **ndarray or float**: Gyromagnetic ratio.
             * **bool**: True if gyro is float, False otherwise.
     """
-    check = isinstance(gyro, (np.floating, float, int))
+    try:
+        gyro = float(gyro)
+        check = True
+    except TypeError:
+        check = False
 
     if not check:
         gyro = np.asarray(gyro)
-        if not gyro.shape or gyro.shape[0] == 1:
+        if gyro.ndim == 1:  # Assume array
+            check = True
+        elif not gyro.shape or gyro.shape[0] == 1:
             check = True
             gyro = gyro.reshape(1)[0]
-        elif gyro.ndim == 1:  # Assume array
-            check = True
         else:
             test_gyros = gyro.copy()
             indexes = np.arange(gyro.shape[-1])
@@ -1058,16 +1068,16 @@ def same_bath_indexes(barray_1, barray_2, error_range=0.2, ignore_isotopes=True)
 
     """
     # counter_ext = 0
-    dist_matrix = np.linalg.norm(barray_1['xyz'][:, np.newaxis, :] - barray_2['xyz'][np.newaxis, :, :], axis=-1)
+    dist_matrix = np.linalg.norm(barray_1.xyz[:, np.newaxis, :] - barray_2.xyz[np.newaxis, :, :], axis=-1)
 
     if ignore_isotopes:
-        tb_names = np.core.defchararray.strip(barray_1['N'], '1234567890')
-        ab_names = np.core.defchararray.strip(barray_2['N'], '1234567890')
+        tb_names = np.core.defchararray.strip(barray_1.N, '1234567890')
+        ab_names = np.core.defchararray.strip(barray_2.N, '1234567890')
 
         same_names = tb_names[:, np.newaxis] == ab_names[np.newaxis, :]
 
     else:
-        same_names = barray_1['N'][:, np.newaxis] == barray_2['N'][np.newaxis, :]
+        same_names = barray_1.N[:, np.newaxis] == barray_2.N[np.newaxis, :]
 
     criteria = np.logical_and(dist_matrix < error_range, same_names)
     indexes, ext_indexes = np.nonzero(criteria)
@@ -1269,12 +1279,6 @@ class SpinType:
         self.name = name
         self.s = s
 
-        try:
-            self.dim = int(2 * s + 1 + 1e-8)
-
-        except TypeError:
-            self.dim = (2 * s + 1 + 1e-8).astype(np.int32)
-
         self.gyro = gyro
         self.q = q
         self.detuning = detuning
@@ -1287,6 +1291,61 @@ class SpinType:
                 self.gyro == obj.gyro) & (self.q == obj.q) & (self.detuning == obj.detuning)
 
         return checks
+
+    @property
+    def name(self):
+        return self._name
+
+    @name.setter
+    def name(self, name):
+        self._name = name
+
+    @property
+    def s(self):
+        return self._s
+
+    @s.setter
+    def s(self, s):
+
+        try:
+            self._s = float(s)
+            self._dim = int(2 * s + 1 + 1e-8)
+
+        except TypeError:
+            self._dim = np.asarray(2 * s + 1 + 1e-8).astype(np.int32)
+            self._s = np.asarray(s).astype(np.float64)
+
+    @property
+    def gyro(self):
+        return self._gyro
+
+    @gyro.setter
+    def gyro(self, gyro):
+        gyro, check = check_gyro(gyro)
+        self._gyro = gyro
+
+    @property
+    def q(self):
+        return self._q
+
+    @q.setter
+    def q(self, q):
+        self._q = q
+
+    @property
+    def detuning(self):
+        return self._detuning
+
+    @detuning.setter
+    def detuning(self, d):
+        try:
+            self._detuning = float(d)
+        except TypeError:
+            self._detuning = np.asarray(d).astype(np.float64)
+
+    @property
+    def dim(self):
+        return self._dim
 
     def __repr__(self):
         try:
@@ -1420,12 +1479,12 @@ class SpinDict(UserDict):
 
                 if unique_names.size == 1:
                     n = unique_names[0]
-                    # ones = np.ones(key.shape, dtype=np.float64)
+                    ones = np.ones(key.shape, dtype=np.float64)
 
-                    spins = self._super_get_item(n).s  # * ones
-                    gyros = self._super_get_item(n).gyro  # * ones
-                    quads = self._super_get_item(n).q  # * ones
-                    detus = self._super_get_item(n).detuning  # * ones
+                    spins = self._super_get_item(n).s * ones
+                    gyros = self._super_get_item(n).gyro * ones
+                    quads = self._super_get_item(n).q * ones
+                    detus = self._super_get_item(n).detuning * ones
 
                 else:
                     spins = np.empty(key.shape, dtype=np.float64)

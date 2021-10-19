@@ -1,12 +1,10 @@
 import operator
 
 import numpy as np
-from pycce.bath.array import BathArray
-from pycce.h.total import total_hamiltonian
 from pycce.h.functions import overhauser_central, overhauser_bath
 from pycce.run.mc import monte_carlo_method_decorator
 
-from .clusters import cluster_expansion_decorator, interlaced_decorator
+from pycce.run.clusters import cluster_expansion_decorator, interlaced_decorator
 
 
 class RunObject:
@@ -127,11 +125,9 @@ class RunObject:
                  magnetic_field,
                  center=None,
                  nbstates=None,
-                 bath_state=None,
                  seed=None,
                  masked=True,
                  fixstates=None,
-                 projected_bath_state=None,
                  parallel=False,
                  direct=False,
                  parallel_states=False,
@@ -147,11 +143,9 @@ class RunObject:
         """BathArray with shape (n,): Array of *n* bath spins."""
         self.center = center
         """CenterArray: Properties of the central spin."""
-        self.bath_state = bath_state
-        """ndarray: Array of bath states in any accepted format."""
-        self.projected_bath_state = projected_bath_state
-        """ndarray with shape (n,): Array with z-projections of the bath spins states.
-        Overridden in runs with random bath state sampling."""
+        # self.projected_bath_state = projected_bath_state
+        # """ndarray with shape (n,): Array with z-projections of the bath spins states.
+        # Overridden in runs with random bath state sampling."""
         self.magnetic_field = magnetic_field
         """ndarray: Magnetic field of type ``magnetic_field = np.array([Bx, By, Bz])``."""
 
@@ -193,6 +187,8 @@ class RunObject:
 
         self.others = None
         """BathArray: Array of the bath spins outside the given cluster."""
+        self.states = None
+
         self.has_states = False
         """bool: Whether there are states provided in the bath during the run."""
         self.initial_states_mask = bath.has_state
@@ -208,9 +204,16 @@ class RunObject:
         """
         Method which will be called before cluster-expanded run.
         """
-        self.center.generate_states(self.magnetic_field, bath=self.bath,
-                                    projected_bath_state=self.projected_bath_state)
         self.has_states = self.bath.state.any()
+
+        if self.has_states:
+            bath = self.bath
+            # proj = self.bath.proj
+        else:
+            bath = None
+            # proj = None
+
+        self.center.generate_states(self.magnetic_field, bath=bath)
 
     def postprocess(self):
         """
@@ -244,6 +247,7 @@ class RunObject:
             others_mask = np.ones(self.bath.shape, dtype=bool)
             others_mask[cluster] = False
             self.others = self.bath[others_mask]
+            self.states = self.cluster.state  # list(  [...])
 
         self.cluster_hamiltonian = self.generate_hamiltonian()
 
@@ -462,7 +466,7 @@ class RunObject:
 
         """
         sc = self.bath[supercluster]
-        his = self.initial_states_mask[supercluster] # have initial states
+        his = self.initial_states_mask[supercluster]  # have initial states
 
         if not his.any():
             states = np.asarray(np.meshgrid(*[np.linspace(-s.s, s.s, s.dim) for s in sc])).T.reshape(-1, sc.size)
@@ -476,20 +480,6 @@ class RunObject:
             states = np.asarray(np.meshgrid(
                 *[np.linspace(-sc[i].s, sc[i].s, sc[i].dim) if not his[i] else sc[i].proj for i in
                   range(sc.size)])).T.reshape(-1, sc.size)
-        #
-        # if self.fixstates is not None:
-        #
-        #     indexes = np.fromiter((ind for ind in self.fixstates.keys()), dtype=np.int32)
-        #
-        #     which = np.isin(supercluster, indexes)
-        #
-        #     if any(which):
-        #
-        #         newindexes = np.arange(supercluster.size)
-        #
-        #         for k, nk in zip(supercluster[which], newindexes[which]):
-        #             states = states[states[:, nk] == self.fixstates[which]]
-
 
         for single in states:
             yield single

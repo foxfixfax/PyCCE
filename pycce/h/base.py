@@ -28,10 +28,7 @@ class Hamiltonian:
         self.dimensions = np.asarray(dimensions)
         self.spins = (dimensions - 1) / 2
         if vectors is None:
-            vectors = []
-            for j, s in enumerate(self.spins):
-                vectors.append(spinvec(s, j, dimensions))
-            vectors = np.asarray(vectors)
+            vectors = vecs_from_dims(dimensions)
         self.vectors = vectors
 
         tdim = self.dimensions.prod()

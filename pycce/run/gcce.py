@@ -3,7 +3,7 @@ from pycce.bath.array import BathArray
 from pycce.constants import PI2
 from pycce.h import total_hamiltonian, expand
 from pycce.run.base import RunObject
-from pycce.utilities import shorten_dimensions
+from pycce.utilities import shorten_dimensions, generate_initial_state
 
 
 def propagator(timespace, hamiltonian,
@@ -101,12 +101,12 @@ def propagator(timespace, hamiltonian,
     return U
 
 
-def compute_dm(dm0, H, timespace, pulse_sequence=None, as_delay=False, states=None, ncenters=1):
+def compute_dm(initial_state, H, timespace, pulse_sequence=None, as_delay=False, states=None, ncenters=1):
     """
     Function to compute density matrix of the central spin, given Hamiltonian H.
 
     Args:
-        dm0 (ndarray): Initial density matrix of central spin.
+        initial_state (ndarray): Initial density matrix of central spin.
 
         H (ndarray): Cluster Hamiltonian.
 
@@ -124,11 +124,11 @@ def compute_dm(dm0, H, timespace, pulse_sequence=None, as_delay=False, states=No
     Returns:
         ndarray: Array of density matrices evaluated at all time points in timespace.
     """
-    center_shape = dm0.shape
+    center_shape = initial_state.shape
     dimensions = shorten_dimensions(H.dimensions, ncenters)
 
-    dm0 = generate_dm0(dm0, dimensions, states)
-    dm = full_dm(dm0, H, timespace, pulse_sequence=pulse_sequence, as_delay=as_delay)
+    initial_state = generate_initial_state(dimensions, states=states, central_state=initial_state)
+    dm = full_dm(initial_state, H, timespace, pulse_sequence=pulse_sequence, as_delay=as_delay)
     initial_shape = dm.shape
     dm.shape = (initial_shape[0], *dimensions, *dimensions)
     for d in range(len(dimensions) + 1, 2, -1):  # The last one is el spin
@@ -163,7 +163,9 @@ def full_dm(dm0, H, timespace, pulse_sequence=None, as_delay=False):
         dmUdagger = np.matmul(dm0, U.conj().transpose(0, 2, 1))
         dm = np.matmul(U, dmUdagger)
     else:
+        # |dm> = U|dm>
         dm = U @ dm0
+        # |dm><dm|
         dm = np.einsum('ki,kj->kij', dm, dm.conj())
 
     return dm
@@ -174,9 +176,9 @@ def generate_dm0(dm0, dimensions, states=None):
     A function to generate initial density matrix or statevector of the cluster.
     Args:
         dm0 (ndarray):
-            Initial density matrix of the central spin.
+            Initial density matrix of the central spin array.
         dimensions (ndarray):
-            ndarray of bath spin dimensions. Last entry - electron spin dimensions.
+            ndarray of bath spin dimensions. Last entry - central spin dimensions combined.
         states (ndarray):
             ndarray of bath states in any accepted format.
 
@@ -189,7 +191,7 @@ def generate_dm0(dm0, dimensions, states=None):
     if states is None:
         dmtotal0 = expand(dm0, len(dimensions) - 1, dimensions) / np.prod(dimensions[:-1])
     elif len(dm0.shape) == 1:
-        dmtotal0 = generate_pure_initial_state(dm0, dimensions, states)
+        dmtotal0 = generate_pure_state(states, dimensions, dm0)
 
     else:
         dmtotal0 = gen_density_matrix(states, dimensions[:-1])
@@ -198,7 +200,9 @@ def generate_dm0(dm0, dimensions, states=None):
     return dmtotal0
 
 
-def generate_pure_initial_state(state0, dimensions, states):
+
+
+def generate_pure_state(states, dimensions):
     """
     A function to generate initial state vector of the cluster with central spin.
 
@@ -224,9 +228,7 @@ def generate_pure_initial_state(state0, dimensions, states):
         state[n] = 1
         cluster_state = np.kron(cluster_state, state)
 
-    with_central_spin = np.kron(cluster_state, state0)
-
-    return with_central_spin
+    return cluster_state
 
 
 def gen_density_matrix(states=None, dimensions=None):
@@ -323,18 +325,18 @@ class gCCE(RunObject):
     def preprocess(self):
         super().preprocess()
 
-        check = False
-        if self.projected_bath_state is not None:
-            try:
-                check = all(self.projected_bath_state == self.bath_state)
-            except TypeError:
-                check = False
+        check = True  # False
+        # if self.projected_bath_state is not None:
+        #     try:
+        #         check = all(self.projected_bath_state == self.bath_state)
+        #     except TypeError:
+        #         check = False
 
         if check:
             self.dm0 = self.center.state
-            self.normalization = np.outer(self.center.state, self.center.state)
+            self.normalization = np.outer(self.center.state, self.center.state.conj())
         else:
-            self.dm0 = np.outer(self.center.state, self.center.state)
+            self.dm0 = np.outer(self.center.state, self.center.state.conj())
             self.normalization = self.dm0
 
         self.alpha = self.center.alpha

@@ -41,6 +41,7 @@ def rotmatrix(initial_vector, final_vector):
     return r
 
 
+@jit(nopython=True)
 def expand(matrix, i, dim):
     """
     Expand matrix M from it's own dimensions to the total Hilbert space.
@@ -53,8 +54,8 @@ def expand(matrix, i, dim):
     Returns:
         ndarray with shape (prod(dim), prod(dim)): Expanded matrix.
     """
-    dbefore = np.asarray(dim[:i], dtype=int).prod()
-    dafter = np.asarray(dim[i + 1:], dtype=int).prod()
+    dbefore = dim[:i].prod()
+    dafter = dim[i + 1:].prod()
 
     expanded_matrix = np.kron(np.kron(np.eye(dbefore, dtype=np.complex128), matrix),
                               np.eye(dafter, dtype=np.complex128))
@@ -79,54 +80,41 @@ def dimensions_spinvectors(bath=None, central_spin=None):
               (Including central spin if ``central_spin`` is not None). Each with  shape (3, N, N) where
               ``N = prod(dimensions)``.
     """
-    spins = []
     dimensions = []
 
     if bath is not None:
-        types = bath.types
-
-        spins += [types[n].s for n in bath.N]
-        dimensions += [_smc[s].dim for s in spins]
+        dimensions += [n.dim for n in bath]
 
     if central_spin is not None:
         try:
             for c in central_spin:
                 dimensions += [c.dim]
-                spins += [c.s]
 
         except TypeError:
             dimensions += [central_spin.dim]
-            spins += [central_spin.s]
 
     dimensions = np.array(dimensions, dtype=np.int32)
-
-    vectors = []
-
-    for j, s in enumerate(spins):
-        vectors.append(spinvec(s, j, dimensions))
-
-    vectors = np.array(vectors)
+    vectors = vecs_from_dims(dimensions)
 
     return dimensions, vectors
 
 
-def spinvec(s, j, dimensions):
-    """
-    Generate spin vector for the particle, containing 3 spin matrices in the total basis of the system.
+@jit(cache=True, nopython=True)
+def vecs_from_dims(dimensions):
+    td = dimensions.prod()
+    vectors = np.zeros((len(dimensions), 3, td, td), dtype=np.complex128)
+    for j, d in enumerate(dimensions):
+        vectors[j] = spinvec(j, dimensions)
+    return vectors
 
-    Args:
-        s (float): Spin of the particle.
-        j (j): Particle index in ``dimensions`` array.
-        dimensions (ndarray): Array with dimensions of all spins in the cluster.
 
-    Returns:
-        ndarray with shape (3, prod(dimensions), prod(dimensions)):
-            Vector of spin matrices for the given spin in the cluster.
-    """
-    vec = np.array([expand(_smc[s].x, j, dimensions),
-                    expand(_smc[s].y, j, dimensions),
-                    expand(_smc[s].z, j, dimensions)],
-                   dtype=np.complex128)
+@jit(nopython=True)
+def spinvec(j, dimensions):
+    x, y, z = _gen_sm(dimensions[j])
+    vec = np.stack((expand(x, j, dimensions),
+                    expand(y, j, dimensions),
+                    expand(z, j, dimensions))
+                   )
     return vec
 
 
@@ -214,28 +202,34 @@ def project_bath_states(states, single=False):
 
     if not ndstates.shape and ndstates.dtype == object:
         ndstates = ndstates[()]
+        single = True
 
     projected_bath_state = None
 
     if ndstates.dtype == object:
+
         try:
             ndstates = np.stack(ndstates)
+
         except ValueError:
+
             with warnings.catch_warnings(record=True) as w:
                 projected_bath_state = _loop_trace(list(states))
 
     if projected_bath_state is None:
         spin = (ndstates.shape[1] - 1) / 2
+
         if len(ndstates.shape) == 2 + (not single):
             # projected_bath_state = np.empty((ndstates.shape[0], 3))
 
             # projected_bath_state[:, 0] = np.trace(np.matmul(ndstates, _smc[spin].x), axis1=-2, axis2=-1)
             # projected_bath_state[:, 1] = np.trace(np.matmul(ndstates, _smc[spin].y), axis1=-2, axis2=-1)
-            projected_bath_state = np.trace(np.matmul(ndstates, _smc[spin].z), axis1=-2, axis2=-1)  # [:, 2]
+            projected_bath_state = np.trace(np.matmul(ndstates, _smc[spin].z), axis1=-2, axis2=-1).real  # [:, 2]
 
         else:
             # Assume vectors
-            projected_bath_state = np.einsum('ij,...j->...i', _smc[spin].z, ndstates)
+            z_psi = np.einsum('ij,...j->...i', _smc[spin].z, ndstates)
+            projected_bath_state = np.einsum('...j,...j->...', ndstates.conj(), z_psi).real
             # projected_bath_state = ndstates
 
     # if len(projected_bath_state.shape) > 1 and not np.any(projected_bath_state[:, :2]):
@@ -244,52 +238,9 @@ def project_bath_states(states, single=False):
     return projected_bath_state
 
 
-#
-#
-# def project_bath_states(states):
-#     r"""
-#     Generate projections of bath states on :math:`S_z` axis from any type of states input.
-#     Args:
-#         states (array-like): Array of bath spin states.
-#
-#     Returns:
-#         ndarray: Array of :math:`S_z` projections of the bath states
-#     """
-#
-#     ndstates = np.asarray(states)
-#     projected_bath_state = None
-#
-#     if ndstates.dtype == object:
-#         try:
-#             ndstates = np.stack(ndstates)
-#         except ValueError:
-#             with warnings.catch_warnings(record=True) as w:
-#                 projected_bath_state = _loop_trace(list(states))
-#
-#     if projected_bath_state is None:
-#
-#         if len(ndstates.shape) > 1:
-#
-#             spin = (ndstates.shape[1] - 1) / 2
-#
-#             projected_bath_state = np.empty((ndstates.shape[0], 3))
-#
-#             projected_bath_state[:, 0] = np.trace(np.matmul(ndstates, _smc[spin].x), axis1=1, axis2=2)
-#             projected_bath_state[:, 1] = np.trace(np.matmul(ndstates, _smc[spin].y), axis1=1, axis2=2)
-#             projected_bath_state[:, 2] = np.trace(np.matmul(ndstates, _smc[spin].z), axis1=1, axis2=2)
-#
-#         else:
-#             projected_bath_state = ndstates
-#
-#     if len(projected_bath_state.shape) > 1 and not np.any(projected_bath_state[:, :2]):
-#         projected_bath_state = projected_bath_state[:, 2]
-#
-#     return projected_bath_state
-
-
 @jit(nopython=True)
 def _loop_trace(states):
-    proj_states = np.empty((len(states),), dtype=np.complex128)  # (len(states), 3)
+    proj_states = np.empty((len(states),), dtype=np.float64)  # (len(states), 3)
     dims = List()
 
     # sx = List()
@@ -302,8 +253,8 @@ def _loop_trace(states):
         try:
             ind = dims.index(dim)
         except:
-            sxnew, synew, sznew = _gen_sm(dim)
-
+            # sxnew, synew, sznew = _gen_sm(dim)
+            sznew = _gen_sz(dim)
             # sx.append(sxnew)
             # sy.append(synew)
             sz.append(sznew)
@@ -313,11 +264,11 @@ def _loop_trace(states):
         if len(dm.shape) == 2:
             # xproj = np.trace(dm @ sx[ind])
             # yproj = np.trace(dm @ sy[ind])
-            zproj = np.trace(dm @ sz[ind])
+            zproj = np.diag(dm @ sz[ind]).sum().real
         else:
             # xproj = dm.conj() @ sx[ind] @ dm
             # yproj = dm.conj() @ sy[ind] @ dm
-            zproj = dm.conj() @ sz[ind] @ dm
+            zproj = (dm.conj() @ sz[ind] @ dm).real
 
         # proj_states[j, 0] = xproj
         # proj_states[j, 1] = yproj
@@ -325,11 +276,13 @@ def _loop_trace(states):
 
     return proj_states
 
+
 @jit(nopython=True)
-def gen_sz(dim):
+def _gen_sz(dim):
     s = (dim - 1) / 2
-    projections = np.linspace(s, -s, dim).astype(np.complex128)
+    projections = np.linspace(-s, s, dim).astype(np.complex128)
     return np.diag(projections[::-1])
+
 
 @jit(nopython=True)
 def _gen_sm(dim):
@@ -342,7 +295,7 @@ def _gen_sm(dim):
         ndarray:
     """
     s = (dim - 1) / 2
-    projections = np.linspace(s, -s, dim).astype(np.complex128)
+    projections = np.linspace(-s, s, dim).astype(np.complex128)
     plus = np.zeros((dim, dim), dtype=np.complex128)
 
     for i in range(dim - 1):
@@ -381,6 +334,7 @@ def partial_inner_product(avec, total, dimensions, index=-1):
     return avec @ matrix
 
 
+@jit(nopython=True)
 def shorten_dimensions(dimensions, central_number):
     if central_number > 1:
         shortdims = dimensions[:-central_number + 1].copy()
@@ -389,3 +343,260 @@ def shorten_dimensions(dimensions, central_number):
     else:
         shortdims = dimensions
     return shortdims
+
+
+@jit(nopython=True)
+def gen_state_list(states, dims):
+    list_of_vectors = List()
+    for s, d in zip(states, dims):
+        list_of_vectors.append(vector_from_s(s, d))
+    return list_of_vectors
+
+
+@jit(nopython=True)
+def vector_from_s(s, d):
+    vec_nucleus = np.zeros(d, dtype=np.complex128)
+    state_number = np.int32((d - 1) / 2 - s)
+    vec_nucleus[state_number] = 1
+    return vec_nucleus
+
+
+@jit(nopython=True)
+def from_central_state(dimensions, central_state):
+
+    return expand(central_state, len(dimensions) - 1, dimensions) / dimensions[:-1].prod()
+
+
+@jit(nopython=True)
+def from_none(dimensions):
+    tdim = np.prod(dimensions)
+    return np.eye(tdim) / tdim
+
+
+@jit(nopython=True)
+def from_states(states):
+    cluster_state = states[0]
+    for i in range(1, len(states)):
+        cluster_state = np.kron(cluster_state, states[i])
+
+    return cluster_state
+
+
+def combine_cluster_central(cluster_state, central_state):
+    lcs = len(cluster_state.shape)
+    ls = len(central_state.shape)
+
+    if lcs != ls:
+        return noneq_cc(cluster_state, central_state)
+    else:
+        return eq_cc(cluster_state, central_state)
+
+
+@jit(nopython=True)
+def noneq_cc(cluster_state, central_state):
+    if len(cluster_state.shape) == 1:
+        matrix = np.outer(cluster_state, cluster_state)
+        return np.kron(matrix, central_state)
+
+    else:
+        matrix = np.outer(central_state, central_state)
+        return np.kron(cluster_state, matrix)
+
+
+@jit(nopython=True)
+def eq_cc(cluster_state, central_state):
+    return np.kron(cluster_state, central_state)
+
+
+@jit(nopython=True)
+def rand_state(d):
+    np.eye(d, dtype=np.complex128) / d
+
+
+@jit(nopython=True)
+def outer(s1, s2):
+    return np.outer(s1, s2)
+
+
+def generate_initial_state(dimensions, states=None, central_state=None):
+    if states is None:
+        if central_state is None:
+            return from_none(dimensions)
+        else:
+            if len(central_state.shape) == 1:
+                central_state = outer(central_state, central_state)
+            return from_central_state(dimensions, central_state)
+
+    has_none = not states.has_state.all()
+    all_pure = False
+    all_mixed = False
+
+    if not has_none:
+        all_pure = states.pure.all()
+        if not all_pure:
+            all_mixed = (~states.pure).all()
+
+    if has_none:
+        for i in range(states.size):
+            if states[i] is None:
+                states[i] = rand_state(dimensions[i])
+
+    if not (all_pure or all_mixed):
+        for i in range(states.size):
+            if len(states[i].shape) < 2:
+                states[i] = outer(states[i], states[i])
+
+    cluster_state = from_states(tuple(states))
+
+    if central_state is not None:
+        cluster_state = combine_cluster_central(cluster_state, central_state)
+
+    return cluster_state
+
+
+@jit(nopython=True)
+def tensor_vdot(tensor, ivec):
+    result = np.zeros((tensor.shape[1], *ivec.shape[1:]), dtype=ivec.dtype)
+    for i, row in enumerate(tensor):
+        for j, a_ij in enumerate(row):
+            result[i] += a_ij * ivec[j]
+    return result
+
+@jit(nopython=True)
+def vvdot(vec_1, vec_2):
+    result = np.zeros(vec_1.shape[1:], vec_1.dtype)
+    for v1, v2 in zip(vec_1, vec_2):
+        result += v1 @ v2
+    return result
+
+
+
+# oldfuncs
+
+
+def generate_initial_state_old(dimensions, states=None, state0=None):
+    if states is None:
+        if state0 is not None:
+            return expand(state0, len(dimensions) - 1, dimensions) / dimensions[:-1].prod()
+        else:
+            tdim = np.prod(dimensions)
+            dmtotal0 = np.eye(tdim) / tdim
+
+            return dmtotal0
+
+    cluster_state = None
+    check = False
+    for i, s in enumerate(states):
+
+        if s is None:
+            s = np.eye(dimensions[i], dtype=np.complex128) / dimensions[i]
+
+            if check:
+                cluster_state = np.kron(cluster_state, s)
+            else:
+                cluster_state = s
+                check = True
+
+        else:
+            # If we already started iterating
+            if check:
+
+                lcs = len(cluster_state.shape)
+                ls = len(s.shape)
+
+                if lcs != ls:
+
+                    if len(cluster_state.shape) == 1:
+                        cluster_state = np.outer(cluster_state, cluster_state)
+
+                    else:
+                        s = np.outer(s, s)
+                cluster_state = np.kron(cluster_state, s)
+            else:
+                cluster_state = s
+                check = True
+
+    if state0 is not None:
+
+        lcs = len(cluster_state.shape)
+        ls = len(state0.shape)
+
+        if lcs != ls:
+
+            if len(cluster_state.shape) == 1:
+                cluster_state = np.outer(cluster_state, cluster_state)
+
+            else:
+                state0 = np.outer(state0, state0)
+
+        cluster_state = np.kron(cluster_state, state0)
+
+    return cluster_state
+
+
+def dimensions_spinvectors_old(bath=None, central_spin=None):
+    """
+    Generate two arrays, containing dimensions of the spins in the cluster and the vectors with spin matrices.
+
+    Args:
+        bath (BathArray with shape (n,)): Array of the n spins within cluster.
+        central_spin (CenterArray, optional): If provided, include dimensions of the central spins.
+
+    Returns:
+        tuple: *tuple* containing:
+
+            * **ndarray with shape (n,)**: Array with dimensions for each spin.
+
+            * **list**: List with vectors of spin matrices for each spin in the cluster
+              (Including central spin if ``central_spin`` is not None). Each with  shape (3, N, N) where
+              ``N = prod(dimensions)``.
+    """
+    spins = []
+    dimensions = []
+
+    if bath is not None:
+        types = bath.types
+
+        spins += [types[n].s for n in bath.N]
+        dimensions += [_smc[s].dim for s in spins]
+
+    if central_spin is not None:
+        try:
+            for c in central_spin:
+                dimensions += [c.dim]
+                spins += [c.s]
+
+        except TypeError:
+            dimensions += [central_spin.dim]
+            spins += [central_spin.s]
+
+    dimensions = np.array(dimensions, dtype=np.int32)
+
+    vectors = []
+
+    for j, s in enumerate(spins):
+        vectors.append(spinvec(s, j, dimensions))
+
+    vectors = np.array(vectors)
+
+    return dimensions, vectors
+
+
+def spinvec_old(s, j, dimensions):
+    """
+    Generate spin vector for the particle, containing 3 spin matrices in the total basis of the system.
+
+    Args:
+        s (float): Spin of the particle.
+        j (j): Particle index in ``dimensions`` array.
+        dimensions (ndarray): Array with dimensions of all spins in the cluster.
+
+    Returns:
+        ndarray with shape (3, prod(dimensions), prod(dimensions)):
+            Vector of spin matrices for the given spin in the cluster.
+    """
+    vec = np.array([expand(_smc[s].x, j, dimensions),
+                    expand(_smc[s].y, j, dimensions),
+                    expand(_smc[s].z, j, dimensions)],
+                   dtype=np.complex128)
+    return vec

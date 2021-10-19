@@ -3,9 +3,11 @@ import \
 
 from pycce.bath.array import check_gyro
 from pycce.constants import HBAR, PI2, ELECTRON_GYRO
-from pycce.utilities import dimensions_spinvectors, expand
+from pycce.utilities import dimensions_spinvectors, expand, tensor_vdot, vvdot
+from numba import jit, generated_jit, types
 
 
+@jit(cache=True, nopython=True)
 def expanded_single(ivec, gyro, mfield, self_tensor, detuning=.0):
     """
     Function to compute the single bath spin term.
@@ -21,19 +23,14 @@ def expanded_single(ivec, gyro, mfield, self_tensor, detuning=.0):
         ndarray with shape (n, n): Single bath spin term.
 
     """
-    gyro, check = check_gyro(gyro)
-    if check:
-        hzeeman = -gyro / PI2 * (mfield[0] * ivec[0] + mfield[1] * ivec[1] + mfield[2] * ivec[2])
-    # else assume tensor
-    else:
-        gsvec = np.einsum('ij,jkl->ikl', gyro / PI2, ivec, dtype=np.complex128)
-        hzeeman = np.einsum('lij,ljk->ik', mfield, gsvec, dtype=np.complex128)
+    hzeeman = zeeman(ivec, gyro, mfield)
+    hself = np.zeros(hzeeman.shape, dtype=hzeeman.dtype)
 
-    hself = 0
+    if ivec[2, 0, 0].real > 0.5:
+        hself = vec_tensor_vec(ivec, self_tensor, ivec)
 
-    if ivec[2, 0, 0] > 0.5:
-        v_ivec = np.einsum('ij,jkl->ikl', self_tensor, ivec, dtype=np.complex128)
-        hself = np.einsum('lij,ljk->ik', ivec, v_ivec, dtype=np.complex128)
+        # v_ivec = np.einsum('ij,jkl->ikl', self_tensor, ivec, dtype=np.complex128)
+        # hself = np.einsum('lij,ljk->ik', ivec, v_ivec, dtype=np.complex128)
 
     if detuning:
         hself += detuning * ivec[2]
@@ -41,6 +38,48 @@ def expanded_single(ivec, gyro, mfield, self_tensor, detuning=.0):
     return hself + hzeeman
 
 
+@generated_jit(cache=True, nopython=True)
+def zeeman(ivec, gyro, mfield):
+    if isinstance(gyro, types.Float):
+        def z(ivec, gyro, mfield):
+            return - gyro / PI2 * (mfield[0] * ivec[0] + mfield[1] * ivec[1] + mfield[2] * ivec[2])
+
+    # else assume tensor
+    else:
+        def z(ivec, gyro, mfield):
+            gsvec = tensor_vdot(gyro / PI2, ivec)
+            return mfield[0] * gsvec[0] + mfield[1] * gsvec[1] + mfield[2] * gsvec[2]
+
+    return z
+
+
+@generated_jit(cache=True, nopython=True)
+def dd_tensor(coord_1, coord_2, g1, g2):
+    if isinstance(g2, types.Float) and isinstance(g1, types.Float):
+        def func(coord_1, coord_2, g1, g2):
+            p_tensor = gen_pos_tensor(coord_1, coord_2)
+            p_tensor *= g2 * g1
+            return p_tensor
+
+    elif isinstance(g1, types.Float):
+        def func(coord_1, coord_2, g1, g2):
+            p_tensor = gen_pos_tensor(coord_1, coord_2)
+            p_tensor = g1 * p_tensor @ g2
+            return p_tensor
+    elif isinstance(g2, types.Float):
+        def func(coord_1, coord_2, g1, g2):
+            p_tensor = gen_pos_tensor(coord_1, coord_2)
+            p_tensor = g1 @ p_tensor * g2
+            return p_tensor
+    else:
+        def func(coord_1, coord_2, g1, g2):
+            p_tensor = gen_pos_tensor(coord_1, coord_2)
+            p_tensor = g1 @ p_tensor @ g2
+            return p_tensor
+    return func
+
+
+@jit(cache=True, nopython=True)
 def dipole_dipole(coord_1, coord_2, g1, g2, ivec_1, ivec_2):
     """
     Compute dipole_dipole interactions between two bath spins.
@@ -57,21 +96,22 @@ def dipole_dipole(coord_1, coord_2, g1, g2, ivec_1, ivec_2):
         ndarray with shape (n, n): Dipole-dipole interactions.
 
     """
+    p_tensor = dd_tensor(coord_1, coord_2, g1, g2)
+    return vec_tensor_vec(ivec_1, p_tensor, ivec_2)
 
-    pre = g1 * g2 * HBAR / PI2
 
+@jit(cache=True, nopython=True)
+def gen_pos_tensor(coord_1, coord_2):
     pos = coord_1 - coord_2
     r = np.linalg.norm(pos)
 
-    p_tensor = -pre * (3 * np.outer(pos, pos) -
-                       np.eye(3, dtype=np.complex128) * r ** 2) / (r ** 5)
+    return -(3 * np.outer(pos, pos) - np.eye(3, dtype=np.complex128) * r ** 2) / (r ** 5) * HBAR / PI2
 
-    p_ivec = np.einsum('ij,jkl->ikl', p_tensor, ivec_2,
-                       dtype=np.complex128)  # p_ivec = Ptensor @ Ivector
-    # DD = IPI = IxPxxIx + IxPxyIy + ..
-    hdd = np.einsum('lij,ljk->ik', ivec_1, p_ivec, dtype=np.complex128)
 
-    return hdd
+@jit(cache=True, nopython=True)
+def vec_tensor_vec(v1, tensor, v2):
+    t_vec = tensor_vdot(tensor, v2)
+    return vvdot(v1, t_vec)
 
 
 def bath_interactions(nspin, ivectors):
@@ -98,7 +138,6 @@ def bath_interactions(nspin, ivectors):
 
                 ivec_1 = ivectors[i]
                 ivec_2 = ivectors[j]
-
                 dd += dipole_dipole(n1['xyz'], n2['xyz'], n1.gyro, n2.gyro, ivec_1, ivec_2)
     else:
         for i in range(nnuclei):
@@ -111,14 +150,13 @@ def bath_interactions(nspin, ivectors):
 
                 try:
                     tensor = imap[i, j]
-                    tensor_ivec = np.einsum('ij,jkl->ikl', tensor, ivec_2,
-                                            dtype=np.complex128)  # p_ivec = Ptensor @ Ivector
-                    dd += np.einsum('lij,ljk->ik', ivec_1, tensor_ivec, dtype=np.complex128)
+                    dd += vec_tensor_vec(ivec_1, tensor, ivec_2)
                 except KeyError:
                     dd += dipole_dipole(n1['xyz'], n2['xyz'], n1.gyro, n2.gyro, ivec_1, ivec_2)
     return dd
 
 
+@jit(cache=True, nopython=True)
 def bath_mediated(hyperfines, ivectors, energy_state, energies, projections):
     r"""
     Compute all hyperfine-mediated interactions between bath spins.
@@ -141,15 +179,15 @@ def bath_mediated(hyperfines, ivectors, energy_state, energies, projections):
         ndarray with shape (n, n): Hyperfine-mediated interactions.
 
     """
-    mediated = 0
+    mediated = np.zeros(ivectors[0,0].shape, dtype=np.complex128)
 
     others_mask = energies != energy_state
     energies = energies[others_mask]
     projections = projections[others_mask]
 
     for energy_j, s_ij in zip(energies, projections):
-        element_ij = 0
-        element_ji = 0
+        element_ij = np.zeros(ivectors[0,0].shape, dtype=np.complex128)
+        element_ji = np.zeros(ivectors[0,0].shape, dtype=np.complex128)
 
         for hf, ivec in zip(hyperfines, ivectors):
             element_ij += conditional_hyperfine(hf, ivec, s_ij)
@@ -159,7 +197,7 @@ def bath_mediated(hyperfines, ivectors, energy_state, energies, projections):
     return mediated
 
 
-
+@jit(cache=True, nopython=True)
 def conditional_hyperfine(hyperfine_tensor, ivec, projections):
     r"""
     Compute conditional hyperfine Hamiltonian.
@@ -186,9 +224,11 @@ def conditional_hyperfine(hyperfine_tensor, ivec, projections):
 
     """
 
-    return np.einsum('i,ijk->jk', projections @ hyperfine_tensor, ivec)
+    a_ivec = tensor_vdot(hyperfine_tensor, ivec)
+    return projections[0] * a_ivec[0] + projections[1] * a_ivec[1] + projections[2] * a_ivec[2]
 
 
+@jit(cache=True, nopython=True)
 def hyperfine(hyperfine_tensor, svec, ivec):
     """
     Compute hyperfine interactions between central spin and bath spin.
@@ -202,16 +242,14 @@ def hyperfine(hyperfine_tensor, svec, ivec):
         ndarray with shape (n, n): Hyperfine interaction.
 
     """
-    aivec = np.einsum('ij,jkl->ikl', hyperfine_tensor, ivec)  # AIvec = Atensor @ Ivector
-    # HF = SPI = SxPxxIx + SxPxyIy + ..
-    h_hf = np.einsum('lij,ljk->ik', svec, aivec)
-    return h_hf
+    return vec_tensor_vec(svec, hyperfine_tensor, ivec)
 
 
+@jit(cache=True, nopython=True)
 def self_central(svec, mfield, tensor=None, gyro=ELECTRON_GYRO, detuning=0):
     """
     Function to compute the central spin term in the Hamiltonian.
- 
+
     Args:
         svec (ndarray with shape (3, n, n)): Spin vector of the central spin in the full Hilbert space of the cluster.
         mfield (ndarray wtih shape (3,): Magnetic field of type ``mfield = np.array([Bx, By, Bz])``.
@@ -226,27 +264,16 @@ def self_central(svec, mfield, tensor=None, gyro=ELECTRON_GYRO, detuning=0):
         ndarray with shape (n, n): Central spin term.
 
     """
-    H0 = 0
-    if svec[2, 0, 0] > 1 / 2:
-        dsvec = np.einsum('ij,jkl->ikl', tensor, svec,
-                          dtype=np.complex128)  # AIvec = Atensor @ Ivector
-        # H0 = SDS = SxDxxSx + SxDxySy + ..
-        H0 = np.einsum('lij,ljk->ik', svec, dsvec, dtype=np.complex128)
+    hzeeman = zeeman(svec, gyro, mfield)
+    hself = np.zeros(hzeeman.shape, dtype=hzeeman.dtype)
 
-    # if gyro is number
-    gyro, check = check_gyro(gyro)
-    if check:
-        # print(svec, mfield)
-        H1 = -gyro / PI2 * (mfield[0] * svec[0] + mfield[1] * svec[1] + mfield[2] * svec[2])
-    # else assume tensor
-    else:
-        gsvec = np.einsum('ij,jkl->ikl', gyro / PI2, svec,
-                          dtype=np.complex128)  # AIvec = Atensor @ Ivector
-        # H0 = SDS = SxDxxSx + SxDxySy + ..
-        H1 = np.einsum('lij,ljk->ik', mfield, gsvec, dtype=np.complex128)
+    if svec[2, 0, 0].real > 0.5:
+        hself = vec_tensor_vec(svec, tensor, svec)
+
     if detuning:
-        H1 += svec[-1] * detuning
-    return H1 + H0
+        hself += detuning * svec[2]
+
+    return hself + hzeeman
 
 
 def center_interactions(center, vectors):
@@ -262,14 +289,13 @@ def center_interactions(center, vectors):
                 vec_1 = vectors[i]
                 vec_2 = vectors[j]
                 tensor = center.imap[i, j]
-                tensor_ivec = np.einsum('ij,jkl->ikl', tensor, vec_2,
-                                        dtype=np.complex128)  # p_ivec = Ptensor @ Ivector
-                ham += np.einsum('lij,ljk->ik', vec_1, tensor_ivec, dtype=np.complex128)
+                ham += vec_tensor_vec(vec_1, tensor, vec_2)
             except KeyError:
                 pass
     return ham
 
 
+@jit(cache=True, nopython=True)
 def overhauser_central(svec, others_hyperfines, others_state):
     """
     Compute Overhauser field term on the central spin from all other spins, not included in the cluster.
@@ -286,15 +312,12 @@ def overhauser_central(svec, others_hyperfines, others_state):
 
     """
 
-    if len(others_state.shape) > 1:
-        zfield = np.sum(others_hyperfines[..., 2, 2] * others_state[..., 2])
-
-    else:
-        zfield = np.sum(others_hyperfines[..., 2, 2] * others_state)
+    zfield = (others_hyperfines[..., 2, 2] * others_state).sum()
 
     return zfield * svec[2]
 
 
+@jit(cache=True, nopython=True)
 def overhauser_bath(ivec, position, gyro,
                     other_gyros, others_position, others_state):
     """
@@ -315,55 +338,12 @@ def overhauser_bath(ivec, position, gyro,
         ndarray with shape (n, n): Bath spin Overhauser term.
 
     """
+
     pre = np.asarray(gyro * other_gyros * HBAR / PI2)
 
     pos = position - others_position
-    r = np.linalg.norm(pos, axis=-1)
-    if len(others_state.shape) == 1:
-        # xfield = np.sum(pre / r ** 5 * (- 3 * pos[:, 2] * pos[:, 0]) * others_state)
-        # yfield = np.sum(pre / r ** 5 * (- 3 * pos[:, 2] * pos[:, 1]) * others_state)
-        zfield = np.sum(pre / r ** 5 * (r ** 2 - 3 * pos[:, 2] ** 2) * others_state)
-        # Not sure which is more physical yet..
-        return zfield * ivec[2]  # + xfield * ivec[0] + yfield * ivec[1]
+    r = np.sqrt((pos ** 2).sum(axis=-1))
+    zfield = (pre / r ** 5 * (r ** 2 - 3 * pos[..., 2] ** 2) * others_state).sum()
 
-    else:
-        posxpos = np.einsum('ki,kj->kij', pos, pos)
+    return zfield * ivec[2]  # + xfield * ivec[0] + yfield * ivec[1]
 
-        r = r[..., np.newaxis, np.newaxis]
-        pre = pre[..., np.newaxis, np.newaxis]
-        identity = np.eye(3, dtype=np.float64)
-        dd = -(3 * posxpos - identity[np.newaxis, ...] * r ** 2) / (r ** 5) * pre
-
-        field = np.einsum('ij,ijk->k', others_state, dd)
-
-        return np.einsum('k,klm->lm', field, ivec)
-
-
-def eta_hamiltonian(nspin, central_spin, alpha, beta, eta):
-    """
-    EXPERIMENTAL. Compute hamiltonian with eta-term - gradually turn off or turn on the secular interactions for
-    alpha and beta qubit states.
-
-    Args:
-        nspin (BathArray): Array of the bath spins in the given cluster.
-        central_spin (float): central spin.
-        alpha (ndarray with shape (2s+1,)):
-            Vector representation of the alpha qubit state in Sz basis.
-        beta (ndarray with shape (2s+1,)):
-            Vector representation of the beta qubit state in Sz basis.
-        eta (float): Value of dimensionless parameter eta (from 0 to 1).
-
-    Returns:
-        ndarray with shape (n, n): Eta term.
-
-    """
-
-    dimensions, vectors = dimensions_spinvectors(nspin, central_spin=central_spin)
-    AIzi = 0
-
-    for j, ivec in enumerate(vectors[:-1]):
-        AIzi += np.einsum('j,jkl->kl', nspin[j]['A'][2, :], ivec, dtype=np.complex128)
-
-    up_down = (1 - eta) / 2 * (np.tensordot(alpha, alpha, axes=0) + np.tensordot(beta, beta, axes=0))
-    H_eta = expand(up_down, nspin.shape[0], dimensions) @ AIzi
-    return H_eta

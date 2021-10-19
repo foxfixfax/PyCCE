@@ -1093,7 +1093,6 @@ class Simulator:
                  as_delay=False,
                  alpha=None,
                  beta=None,
-                 bath_state=None,
                  nbstates=None,
                  seed=None,
                  masked=True,
@@ -1130,10 +1129,10 @@ class Simulator:
         self.as_delay = as_delay
         self.direct = direct
 
-        if bath_state is not None:
-            self.bath_state = np.asarray(bath_state)
-        else:
-            self.bath_state = None
+        # if bath_state is not None:
+        #     self.bath_state = np.asarray(bath_state)
+        # else:
+        #     self.bath_state = None
 
         self.second_order = second_order
         self.level_confidence = level_confidence
@@ -1148,11 +1147,11 @@ class Simulator:
         if parallel or parallel_states:
             self._broadcast()
 
-        if bath_state is not None:
-            self.projected_bath_state = project_bath_states(bath_state)
+        # if bath_state is not None:
+        #     self.projected_bath_state = project_bath_states(bath_state)
 
-        else:
-            self.projected_bath_state = None
+        # else:
+        #     self.projected_bath_state = None
 
 
 def _broadcast_simulator(simulator=None, root=0):
