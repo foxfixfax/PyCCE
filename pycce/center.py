@@ -580,7 +580,8 @@ class CenterArray(Center, Sequence):
         state = 1
         for c in self:
             s = getattr(c, name)
-            assert s is not None, f"{name} is not provided for array and is not provided for all separate spins."
+            if s is None:
+                return None
             state = np.kron(state, s)
 
         return state

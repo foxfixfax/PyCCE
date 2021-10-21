@@ -74,12 +74,6 @@ class RunObject:
             True if mask numerically unstable points (with result > result[0]) in the sampling over bath states
             False if not. Default True.
 
-        fixstates (dict):
-            If provided, contains indexes of bath spins with fixed pure state for sampling runs and interlaced runs.
-
-            Each key is the index of bath spin,
-            value - fixed :math:`\hat{I}_z` projection of the **pure** :math:`\hat{I}_z` eigenstate of bath spin.
-
         projected_bath_state (ndarray with shape (n,)):
             Array with z-projections of the bath spins states.
             Overridden in runs with random bath state sampling.
@@ -99,6 +93,13 @@ class RunObject:
         **kwargs: Additional keyword arguments to be set as the attributes of the given object.
 
     """
+
+
+#        fixstates (dict):
+#             If provided, contains indexes of bath spins with fixed pure state for sampling runs and interlaced runs.
+#
+#             Each key is the index of bath spin,
+#             value - fixed :math:`\hat{I}_z` projection of the **pure** :math:`\hat{I}_z` eigenstate of bath spin.
 
     result_operator = operator.imul
     """Operator which will combine the result of expansion,.
@@ -127,7 +128,6 @@ class RunObject:
                  nbstates=None,
                  seed=None,
                  masked=True,
-                 fixstates=None,
                  parallel=False,
                  direct=False,
                  parallel_states=False,
@@ -164,11 +164,6 @@ class RunObject:
         self.masked = masked
         """bool: True if mask numerically unstable points (with result > result[0]) in the sampling over bath states
         False if not. Default True."""
-        self.fixstates = fixstates
-        r"""dict: If provided, contains indexes of bath spins with fixed pure state for sampling runs and interlaced runs.
-
-        Each key is the index of bath spin,
-        value - fixed :math:`\hat{I}_z` projection of the **pure** :math:`\hat{I}_z` eigenstate of bath spin."""
 
         for k in kwargs:
             setattr(self, k, kwargs[k])

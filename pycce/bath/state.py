@@ -40,7 +40,7 @@ class BathState:
         return self.state.__getitem__(item)
 
     def __setitem__(self, key, value):
-        # Only allowed values are density matrices or None
+        # Only allowed values are density matrices, vectors, or None
         self._up_to_date = False
         self._data['hps'][key] = False
 
@@ -87,10 +87,12 @@ class BathState:
 
                 return
 
-            try:
-                value = np.asarray(value, dtype=np.complex128)
-            except ValueError:
-                value = np.asarray(value, dtype=np.object_)
+            if not isinstance(value, np.ndarray):
+                try:
+                    value = np.asarray(value, dtype=np.complex128)
+
+                except ValueError:
+                    value = np.asarray(value, dtype=np.object_)
 
             if not value.dtype == np.object_:
 
@@ -138,11 +140,11 @@ class BathState:
                         self.pure[key] = False
 
                     broadcasted = np.broadcast_to(value, fshape)
-                    self.state[key] = [rho for rho in broadcasted]
+                    self.state[key] = objarr(broadcasted)
                     self.has_state[key] = True  # [rho is not None for rho in broadcasted] Cannot be None
 
             else:
-                self.state[key] = [rho for rho in value]
+                self.state[key] = value
                 self.has_state[key] = [rho is not None for rho in value]
                 self.pure[key] = [(len(rho.shape) == 1) if rho is not None else False for rho in value]
 
@@ -228,9 +230,10 @@ class BathState:
     def __str__(self):
         return self.state.__str__()
 
+def objarr(array):
+    nar = len(array)
+    obj = np.empty(nar, dtype=object)
 
-class State:
-    def __init__(self):
-        self.pure = None
-        self.dm = None
-        self.is_pure = None
+    for i in range(nar):
+        obj[i] = array[i]
+    return obj

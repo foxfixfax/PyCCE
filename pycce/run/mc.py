@@ -21,6 +21,8 @@ def generate_bath_state(bath, nbstates, seed=None, parallel=False):
     """
     rgen = np.random.default_rng(seed)
     rank = 0
+    comm = None
+
     if parallel:
         try:
             import mpi4py
@@ -35,17 +37,19 @@ def generate_bath_state(bath, nbstates, seed=None, parallel=False):
     for _ in range(nbstates):
         bath_state = np.empty(bath.shape, dtype=np.float64)
         if rank == 0:
-            for n in bath.types:
+            for n in np.unique(bath.N):
                 s = bath.types[n].s
-                snumber = int(round(2 * s + 1))
-                mask = bath['N'] == n
+                snumber = np.int32(round(2 * s + 1))
+                mask = bath.N == n
                 bath_state[mask] = rgen.integers(snumber, size=np.count_nonzero(mask)) - s
+
                 dimensions[mask] = snumber
 
-        bath_state = gen_state_list(bath_state, dimensions)
-
         if parallel:
-            bath_state = comm.bcast(bath_state, root=0)
+            comm.Bcast(bath_state, root=0)
+            comm.Bcast(dimensions, root=0)
+
+        bath_state = gen_state_list(bath_state, dimensions)
 
         yield bath_state
 
@@ -91,6 +95,7 @@ def monte_carlo_method_decorator(func):
 
         his = self.bath.state.has_state.copy()  # have_initial_state
         for bath_state in generate_bath_state(self.bath[~his], nbstates, seed=seed, parallel=self.parallel):
+
             self.bath.state[~his] = bath_state
             result = func(self, *args, **kwargs)
 

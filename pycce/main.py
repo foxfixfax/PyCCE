@@ -10,9 +10,10 @@ Default Units:
 
 """
 
+
 import numpy as np
 import warnings
-
+from collections.abc import Sequence
 from pycce.io.xyz import read_xyz
 from .center import CenterArray
 from .bath.array import BathArray, SpinDict, check_gyro
@@ -449,11 +450,7 @@ class Simulator:
         self.fulldm = False
 
     def __repr__(self):
-        bm = (f"Simulator for spin-{self.spin}.\n"
-              f"alpha: {self.alpha}\n"
-              f"beta: {self.beta}\n"
-              f"gyromagnetic ratio: {self.gyro} kHz * rad / G\n"
-              f"zero field splitting:\n{self.zfs.__repr__()}\n"
+        bm = (f"Simulator for center:\n{self.center}\n"
               f"magnetic field:\n{self.magnetic_field.__repr__()}\n\n"
               f"Parameters of cluster expansion:\n"
               f"r_bath: {self.r_bath}\n"
@@ -887,19 +884,20 @@ class Simulator:
 
         if self.r_bath is not None:
             mask = False
-            for c in self.center:
-                mask += np.linalg.norm(bath['xyz'] - np.asarray(c.xyz), axis=-1) < self.r_bath
+            rbs = np.broadcast_to(self.r_bath, self.center.size)
+            for rb, c in zip(rbs, self.center):
+                mask += np.linalg.norm(bath.xyz - np.asarray(c.xyz), axis=-1) < rb
             bath = bath[mask]
 
         if self.ext_r_bath is not None and self.external_bath is not None:
 
             where = False
             for c in self.center:
-                where += np.linalg.norm(self.external_bath['xyz'] - c.xyz, axis=1) <= self.ext_r_bath
+                where += np.linalg.norm(self.external_bath.xyz - c.xyz, axis=1) <= self.ext_r_bath
 
             self._external_bath = self.external_bath[where]
 
-        if self._hyperfine == 'pd' or (self._hyperfine is None and not np.any(bath['A'])):
+        if self._hyperfine == 'pd' or (self._hyperfine is None and not bath.A.any()):
             bath = bath.from_center(self.center)
 
             self._hyperfine = 'pd'
@@ -1181,15 +1179,26 @@ def _broadcast_simulator(simulator=None, root=0):
     if rank == root:
         bath = simulator.bath
         parameters = vars(bath)
+
+        center = simulator.center
+        cparam = vars(center)
     else:
         bath = None
         parameters = None
+        center = None
+        cparam = None
 
     nbath = comm.bcast(bath, root)
     nparam = comm.bcast(parameters, root)
-
+    ncenter = comm.bcast(center, root)
+    ncp = comm.bcast(cparam, root)
     for k in nparam:
         setattr(nbath, k, nparam[k])
+    for k in ncp:
+        setattr(ncenter, k, ncp[k])
+
+    nsim.center = ncenter
     nsim._bath = nbath
+
 
     return nsim

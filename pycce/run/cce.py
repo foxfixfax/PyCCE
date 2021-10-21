@@ -18,7 +18,6 @@ def simple_propagators(delays, H0, H1):
     eigen_exp0 = np.exp(-1j * np.outer(delays, eval0), dtype=np.complex128)
     eigen_exp1 = np.exp(-1j * np.outer(delays, eval1), dtype=np.complex128)
 
-
     v0 = np.matmul(np.einsum('ij,kj->kij', evec0, eigen_exp0,
                              dtype=np.complex128),
                    evec0.conj().T, dtype=np.complex128)
@@ -48,6 +47,7 @@ def propagate_propagators(v0, v1, number):
         U1 = np.matmul(U1, V1_HE)
 
     return U0, U1
+
 
 def propagators(timespace, H0, H1, pulses, as_delay=False):
     """
@@ -87,7 +87,6 @@ def propagators(timespace, H0, H1, pulses, as_delay=False):
     if check and number:
         timespace = timespace / (2 * number)
 
-
     if not use_rotations:
         v0, v1 = simple_propagators(timespace, H0, H1)
 
@@ -95,7 +94,6 @@ def propagators(timespace, H0, H1, pulses, as_delay=False):
             return v0, v1
         else:
             return propagate_propagators(v0, v1, number)
-
 
     if pulses.delays is None:
 

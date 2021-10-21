@@ -368,7 +368,7 @@ class BathCell:
         axb = np.cross(self.cell[:, 0], self.cell[:, 1])
         bxc = np.cross(self.cell[:, 1], self.cell[:, 2])
         cxa = np.cross(self.cell[:, 2], self.cell[:, 0])
-
+        # Number of unit cells along a,b,c directions
         anumber = int(size * np.linalg.norm(bxc) / (bxc @ self.cell[:, 0]) + 1)
         bnumber = int(size * np.linalg.norm(cxa) / (cxa @ self.cell[:, 1]) + 1)
         cnumber = int(size * np.linalg.norm(axb) / (axb @ self.cell[:, 2]) + 1)
@@ -377,20 +377,24 @@ class BathCell:
         dt = np.dtype([('N', np.unicode_, 16), ('xyz', np.float64, (3,))])
         atoms = []
 
+
         for a in isotopes:
+            # Number of sites for given type of atom
             nsites = len(self.atoms[a])
-            # print(nsites)
+            # Cartesian of those positions
             sites_xyz = np.asarray(self.atoms[a]) @ self.cell.T
             # print(sites_xyz)
+
             maxind = np.array([anumber,
                                bnumber,
                                cnumber,
                                nsites], dtype=np.int32)
 
             natoms = np.prod(maxind, dtype=np.int32)
+            # 0, 1,2, .. natoms
             atom_seedsites = np.arange(natoms, dtype=np.int32)
             mask = np.zeros(natoms, dtype=bool)
-
+            # C: 13C, 14C
             for i in isotopes[a]:
                 conc = isotopes[a][i]
                 nisotopes = int(round(natoms * conc))
@@ -578,9 +582,9 @@ def random_bath(names, size, number=1000, density=None, types=None,
 
         center (ndarray with shape (3,)): Coordinates of the (0, 0, 0) point of the final coordinate system
             in the initial coordinates. Default is ``size / 2`` - center is in the middle of the box.
-
+        seed (int): Seed for random number generator.
     Returns:
-        BathArray with shape (np.prod(number)): Array of the bath spins with random positions.
+        BathArray with shape (np.prod(number),): Array of the bath spins with random positions.
     """
     size = np.asarray(size)
     unit_conversion = {'a': 1, 'cm': 1e-8, 'm': 1e-10}
