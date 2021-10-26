@@ -188,10 +188,10 @@ class Sequence(UserList):
             beta (ndarray): :math:`\ket{1}` state of the qubit in :math:`S_z` basis.
 
         """
-        alpha_x_alpha = np.tensordot(alpha, alpha, axes=0)
-        beta_x_beta = np.tensordot(beta, beta, axes=0)
-        alpha_x_beta = np.tensordot(alpha, beta, axes=0)
-        beta_x_alpha = np.tensordot(beta, alpha, axes=0)
+        alpha_x_alpha = np.outer(alpha, alpha.conj())
+        beta_x_beta = np.outer(beta, beta.conj())
+        alpha_x_beta = np.outer(alpha, beta.conj())
+        beta_x_alpha = np.outer(beta, alpha.conj())
 
         self.small_sigma = {'x': alpha_x_beta + beta_x_alpha,
                             'y': -1j * alpha_x_beta + 1j * beta_x_alpha,
