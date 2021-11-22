@@ -13,10 +13,9 @@ Default Units:
 
 import numpy as np
 import warnings
-from collections.abc import Sequence
 from pycce.io.xyz import read_xyz
 from .center import CenterArray
-from .bath.array import BathArray, SpinDict, check_gyro
+from .bath.array import BathArray, SpinDict, check_gyro, broadcast_array
 from .bath.cube import Cube
 from .constants import ELECTRON_GYRO
 from .find_clusters import generate_clusters
@@ -448,6 +447,10 @@ class Simulator:
         """timespace (ndarray with shape (n,)): Time points at which compute the desired property."""
         self.runner = None
         self.fulldm = False
+        self.normalized = True
+
+        self.i = None
+        self.j = None
 
     def __repr__(self):
         bm = (f"Simulator for center:\n{self.center}\n"
@@ -1033,7 +1036,7 @@ class Simulator:
                     - 'gcce': Generalized CCE where central spin is included in each cluster.
         """
         if quantity.lower() == 'noise':
-            kwargs.setdefault('masked', False)
+            kwargs.setdefault('masked', None)
 
         else:
             kwargs.setdefault('masked', True)
@@ -1086,7 +1089,10 @@ class Simulator:
     @_add_args(_args)
     def _prepare(self,
                  pulses=None,
+                 i=None,
+                 j=None,
                  D=None, E=0,
+                 normalized=True,
                  magnetic_field=None,
                  as_delay=False,
                  alpha=None,
@@ -1107,6 +1113,8 @@ class Simulator:
         Args:
 
         """
+        self.i = i
+        self.j = j
 
         if D is not None:
             self.set_zfs(D, E)
@@ -1126,7 +1134,7 @@ class Simulator:
         self.parallel_states = parallel_states
         self.as_delay = as_delay
         self.direct = direct
-
+        self.normalized = normalized
         # if bath_state is not None:
         #     self.bath_state = np.asarray(bath_state)
         # else:
@@ -1176,29 +1184,10 @@ def _broadcast_simulator(simulator=None, root=0):
     rank = comm.Get_rank()
 
     nsim = comm.bcast(simulator, root=root)
-    if rank == root:
-        bath = simulator.bath
-        parameters = vars(bath)
 
-        center = simulator.center
-        cparam = vars(center)
-    else:
-        bath = None
-        parameters = None
-        center = None
-        cparam = None
-
-    nbath = comm.bcast(bath, root)
-    nparam = comm.bcast(parameters, root)
-    ncenter = comm.bcast(center, root)
-    ncp = comm.bcast(cparam, root)
-    for k in nparam:
-        setattr(nbath, k, nparam[k])
-    for k in ncp:
-        setattr(ncenter, k, ncp[k])
+    nbath = broadcast_array(simulator.bath)
+    ncenter = broadcast_array(simulator.center)
 
     nsim.center = ncenter
     nsim._bath = nbath
-
-
     return nsim

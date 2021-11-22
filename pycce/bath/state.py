@@ -1,7 +1,6 @@
-import warnings
-
 import numpy as np
 from pycce.utilities import project_bath_states
+from pycce.utilities import gen_state_list, vector_from_s
 
 
 class BathState:
@@ -59,6 +58,7 @@ class BathState:
                 self.has_state[key[0]] = True
 
                 n = len(np.asarray(key[0]).shape)
+
                 if n:
                     self.pure[key[0]] = self.state[key[0]][0].shape < 2
                 else:
@@ -91,7 +91,7 @@ class BathState:
                 try:
                     value = np.asarray(value, dtype=np.complex128)
 
-                except ValueError:
+                except (ValueError, TypeError):
                     value = np.asarray(value, dtype=np.object_)
 
             if not value.dtype == np.object_:
@@ -139,7 +139,7 @@ class BathState:
                         fshape = value.shape
                         self.pure[key] = False
 
-                    broadcasted = np.broadcast_to(value, fshape)
+                    broadcasted = np.array(np.broadcast_to(value, fshape))
                     self.state[key] = objarr(broadcasted)
                     self.has_state[key] = True  # [rho is not None for rho in broadcasted] Cannot be None
 
@@ -147,6 +147,24 @@ class BathState:
                 self.state[key] = value
                 self.has_state[key] = [rho is not None for rho in value]
                 self.pure[key] = [(len(rho.shape) == 1) if rho is not None else False for rho in value]
+
+    def gen_pure(self, rho, dim):
+        rho = np.asarray(rho)
+
+        if not rho.shape:
+            # assume s is int or float showing the spin projection in the pure state
+            d = dim
+            if not self.shape:
+                rho = vector_from_s(rho, d)
+            else:
+                if (d == d[0]).all():
+                    d = d[0]
+                    rho = np.broadcast_to(vector_from_s(rho, d), self.shape + (d,))
+                else:
+                    rho = [vector_from_s(rho, d_i) for d_i in d]
+        else:
+            rho = gen_state_list(rho, np.broadcast_to(dim, self.shape))
+        self[...] = rho
 
     @property
     def state(self):
@@ -178,6 +196,7 @@ class BathState:
 
     @property
     def proj(self):
+
         if not self._up_to_date:
             self._project()
 
@@ -230,10 +249,11 @@ class BathState:
     def __str__(self):
         return self.state.__str__()
 
+
 def objarr(array):
     nar = len(array)
     obj = np.empty(nar, dtype=object)
 
     for i in range(nar):
-        obj[i] = array[i]
+        obj[i] = np.ascontiguousarray(array[i])
     return obj

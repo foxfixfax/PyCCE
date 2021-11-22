@@ -8,7 +8,7 @@ from numpy.lib.recfunctions import repack_fields
 from pycce.bath.map import InteractionMap
 from pycce.bath.state import BathState
 from pycce.constants import HBAR, ELECTRON_GYRO, HBAR_SI, NUCLEAR_MAGNETON, PI2
-from pycce.utilities import gen_state_list, vector_from_s
+from pycce.utilities import gen_state_list, vector_from_s, rotate_coordinates, rotate_tensor
 
 HANDLED_FUNCTIONS = {}
 
@@ -249,7 +249,7 @@ class BathArray(np.ndarray):
             return func._implementation(*args, **kwargs)
         # Note: this allows subclasses that don't override
         # __array_function__ to handle MyArray objects
-        if not all(issubclass(t, BathArray) for t in types):
+        if not any(issubclass(t, BathArray) for t in types):
             return NotImplemented
 
         return HANDLED_FUNCTIONS[func](*args, **kwargs)
@@ -720,7 +720,7 @@ class BathArray(np.ndarray):
 
         return array
 
-    def from_cube(self, cube, gyro_center=ELECTRON_GYRO, inplace=True):
+    def from_cube(self, cube, gyro_center=ELECTRON_GYRO, inplace=True, **kwargs):
         """
         Generate hyperfine couplings, assuming that bath spins interaction with central spin can be approximated as
         a point dipole, interacting with given spin density distribution.
@@ -742,7 +742,7 @@ class BathArray(np.ndarray):
             array = self.copy()
 
         gyros = array.types[array].gyro
-        array['A'] = cube.integrate(array.xyz, gyros, gyro_center)
+        array.A = cube.integrate(array.xyz, gyros, gyro_center, **kwargs)
         return array
 
     def from_func(self, func, *args, inplace=True, **kwargs):
@@ -848,7 +848,7 @@ class BathArray(np.ndarray):
             **kwargs: Additional keywords of the ``numpy.savetxt`` function.
         """
         kwargs.setdefault('comments', '')
-        ar = repack_fields(self[['N', 'xyz']]).view(np.ndarray).view(
+        ar = repack_fields(self.view(np.ndarray)[['N', 'xyz']]).view(
             np.dtype([('N', 'U16'), ('x', 'f8'), ('y', 'f8'), ('z', 'f8')]))
 
         if strip_isotopes:
@@ -906,12 +906,24 @@ def sort(a, axis=-1, kind=None, order=None):
 
 
 @implements(np.argsort)
-def sort(a, *args, **kwargs):
+def argsort(a, *args, **kwargs):
     """
     Return a indexes of an sorted array. Overrides ``numpy.argsort`` function.
     """
     return np.argsort(a, *args, **kwargs).view(np.ndarray)
 
+
+@implements(np.delete)
+def delete(arr, obj, axis=None):
+    newarr = np.delete(arr.view(np.ndarray), obj, axis=axis).view(BathArray)
+    newarr._state = BathState(newarr.size)
+    newarr.types = arr.types
+
+    if arr.imap:
+        newarr.imap = arr.imap.subspace(obj)
+
+    newarr.state = np.delete(arr.state[...], obj, axis=axis)
+    return newarr
 
 @implements(np.concatenate)
 def concatenate(arrays, axis=0, out=None):
@@ -934,14 +946,19 @@ def concatenate(arrays, axis=0, out=None):
     imap = InteractionMap()
 
     offset = 0
+    state = BathState(new_array.size)
+
     for x in arrays:
         types += x.types
+
         if x.imap:
             imap += x.imap.shift(offset, inplace=False)
 
+        state[offset:offset+x.size] = x.state
         offset += x.size
 
     new_array.types = types
+    new_array._state = state
 
     if imap:
         new_array.imap = imap
@@ -1114,13 +1131,18 @@ def update_bath(total_bath, added_bath, error_range=0.2, ignore_isotopes=True, i
         total_bath = total_bath.copy()
 
     indexes, ext_indexes = same_bath_indexes(total_bath, added_bath, error_range, ignore_isotopes)
-    if total_bath.nc != added_bath.nc:
+    neq = total_bath.nc != added_bath.nc
+    if neq and added_bath.nc != 1:
+
         raise ValueError('Arrays correspond to different number of central spins.')
 
     for n in added_bath.dtype.names:
         if ignore_isotopes and n == 'N':
             continue
-        total_bath[n][indexes] = added_bath[n][ext_indexes]
+        if n == 'A' and neq:
+            total_bath[n][indexes, 0] = added_bath[n][ext_indexes]
+        else:
+            total_bath[n][indexes] = added_bath[n][ext_indexes]
 
     return total_bath
 
@@ -1160,47 +1182,30 @@ def transform(atoms, center=None, cell=None, rotation_matrix=None, style='col', 
     """
 
     styles = ['col', 'row']
-    if style not in styles:
+    if style.lower() not in styles:
         raise ValueError('Unsupported style of matrices. Available styles are: ' + ', '.join(*styles))
 
     if not inplace:
         atoms = atoms.copy()
 
-    if len(atoms.shape) == 0:
-        atoms = atoms[np.newaxis]
-
     if center is None:
         center = np.zeros(3)
 
-    if cell is None:
-        cell = np.eye(3)
-
-    if rotation_matrix is None:
-        rotation_matrix = np.eye(3)
-
-    if style.lower() == 'row':
-        cell = cell.T
-        rotation_matrix = rotation_matrix.T
-
     if not atoms.dtype.names:
         atoms -= np.asarray(center)
-        atoms = np.einsum('jk,ik->ij', cell, atoms)
-        atoms = np.einsum('jk,ik->ij', np.linalg.inv(rotation_matrix), atoms)
+        atoms = rotate_coordinates(atoms, rotation=rotation_matrix, cell=cell, style=style)
 
         return atoms
 
     atoms['xyz'] -= np.asarray(center)
 
-    atoms['xyz'] = np.einsum('jk,ik->ij', cell, atoms['xyz'])
-    atoms['xyz'] = np.einsum('jk,ik->ij', np.linalg.inv(rotation_matrix), atoms['xyz'])
+    atoms['xyz'] = rotate_coordinates(atoms['xyz'], rotation=rotation_matrix, cell=cell, style=style)
 
     if 'A' in atoms.dtype.names:
-        atoms['A'] = np.matmul(atoms['A'], rotation_matrix)
-        atoms['A'] = np.matmul(np.linalg.inv(rotation_matrix), atoms['A'])
+        atoms['A'] = rotate_tensor(atoms['A'], rotation=rotation_matrix, style=style)
 
     if 'Q' in atoms.dtype.names:
-        atoms['Q'] = np.matmul(atoms['Q'], rotation_matrix)
-        atoms['Q'] = np.matmul(np.linalg.inv(rotation_matrix), atoms['Q'])
+        atoms['Q'] = rotate_tensor(atoms['Q'], rotation=rotation_matrix, style=style)
 
     return atoms
 
@@ -1236,6 +1241,26 @@ def _inner_set_attr(types, key, attr, value):
         setattr(types[key], attr, value)
     return
 
+
+def broadcast_array(array, root=0):
+
+    import mpi4py
+    comm = mpi4py.MPI.COMM_WORLD
+    rank = comm.Get_rank()
+
+    if rank == root:
+        parameters = vars(array)
+    else:
+        array = None
+        parameters = None
+
+    nbath = comm.bcast(array, root)
+    nparam = comm.bcast(parameters, root)
+
+    for k in nparam:
+        setattr(nbath, k, nparam[k])
+
+    return nbath
 
 class SpinType:
     r"""

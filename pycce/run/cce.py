@@ -134,7 +134,6 @@ def propagators(timespace, H0, H1, pulses, as_delay=False):
     for p in pulses:
         timesteps = p.delay
         rotation = p.rotation
-
         eigen_exp0 = np.exp(-1j * np.outer(timesteps,
                                            evalues[0]), dtype=np.complex128)
         eigen_exp1 = np.exp(-1j * np.outer(timesteps,

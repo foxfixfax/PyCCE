@@ -1,11 +1,11 @@
-from collections.abc import Sequence
-
+import collections.abc
 import numpy as np
 from pycce.bath.array import check_gyro, point_dipole, BathArray
 from pycce.bath.map import InteractionMap
 from pycce.constants import ELECTRON_GYRO
 from pycce.h.total import central_hamiltonian
-from pycce.utilities import zfs_tensor, generate_projections, expand
+from pycce.utilities import zfs_tensor, generate_projections, expand, rotate_coordinates, rotate_tensor, outer, \
+    normalize
 
 
 def attr_arr_setter(self, attr, value, dtype=np.float64):
@@ -33,11 +33,10 @@ class Center:
                  spin=0, D=0, E=0,
                  gyro=ELECTRON_GYRO, alpha=None, beta=None, detuning=0):
         if position is None:
-            position = [0, 0, 0]
+            position = np.array([0, 0, 0])
 
         self._zfs = None
         self._gyro = None
-
 
         self._xyz = None
         self._s = None
@@ -212,14 +211,14 @@ class Center:
         r"""
         Set Pauli matrices of the central spin.
         """
-        assert np.isclose(np.inner(self.alpha, self.beta.conj()), 0), \
+        assert np.isclose(np.inner(self.alpha.conj(), self.beta), 0), \
             f"Pauli matrix can be generated only for orthogonal states, " \
             f"{self.alpha} and {self.beta} are not orthogonal"
 
-        alpha_x_alpha = np.outer(self.alpha, self.alpha)
-        beta_x_beta = np.outer(self.beta, self.beta)
-        alpha_x_beta = np.outer(self.alpha, self.beta)
-        beta_x_alpha = np.outer(self.beta, self.alpha)
+        alpha_x_alpha = outer(self.alpha, self.alpha)
+        beta_x_beta = outer(self.beta, self.beta)
+        alpha_x_beta = outer(self.alpha, self.beta)
+        beta_x_alpha = outer(self.beta, self.alpha)
 
         self._sigma = {'x': alpha_x_beta + beta_x_alpha,
                        'y': -1j * alpha_x_beta + 1j * beta_x_alpha,
@@ -238,7 +237,8 @@ class Center:
                 setattr(self, name + '_index', int(state))
             else:
                 assert state.size == np.prod(self.dim), f"Incorrect format of {name}: {state}"
-                setattr(self, '_' + name, state.astype(np.complex128))
+                setattr(self, '_' + name, normalize(state))
+
                 # remove index if manually set alpha state
                 setattr(self, name + '_index', None)
         else:
@@ -254,6 +254,8 @@ class Center:
         if state is not None:
             return state
 
+        return None
+
     def generate_states(self, magnetic_field=None, bath=None, projected_bath_state=None):
         """
         Compute eigenstates of the central spin Hamiltonian.
@@ -267,12 +269,12 @@ class Center:
         """
 
         self.generate_hamiltonian(magnetic_field=magnetic_field, bath=bath, projected_bath_state=projected_bath_state)
-        self.energies, self.eigenvectors = np.linalg.eigh(self.hamiltonian)
+        self.energies, self.eigenvectors = np.linalg.eigh(self.hamiltonian, UPLO='U')
 
         if self.alpha_index is not None:
-            self._alpha = self.eigenvectors[:, self.alpha_index]
+            self._alpha = np.ascontiguousarray(self.eigenvectors[:, self.alpha_index])
         if self.beta_index is not None:
-            self._beta = self.eigenvectors[:, self.beta_index]
+            self._beta = np.ascontiguousarray(self.eigenvectors[:, self.beta_index])
 
     def __repr__(self):
         message = f"{self.__class__.__name__}" + ("(s: " + self.s.__str__() +
@@ -288,6 +290,8 @@ class Center:
         if magnetic_field is None:
             magnetic_field = np.array([0., 0., 0.], dtype=np.float64)
 
+        magnetic_field = np.asarray(magnetic_field)
+
         if isinstance(bath, BathArray):
             bath = bath.A
             projected_bath_state = bath.proj
@@ -296,8 +300,14 @@ class Center:
                                                bath_state=projected_bath_state)
         return self.hamiltonian
 
+    def transform(self, rotation=None, style='col'):
+        self.xyz = rotate_coordinates(self.xyz, rotation=rotation, style=style)
+        self.zfs = rotate_tensor(self.zfs, rotation=rotation, style=style)
+        self._gyro = rotate_tensor(self._gyro, rotation=rotation, style=style)
+        return
 
-class CenterArray(Center, Sequence):
+
+class CenterArray(Center, collections.abc.Sequence):
     def __init__(self, size=None, position=None,
                  spin=None, D=0, E=0,
                  gyro=ELECTRON_GYRO, imap=None,
@@ -320,19 +330,23 @@ class CenterArray(Center, Sequence):
         self.size = size
 
         if position is None:
-            position = [[0, 0, 0]] * self.size
+            position = np.asarray([[0, 0, 0]] * self.size)
         if spin is None:
             spin = 0
+
+        position = np.asarray(position)
 
         spin = np.asarray(spin).reshape(-1)
         if spin.size != self.size:
             spin = np.array(np.broadcast_to(spin, self.size))
-
+        if position.ndim == 1:
+            position = np.array(np.broadcast_to(position, (self.size, position.size)))
         detuning = np.asarray(detuning).reshape(-1)
         if detuning.size != self.size:
             detuning = np.array(np.broadcast_to(detuning, self.size))
 
         self._state = None
+        self.state_index = None
 
         super().__init__(position=position, spin=spin, D=D, E=E, gyro=gyro, alpha=alpha, beta=beta, detuning=detuning)
 
@@ -367,21 +381,16 @@ class CenterArray(Center, Sequence):
         r"""
         ndarray: Innitial state of the qubit in gCCE simulations.
             Assumed to be :math:`1/\sqrt{2}(\ket{0} + \ket{1}` unless provided."""
-
-        if self._state is not None:
-            return self._state
+        state = super(CenterArray, self)._get_state('state')
+        if state is not None:
+            return state
         else:
             self._check_states()
-            a = self.alpha
-            b = self.beta
-            return (a + b) / np.linalg.norm(a + b)
+            return normalize(self.alpha + self.beta)
 
     @state.setter
     def state(self, state):
-        if state is not None:
-            state = np.asarray(state, dtype=np.complex128)
-            assert state.size == np.prod(self.dim), 'Wrong state format.'
-        self._state = state
+        self._set_state('state', state)
 
     @property
     def gyro(self):
@@ -512,6 +521,8 @@ class CenterArray(Center, Sequence):
 
         super(CenterArray, self).generate_states(magnetic_field=magnetic_field,
                                                  bath=bath, projected_bath_state=projected_bath_state)
+        if self.state_index is not None:
+            self._state = np.ascontiguousarray(self.eigenvectors[:, self.state_index])
 
     def generate_projections(self, second_order=False, level_confidence=0.95):
         self._check_states()
@@ -600,12 +611,14 @@ def _close_state_index(state, eiv, level_confidence=0.95):
     Returns:
         int: Index of the eigenstate.
     """
-    indexes = np.argwhere((eiv.T @ state) ** 2 > level_confidence).flatten()
+    ev_state = eiv.conj().T @ state
+
+    indexes = np.argwhere(ev_state * ev_state.conj() > level_confidence).flatten()
 
     if not indexes.size:
         raise ValueError(f"Initial qubit state is below F = {level_confidence} "
                          f"to the eigenstate of central spin Hamiltonian.\n"
-                         f"Qubit level:\n{repr(state)}"
+                         f"Qubit level:\n{repr(state)}\n"
                          f"Eigenstates (rows):\n{repr(eiv.T)}")
     return indexes[0]
 

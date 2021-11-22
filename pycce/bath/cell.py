@@ -1,10 +1,11 @@
-import sys
-from string import digits
 import re
+import sys
 import warnings
+from collections import defaultdict
+from string import digits
+
 import numpy as np
 from pycce.utilities import rotmatrix
-from collections import defaultdict
 
 from .array import BathArray
 from .array import common_concentrations
@@ -377,7 +378,6 @@ class BathCell:
         dt = np.dtype([('N', np.unicode_, 16), ('xyz', np.float64, (3,))])
         atoms = []
 
-
         for a in isotopes:
             # Number of sites for given type of atom
             nsites = len(self.atoms[a])
@@ -637,6 +637,20 @@ def random_bath(names, size, number=1000, density=None, types=None,
 
     spins.xyz = generator.random(spins.xyz.shape) * size - center
     return spins
+
+
+def read_ase(atoms_object):
+    """
+    Generate ``BathCell`` instance from ``ase.Atoms`` object of Atomic Simulations Environment (ASE) package.
+
+    Args:
+        atoms_object (Atoms): Atoms object, used to generate new ``BathCell`` instance.
+
+    Returns:
+        BathCell: New instance of the ``BathCell`` with atoms read from ``ase.Atoms``.
+    """
+
+    return BathCell.from_ase(atoms_object)
 
 
 def defect(cell, atoms, add=None, remove=None):

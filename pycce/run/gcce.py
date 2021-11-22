@@ -1,9 +1,8 @@
 import numpy as np
-from pycce.bath.array import BathArray
 from pycce.constants import PI2
-from pycce.h import total_hamiltonian, expand
+from pycce.h import total_hamiltonian
 from pycce.run.base import RunObject
-from pycce.utilities import shorten_dimensions, generate_initial_state
+from pycce.utilities import shorten_dimensions, generate_initial_state, outer
 
 
 def propagator(timespace, hamiltonian,
@@ -31,7 +30,7 @@ def propagator(timespace, hamiltonian,
 
     if not pulses:
 
-        eigexp = np.exp(-1j * np.tensordot(timespace, evalues, axes=0),
+        eigexp = np.exp(-1j * np.outer(timespace, evalues),
                         dtype=np.complex128)
 
         u = np.matmul(np.einsum('ij,kj->kij', evec, eigexp, dtype=np.complex128),
@@ -46,7 +45,7 @@ def propagator(timespace, hamiltonian,
                 n = len(pulses)
                 timespace = timespace / (2 * n)
 
-            eigexp = np.exp(-1j * np.tensordot(timespace, evalues, axes=0),
+            eigexp = np.exp(-1j * np.outer(timespace, evalues),
                             dtype=np.complex128)
 
             u = np.matmul(np.einsum('ij,kj->kij', evec, eigexp, dtype=np.complex128),
@@ -67,7 +66,7 @@ def propagator(timespace, hamiltonian,
 
         for timesteps, rotation in zip(pulses.delays, pulses.rotations):
 
-            eigexp = np.exp(-1j * np.tensordot(timesteps, evalues, axes=0),
+            eigexp = np.exp(-1j * np.outer(timesteps, evalues),
                             dtype=np.complex128)
 
             u = np.matmul(np.einsum('...ij,...j->...ij', evec, eigexp, dtype=np.complex128),
@@ -88,7 +87,7 @@ def propagator(timespace, hamiltonian,
         which = np.isclose(timespace, times)
 
         if ((timespace - times)[~which] >= 0).all():
-            eigexp = np.exp(-1j * np.tensordot(timespace - times, evalues, axes=0),
+            eigexp = np.exp(-1j * np.outer(timespace - times, evalues),
                             dtype=np.complex128)
 
             u = np.matmul(np.einsum('ij,kj->kij', evec, eigexp, dtype=np.complex128),
@@ -159,7 +158,7 @@ def full_dm(dm0, H, timespace, pulse_sequence=None, as_delay=False):
         ndarray: Array of density matrices of the cluster, evaluated at the time points from timespace.
     """
     U = propagator(timespace, H.data, pulse_sequence, as_delay=as_delay)
-    if len(dm0.shape) > 1:
+    if dm0.ndim > 1:
         dmUdagger = np.matmul(dm0, U.conj().transpose(0, 2, 1))
         dm = np.matmul(U, dmUdagger)
     else:
@@ -171,113 +170,12 @@ def full_dm(dm0, H, timespace, pulse_sequence=None, as_delay=False):
     return dm
 
 
-def generate_dm0(dm0, dimensions, states=None):
-    """
-    A function to generate initial density matrix or statevector of the cluster.
-    Args:
-        dm0 (ndarray):
-            Initial density matrix of the central spin array.
-        dimensions (ndarray):
-            ndarray of bath spin dimensions. Last entry - central spin dimensions combined.
-        states (ndarray):
-            ndarray of bath states in any accepted format.
-
-    Returns:
-        ndarray:
-            Initial density matrix of the cluster
-            **OR** statevector if dm0 is vector and ``states`` are provided as list of pure states.
-    """
-
-    if states is None:
-        dmtotal0 = expand(dm0, len(dimensions) - 1, dimensions) / np.prod(dimensions[:-1])
-    elif len(dm0.shape) == 1:
-        dmtotal0 = generate_pure_state(states, dimensions, dm0)
-
+def _get_state(state, center):
+    state = np.asarray(state)
+    if state.size == 1:
+        return center.eigenvectors[:, int(state)]
     else:
-        dmtotal0 = gen_density_matrix(states, dimensions[:-1])
-        dmtotal0 = np.kron(dmtotal0, dm0)
-
-    return dmtotal0
-
-
-
-
-def generate_pure_state(states, dimensions):
-    """
-    A function to generate initial state vector of the cluster with central spin.
-
-    Args:
-        state0 (ndarray):
-            Initial state of the central spin.
-        dimensions (ndarray):
-            ndarray of bath spin dimensions. Last entry - electron spin dimensions.
-        states (ndarray):
-            ndarray of bath states in any accepted format.
-
-    Returns:
-        ndarray: Initial state vector of the cluster.
-    """
-
-    cluster_state = 1
-
-    for i, s in enumerate(states):
-        d = dimensions[i]
-        n = int(round((d - 1) / 2 - s))
-
-        state = np.zeros(d)
-        state[n] = 1
-        cluster_state = np.kron(cluster_state, state)
-
-    return cluster_state
-
-
-def gen_density_matrix(states=None, dimensions=None):
-    r"""
-    Generate density matrix from the ndarray of states.
-
-    Args:
-        states (ndarray):
-            Array of bath spin states. If None, assume completely random state.
-            Can have the following forms:
-
-                - array of the :math:`\hat{I}_z` projections for each spin.
-                  Assumes that each bath spin is in the pure eigenstate of :math:`\hat{I}_z`.
-
-                - array of the diagonal elements of the density matrix for each spin.
-                  Assumes mixed state and the density matrix for each bath spin
-                  is diagonal in :math:`\hat{I}_z` basis.
-
-                - array of the density matrices of the bath spins.
-
-        dimensions (ndarray):
-            array of bath spin dimensions. Last entry - electron spin dimensions.
-
-    Returns:
-        ndarray: Density matrix of the system.
-    """
-    if states is None:
-        tdim = np.prod(dimensions)
-        dmtotal0 = np.eye(tdim) / tdim
-
-        return dmtotal0
-
-    dmtotal0 = np.eye(1, dtype=np.complex128)
-
-    for i, s in enumerate(states):
-
-        if not hasattr(s, "__len__"):
-            # assume s is int or float showing the spin projection in the pure state
-            d = dimensions[i]
-            dm_nucleus = np.zeros((d, d), dtype=np.complex128)
-            state_number = int(round((d - 1) / 2 - s))
-            dm_nucleus[state_number, state_number] = 1
-
-        else:
-            dm_nucleus = s
-
-        dmtotal0 = np.kron(dmtotal0, dm_nucleus)
-
-    return dmtotal0
+        return state.astype(np.complex128)
 
 
 class gCCE(RunObject):
@@ -303,7 +201,7 @@ class gCCE(RunObject):
 
     """
 
-    def __init__(self, *args, as_delay=False, pulses=None, fulldm=False, **kwargs):
+    def __init__(self, *args, i=None, j=None, as_delay=False, pulses=None, fulldm=False, normalized=True, **kwargs):
         self.pulses = pulses
         """ Sequence: Sequence object, containing series of pulses, applied to the system."""
         self.as_delay = as_delay
@@ -315,8 +213,11 @@ class gCCE(RunObject):
         """ float: Coherence at time 0."""
         self.zero_cluster = None
         """ ndarray with shape (n,): Coherence computed for the isolated central spin."""
+        self.i = i
+        self.j = j
         self.alpha = None
         self.beta = None
+        self.normalized = normalized
         self.fulldm = fulldm
         """ bool: True if return full density matrix."""
 
@@ -334,24 +235,37 @@ class gCCE(RunObject):
 
         if check:
             self.dm0 = self.center.state
-            self.normalization = np.outer(self.center.state, self.center.state.conj())
+            self.normalization = outer(self.center.state, self.center.state)
         else:
-            self.dm0 = np.outer(self.center.state, self.center.state.conj())
+            self.dm0 = outer(self.center.state, self.center.state)
             self.normalization = self.dm0
 
-        self.alpha = self.center.alpha
-        self.beta = self.center.beta
+        if self.i is None:
+            alpha = self.center.alpha
+        else:
+            alpha = _get_state(self.i, self.center)
+
+        if self.j is None:
+            beta = self.center.beta
+        else:
+            beta = _get_state(self.j, self.center)
 
         if self.pulses is not None:
             self.center.generate_sigma()
             self.pulses.generate_pulses(dimensions=self.center.hamiltonian.dimensions,
-                                        bath=BathArray((0,)), vectors=self.center.hamiltonian.vectors,
+                                        bath=None, vectors=self.center.hamiltonian.vectors,
                                         central_spin=self.center)
             for p in self.pulses:
                 if p.rotation is not None:
-                    self.alpha = p.rotation @ self.alpha
-                    self.beta = p.rotation @ self.beta
-                    self.normalization = p.rotation @ self.normalization @ p.rotation.conj()
+                    if self.i is None:
+                        alpha = p.rotation @ alpha
+                    if self.j is None:
+                        beta = p.rotation @ beta
+
+                    self.normalization = p.rotation @ self.normalization @ p.rotation.T.conj()
+
+        self.alpha = alpha
+        self.beta = beta
 
         res = full_dm(self.dm0, self.center.hamiltonian, self.timespace,
                       pulse_sequence=self.pulses, as_delay=self.as_delay)
@@ -359,13 +273,19 @@ class gCCE(RunObject):
         if not self.fulldm:
             res = self.alpha.conj() @ res @ self.beta
             self.normalization = (self.alpha.conj() @ self.normalization @ self.beta)
+        # else:
+        #     res = self.center.eigenvectors.conj().T @ res @ self.center.eigenvectors
 
         self.zero_cluster = res
 
     def postprocess(self):
         self.result = self.zero_cluster * self.result
-        if not self.fulldm:
+
+        if self.normalized:
             self.result = self.result / self.normalization
+
+        # else:
+        #     self.result = self.center.eigenvectors @ self.result @ self.center.eigenvectors.conj().T
 
     def generate_hamiltonian(self):
         """
@@ -396,9 +316,11 @@ class gCCE(RunObject):
         """
         result = compute_dm(self.dm0, self.cluster_hamiltonian, self.timespace, self.pulses,
                             as_delay=self.as_delay, states=self.states, ncenters=self.center.size)
-        if self.fulldm:
-            result = result / self.zero_cluster
-        else:
-            result = (self.alpha.conj() @ result @ self.beta) / self.zero_cluster
 
-        return result
+        if not self.fulldm:
+            result = (self.alpha.conj() @ result @ self.beta)
+
+        # else self.fulldm:
+        #     result = self.center.eigenvectors.conj().T @ result @ self.center.eigenvectors
+
+        return result / self.zero_cluster

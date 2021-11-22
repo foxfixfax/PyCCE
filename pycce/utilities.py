@@ -363,7 +363,6 @@ def vector_from_s(s, d):
 
 @jit(nopython=True)
 def from_central_state(dimensions, central_state):
-
     return expand(central_state, len(dimensions) - 1, dimensions) / dimensions[:-1].prod()
 
 
@@ -376,8 +375,8 @@ def from_none(dimensions):
 @jit(nopython=True)
 def from_states(states):
     cluster_state = states[0]
-    for i in range(1, len(states)):
-        cluster_state = np.kron(cluster_state, states[i])
+    for s in states[1:]:
+        cluster_state = np.kron(cluster_state, s)
 
     return cluster_state
 
@@ -395,11 +394,11 @@ def combine_cluster_central(cluster_state, central_state):
 @jit(nopython=True)
 def noneq_cc(cluster_state, central_state):
     if len(cluster_state.shape) == 1:
-        matrix = np.outer(cluster_state, cluster_state)
+        matrix = outer(cluster_state, cluster_state)
         return np.kron(matrix, central_state)
 
     else:
-        matrix = np.outer(central_state, central_state)
+        matrix = outer(central_state, central_state)
         return np.kron(cluster_state, matrix)
 
 
@@ -410,12 +409,12 @@ def eq_cc(cluster_state, central_state):
 
 @jit(nopython=True)
 def rand_state(d):
-    np.eye(d, dtype=np.complex128) / d
+    return np.eye(d, dtype=np.complex128) / d
 
 
 @jit(nopython=True)
 def outer(s1, s2):
-    return np.outer(s1, s2)
+    return np.outer(s1, s2.conj())
 
 
 def generate_initial_state(dimensions, states=None, central_state=None):
@@ -443,10 +442,11 @@ def generate_initial_state(dimensions, states=None, central_state=None):
 
     if not (all_pure or all_mixed):
         for i in range(states.size):
+
             if len(states[i].shape) < 2:
                 states[i] = outer(states[i], states[i])
 
-    cluster_state = from_states(tuple(states))
+    cluster_state = from_states(list(states))
 
     if central_state is not None:
         cluster_state = combine_cluster_central(cluster_state, central_state)
@@ -462,6 +462,7 @@ def tensor_vdot(tensor, ivec):
             result[i] += a_ij * ivec[j]
     return result
 
+
 @jit(nopython=True)
 def vvdot(vec_1, vec_2):
     result = np.zeros(vec_1.shape[1:], vec_1.dtype)
@@ -470,133 +471,45 @@ def vvdot(vec_1, vec_2):
     return result
 
 
+def rotate_tensor(tensor, rotation=None, style='col'):
+    if rotation is None:
+        return tensor
+    if style.lower == 'row':
+        rotation = rotation.T
+    if np.isclose(np.linalg.inv(rotation), rotation.T, rtol=1e-04).all():
+        invrot = rotation.T
+    else:
+        warnings.warn(f"Rotation {rotation} changes distances. Is that desired behavior?", stacklevel=2)
+        invrot = np.linalg.inv(rotation)
+    tensor_rotation = np.matmul(tensor, rotation)
+    res = np.matmul(invrot, tensor_rotation)
+    #  Suppress very small deviations
+    res[np.isclose(res, 0)] = 0
+    return (res + np.swapaxes(res, -1, -2)) / 2
 
-# oldfuncs
 
-
-def generate_initial_state_old(dimensions, states=None, state0=None):
-    if states is None:
-        if state0 is not None:
-            return expand(state0, len(dimensions) - 1, dimensions) / dimensions[:-1].prod()
+def rotate_coordinates(xyz, rotation=None, cell=None, style='col'):
+    if style.lower() == 'row':
+        if rotation is not None:
+            rotation = rotation.T
+        if cell is not None:
+            cell = cell.T
+    if cell is not None:
+        xyz = np.einsum('jk,...k->...j', cell, xyz)
+    if rotation is not None:
+        if np.isclose(np.linalg.inv(rotation), rotation.T).all():
+            invrot = rotation.T
         else:
-            tdim = np.prod(dimensions)
-            dmtotal0 = np.eye(tdim) / tdim
+            warnings.warn(f"Rotation {rotation} changes distances. Is that desired behavior?", stacklevel=2)
+            invrot = np.linalg.inv(rotation)
 
-            return dmtotal0
+        xyz = np.einsum('jk,...k->...j', invrot, xyz)
+    #  Suppress very small deviations
+    xyz[np.isclose(xyz, 0)] = 0
 
-    cluster_state = None
-    check = False
-    for i, s in enumerate(states):
-
-        if s is None:
-            s = np.eye(dimensions[i], dtype=np.complex128) / dimensions[i]
-
-            if check:
-                cluster_state = np.kron(cluster_state, s)
-            else:
-                cluster_state = s
-                check = True
-
-        else:
-            # If we already started iterating
-            if check:
-
-                lcs = len(cluster_state.shape)
-                ls = len(s.shape)
-
-                if lcs != ls:
-
-                    if len(cluster_state.shape) == 1:
-                        cluster_state = np.outer(cluster_state, cluster_state)
-
-                    else:
-                        s = np.outer(s, s)
-                cluster_state = np.kron(cluster_state, s)
-            else:
-                cluster_state = s
-                check = True
-
-    if state0 is not None:
-
-        lcs = len(cluster_state.shape)
-        ls = len(state0.shape)
-
-        if lcs != ls:
-
-            if len(cluster_state.shape) == 1:
-                cluster_state = np.outer(cluster_state, cluster_state)
-
-            else:
-                state0 = np.outer(state0, state0)
-
-        cluster_state = np.kron(cluster_state, state0)
-
-    return cluster_state
+    return xyz
 
 
-def dimensions_spinvectors_old(bath=None, central_spin=None):
-    """
-    Generate two arrays, containing dimensions of the spins in the cluster and the vectors with spin matrices.
-
-    Args:
-        bath (BathArray with shape (n,)): Array of the n spins within cluster.
-        central_spin (CenterArray, optional): If provided, include dimensions of the central spins.
-
-    Returns:
-        tuple: *tuple* containing:
-
-            * **ndarray with shape (n,)**: Array with dimensions for each spin.
-
-            * **list**: List with vectors of spin matrices for each spin in the cluster
-              (Including central spin if ``central_spin`` is not None). Each with  shape (3, N, N) where
-              ``N = prod(dimensions)``.
-    """
-    spins = []
-    dimensions = []
-
-    if bath is not None:
-        types = bath.types
-
-        spins += [types[n].s for n in bath.N]
-        dimensions += [_smc[s].dim for s in spins]
-
-    if central_spin is not None:
-        try:
-            for c in central_spin:
-                dimensions += [c.dim]
-                spins += [c.s]
-
-        except TypeError:
-            dimensions += [central_spin.dim]
-            spins += [central_spin.s]
-
-    dimensions = np.array(dimensions, dtype=np.int32)
-
-    vectors = []
-
-    for j, s in enumerate(spins):
-        vectors.append(spinvec(s, j, dimensions))
-
-    vectors = np.array(vectors)
-
-    return dimensions, vectors
-
-
-def spinvec_old(s, j, dimensions):
-    """
-    Generate spin vector for the particle, containing 3 spin matrices in the total basis of the system.
-
-    Args:
-        s (float): Spin of the particle.
-        j (j): Particle index in ``dimensions`` array.
-        dimensions (ndarray): Array with dimensions of all spins in the cluster.
-
-    Returns:
-        ndarray with shape (3, prod(dimensions), prod(dimensions)):
-            Vector of spin matrices for the given spin in the cluster.
-    """
-    vec = np.array([expand(_smc[s].x, j, dimensions),
-                    expand(_smc[s].y, j, dimensions),
-                    expand(_smc[s].z, j, dimensions)],
-                   dtype=np.complex128)
-    return vec
+def normalize(vec):
+    vec = np.asarray(vec, dtype=np.complex128)
+    return vec / np.linalg.norm(vec)

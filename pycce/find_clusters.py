@@ -361,7 +361,8 @@ def expand_clusters(sc):
     return newsc
 
 
-def find_valid_subclusters(graph, maximum_order, nclusters=None, bath=None, strong=False):
+def find_valid_subclusters(graph, maximum_order, nclusters=None, bath=None, strong=False,
+                           ):
     """
     Find subclusters from connectivity matrix.
 
@@ -380,7 +381,11 @@ def find_valid_subclusters(graph, maximum_order, nclusters=None, bath=None, stro
             Here matrix is the number of clusters of given size, N is the size of the cluster.
             Each row contains indexes of the bath spins included in the given cluster.
     """
+
     clusters = {1: np.arange(graph.shape[0])[:, np.newaxis]}
+
+    if nclusters is not None and isinstance(nclusters, int):
+        nclusters = {k: nclusters for k in range(1, maximum_order + 1)}
 
     if maximum_order > 1:
         strength = {}
@@ -403,6 +408,8 @@ def find_valid_subclusters(graph, maximum_order, nclusters=None, bath=None, stro
                 strength[2] = strength[2][:nclusters[2]]
 
         clusters[2] = bonds
+
+        del coomat, row_ind, col_ind
 
         for order in range(3, maximum_order + 1):
 

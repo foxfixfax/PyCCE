@@ -2,6 +2,7 @@ import warnings
 
 import numpy as np
 from numba import jit
+
 from .array import BathArray, check_gyro
 from ..constants import BOHR_TO_ANGSTROM, HBAR, ELECTRON_GYRO, PI2
 
@@ -153,7 +154,7 @@ class Cube:
             self.atoms.transform(rotation_matrix=rotmatrix)
         return
 
-    def integrate(self, position, gyro_n, gyro_e=ELECTRON_GYRO, spin=None):
+    def integrate(self, position, gyro_n, gyro_e=ELECTRON_GYRO, spin=None, parallel=False, root=0):
         """
         Integrate over polarization data, stored in Cube object,
         to obtain hyperfine dipolar-dipolar tensor.
@@ -168,34 +169,92 @@ class Cube:
         Returns:
             ndarray with shape (3, 3) or (n, 3, 3): Hyperfine tensor or array of hyperfine tensors.
         """
+        if parallel:
+            try:
+                import mpi4py
+            except ImportError:
+                warnings.warn('Could not find mpi4py. Using the serial implementation instead')
+                parallel = False
+
+        if parallel:
+            comm = mpi4py.MPI.COMM_WORLD
+
+            size = comm.Get_size()
+            rank = comm.Get_rank()
+
+        else:
+            rank = root
+
         if spin is None:
             spin = self.spin
 
         if np.around(spin * 2) != np.around(self.integral):
             warnings.warn(f'provided spin: {spin:.2f} is not equal to one from spin density: {self.integral / 2:.2f}')
 
-        gyro_e, _ = check_gyro(gyro_e)
-        gyro_n, _ = check_gyro(gyro_n)
+        if rank == root:
+            gyro_e, _ = check_gyro(gyro_e)
+            gyro_n, _ = check_gyro(gyro_n)
 
-        gyro_e = np.asarray(gyro_e)
-        gyro_n = np.asarray(gyro_n)
+            gyro_e = np.asarray(gyro_e)
+            gyro_n = np.asarray(gyro_n)
+            position = np.asarray(position)
 
-        position = np.asarray(position)
+        if parallel:
+            gyro_e = comm.bcast(gyro_e, root)
+            gyro_n = comm.bcast(gyro_n, root)
+            position = comm.bcast(position, root)
 
-        if len(position.shape) > 1:
-            nshape = (position.shape[0], *gyro_n.shape[1:])
-            gyro_n = np.broadcast_to(gyro_n, nshape)
-            if gyro_n.ndim < 3:
-                gyro_n = gyro_n[:, np.newaxis, ...]
+        if len(position.shape) <= 1:
+            return _cube_integrate(self.data, self.grid, self.voxel, spin,
+                                   position, gyro_n, gyro_e)
+
+        npos = position.shape[0]
+        nshape = (npos, *gyro_n.shape[1:])
+        gyro_n = np.array(np.broadcast_to(gyro_n, nshape))
+        if gyro_n.ndim < 3:
+            gyro_n = gyro_n[:, np.newaxis, ...]
+        if parallel:
+            start, end = _distribute(rank, size, npos)
+            position = position[start:end]
+            gyro_n = gyro_n[start:end]
+
+        if position.size:
             hyperfine = _cube_integrate_array(self.data, self.grid, self.voxel, spin, position,
                                               gyro_n, gyro_e)
         else:
-            hyperfine = _cube_integrate(self.data, self.grid, self.voxel, spin,
-                                        position, gyro_n, gyro_e)
+            hyperfine = np.zeros((0, 3, 3), dtype=np.float64)
 
-        return hyperfine
+        if parallel:
+
+            total_hyperfine = np.zeros((npos * 3 * 3), dtype=np.float64)
+
+            start_ends = tuple(_distribute(i, size, npos) for i in range(size))
+
+            sendcounts = tuple((end - start) * 3 * 3 for (start, end) in start_ends)
+            displacements = tuple(start * 3 * 3 for (start, end) in start_ends)
+
+            comm.Allgatherv([hyperfine.flatten(), mpi4py.MPI.DOUBLE],
+                            [total_hyperfine, sendcounts, displacements, mpi4py.MPI.DOUBLE])
+
+            total_hyperfine = total_hyperfine.reshape(npos, 3, 3)
+            comm.Barrier()
+
+        else:
+            total_hyperfine = hyperfine
+
+        return total_hyperfine
 
         # d['A'] = -(3 * np.outer(pos, pos) - identity * r ** 2) / (r ** 5) * pre
+
+
+def _distribute(rank, size, number):
+    remainder = number % size
+    add = int(rank < remainder)
+    each = number // size
+    start = rank * each + rank if rank < remainder else rank * each + remainder
+    end = start + each + add
+
+    return start, end
 
 
 @jit(nopython=True)
