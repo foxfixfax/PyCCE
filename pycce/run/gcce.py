@@ -3,6 +3,30 @@ from pycce.constants import PI2
 from pycce.h import total_hamiltonian
 from pycce.run.base import RunObject
 from pycce.utilities import shorten_dimensions, generate_initial_state, outer
+from pycce.bath.array import BathArray
+
+def simple_propagator(timespace, hamiltonian):
+    evalues, evec = np.linalg.eigh(hamiltonian * PI2)
+
+    eigexp = np.exp(-1j * np.outer(timespace, evalues),
+                    dtype=np.complex128)
+
+    return np.matmul(np.einsum('...ij,...j->...ij', evec, eigexp, dtype=np.complex128),
+                     evec.conj().T)
+
+
+def rotation_propagator(u, rotations):
+    full_u = np.eye(u.shape[1], dtype=np.complex128)
+
+    for rotation in rotations:
+        full_u = np.matmul(u, full_u)
+
+        if rotation is not None:
+            full_u = np.matmul(rotation, full_u)
+
+        full_u = np.matmul(u, full_u)
+
+    return full_u
 
 
 def propagator(timespace, hamiltonian,
@@ -63,7 +87,6 @@ def propagator(timespace, hamiltonian,
         U = None
 
         times = 0
-
         for timesteps, rotation in zip(pulses.delays, pulses.rotations):
 
             eigexp = np.exp(-1j * np.outer(timesteps, evalues),
@@ -98,6 +121,42 @@ def propagator(timespace, hamiltonian,
             raise ValueError(f"Pulse sequence time steps add up to larger than total times. Delays at"
                              f"{timespace[(timespace - times) < 0]} ms are longer than total time.")
     return U
+
+
+def jit_propagator_advanced(timespace, hamiltonian,
+                            total_delays, total_rotations):
+    evalues, evec = np.linalg.eigh(hamiltonian * PI2)
+
+    times = np.zeros(timespace.shape)
+    propagators = np.zeros(timespace.shape + hamiltonian.shape)
+    eye = np.eye(hamiltonian.shape[0], dtype=np.complex128)
+
+    for index in range(timespace.size):
+        u = eye
+
+        total_time = timespace[index]
+        delays = total_delays[:, index]
+
+        applicable_rotations = delays <= total_time
+        delays = delays[applicable_rotations]
+        rotations = total_rotations[applicable_rotations]
+        order = np.argsort(delays)
+        passed_time = 0
+
+        for i in order:
+            rotation = rotations[i]
+            t = delays[i] - passed_time
+            if t:
+                eigexp = np.exp(-1j * t * evalues, dtype=np.complex128)
+                u = (evec @ np.diag(eigexp) @ evec.conj().T) @ u
+                passed_time = delays[i]
+
+            if not (rotation == eye).all():
+                u = rotation @ u
+
+        propagators[index] = u
+
+    return propagators
 
 
 def compute_dm(initial_state, H, timespace, pulse_sequence=None, as_delay=False, states=None, ncenters=1):
@@ -157,20 +216,14 @@ def full_dm(dm0, H, timespace, pulse_sequence=None, as_delay=False):
     Returns:
         ndarray: Array of density matrices of the cluster, evaluated at the time points from timespace.
     """
-    U = propagator(timespace, H.data, pulse_sequence, as_delay=as_delay)
-    if dm0.ndim > 1:
-        dmUdagger = np.matmul(dm0, U.conj().transpose(0, 2, 1))
-        dm = np.matmul(U, dmUdagger)
-    else:
-        # |dm> = U|dm>
-        dm = U @ dm0
-        # |dm><dm|
-        dm = np.einsum('ki,kj->kij', dm, dm.conj())
-
+    dm = 0
     return dm
 
 
 def _get_state(state, center):
+    if callable(state):
+        return state
+
     state = np.asarray(state)
     if state.size == 1:
         return center.eigenvectors[:, int(state)]
@@ -201,9 +254,8 @@ class gCCE(RunObject):
 
     """
 
-    def __init__(self, *args, i=None, j=None, as_delay=False, pulses=None, fulldm=False, normalized=True, **kwargs):
-        self.pulses = pulses
-        """ Sequence: Sequence object, containing series of pulses, applied to the system."""
+    def __init__(self, *args, i=None, j=None, as_delay=False, fulldm=False, normalized=True, **kwargs):
+
         self.as_delay = as_delay
         """ bool: True if time points are delay between pulses, False if time points are total time."""
 
@@ -226,19 +278,17 @@ class gCCE(RunObject):
     def preprocess(self):
         super().preprocess()
 
-        check = True  # False
-        # if self.projected_bath_state is not None:
-        #     try:
-        #         check = all(self.projected_bath_state == self.bath_state)
-        #     except TypeError:
-        #         check = False
+        # Emulate kernel
+        self.base_hamiltonian = self.center.generate_hamiltonian(magnetic_field=self.magnetic_field)
+        self.cluster = BathArray((0,))
+        if self.has_states:
+            self.others = self.bath
+            self.others_mask = np.ones(self.bath.size, dtype=bool)
 
-        if check:
-            self.dm0 = self.center.state
-            self.normalization = outer(self.center.state, self.center.state)
-        else:
-            self.dm0 = outer(self.center.state, self.center.state)
-            self.normalization = self.dm0
+        self.check_hamiltonian()
+
+        self.dm0 = self.center.state
+        self.normalization = outer(self.center.state, self.center.state)
 
         if self.i is None:
             alpha = self.center.alpha
@@ -252,37 +302,51 @@ class gCCE(RunObject):
 
         if self.pulses is not None:
             self.center.generate_sigma()
-            self.pulses.generate_pulses(dimensions=self.center.hamiltonian.dimensions,
-                                        bath=None, vectors=self.center.hamiltonian.vectors,
-                                        central_spin=self.center)
-            for p in self.pulses:
-                if p.rotation is not None:
-                    if self.i is None:
-                        alpha = p.rotation @ alpha
-                    if self.j is None:
-                        beta = p.rotation @ beta
+            self.base_hamiltonian = self.center.hamiltonian
+            self.generate_pulses()
 
-                    self.normalization = p.rotation @ self.normalization @ p.rotation.T.conj()
+            for rotation in self.rotations:
+                if rotation is not None:
+                    if self.i is None:
+                        alpha = rotation @ alpha
+                    if self.j is None:
+                        beta = rotation @ beta
+
+                    self.normalization = rotation @ self.normalization @ rotation.T.conj()
 
         self.alpha = alpha
         self.beta = beta
+        self.zero_cluster = 1  # For compute result to work
+        # res = full_dm(self.dm0, self.center.hamiltonian, self.timespace,
+                 #     pulse_sequence=self.pulses, as_delay=self.as_delay)
 
-        res = full_dm(self.dm0, self.center.hamiltonian, self.timespace,
-                      pulse_sequence=self.pulses, as_delay=self.as_delay)
+        self.zero_cluster = self.compute_result()
 
-        if not self.fulldm:
-            res = self.alpha.conj() @ res @ self.beta
-            self.normalization = (self.alpha.conj() @ self.normalization @ self.beta)
+        if not self.fulldm and self.normalized:
+            self.normalization = self.process_dm(self.normalization)
         # else:
-        #     res = self.center.eigenvectors.conj().T @ res @ self.center.eigenvectors
+        #     density_matrix = self.center.eigenvectors.conj().T @ density_matrix @ self.center.eigenvectors
 
-        self.zero_cluster = res
+    def process_dm(self, density_matrix):
+        if self.fulldm:
+            return density_matrix
+
+        if callable(self.alpha):
+            result = self.alpha(density_matrix)
+        elif callable(self.beta):
+            result = self.beta(density_matrix)
+        else:
+            result = self.alpha.conj() @ density_matrix @ self.beta
+
+        return result
 
     def postprocess(self):
         self.result = self.zero_cluster * self.result
 
-        if self.normalized:
+        if self.normalized and not self.fulldm:
             self.result = self.result / self.normalization
+
+        super().postprocess()
 
         # else:
         #     self.result = self.center.eigenvectors @ self.result @ self.center.eigenvectors.conj().T
@@ -296,11 +360,7 @@ class gCCE(RunObject):
             Hamiltonian: Cluster hamiltonian.
 
         """
-        ham = total_hamiltonian(self.cluster, self.center, self.magnetic_field, others=self.others)
-
-        if self.pulses is not None:
-            self.pulses.generate_pulses(dimensions=ham.dimensions, bath=self.cluster, vectors=ham.vectors,
-                                        central_spin=self.center)
+        ham = total_hamiltonian(self.cluster, self.center, self.magnetic_field)
 
         return ham
 
@@ -314,13 +374,141 @@ class gCCE(RunObject):
             ndarray: Computed coherence.
 
         """
-        result = compute_dm(self.dm0, self.cluster_hamiltonian, self.timespace, self.pulses,
-                            as_delay=self.as_delay, states=self.states, ncenters=self.center.size)
 
-        if not self.fulldm:
-            result = (self.alpha.conj() @ result @ self.beta)
+        dimensions = shorten_dimensions(self.base_hamiltonian.dimensions, self.center.size)
 
-        # else self.fulldm:
-        #     result = self.center.eigenvectors.conj().T @ result @ self.center.eigenvectors
+        initial_state = generate_initial_state(dimensions, states=self.states, central_state=self.dm0)
+
+        unitary_evolution = self.propagator()
+
+        if initial_state.ndim > 1:
+            # rho U^\dagger
+            dmUdagger = np.matmul(initial_state, unitary_evolution.conj().transpose(0, 2, 1))
+            # U rho U^\dagger
+            result = np.matmul(unitary_evolution, dmUdagger)
+        else:
+            # |dm> = U|dm>
+            result = unitary_evolution @ initial_state
+            # |dm><dm|
+            result = np.einsum('ki,kj->kij', result, result.conj())
+
+        initial_shape = result.shape
+        result.shape = (initial_shape[0], *dimensions, *dimensions)
+
+        for d in range(len(dimensions) + 1, 2, -1):  # The last one is el spin
+            result = np.trace(result, axis1=1, axis2=d)
+
+            if result.shape[1:] == self.dm0.shape:  # break if shape is the same
+                break
+
+        result = self.process_dm(result)
 
         return result / self.zero_cluster
+
+    def propagator(self):
+
+        if not self.pulses:
+            return simple_propagator(self.timespace, self.hamiltonian)
+
+        if self.delays is None:
+            if self.projected_states is None:
+                return self._no_delays_no_ps()
+            # proj_states is not None - there are bath rotations alas
+            return self._no_delays_ps()
+
+        # There are delays but no bath flips
+        if self.projected_states is None:
+            return self._delays_no_ps()
+
+        # The most complicated case - both projected_states is not None and delays is not None
+        return self._delays_ps()
+
+    def _no_delays_no_ps(self):
+
+        delays = self.timespace if self.as_delay else self.timespace / (2 * len(self.pulses))
+
+        # Same propagator for all parts
+        u = simple_propagator(delays, self.hamiltonian)
+
+        return rotation_propagator(u, self.rotations)
+
+    def _no_delays_ps(self):
+        delays = self.timespace if self.as_delay else self.timespace / (2 * len(self.pulses))
+
+        hamiltonian = self.ham_generator(0)
+        u = simple_propagator(delays, hamiltonian)
+
+        full_u = np.eye(self.base_hamiltonian.data.shape[0], dtype=np.complex128)
+
+        ps_counter = 0
+
+        for p, rotation in zip(self.pulses, self.rotations):
+
+            full_u = np.matmul(u, full_u)
+
+            if rotation is not None:
+                full_u = np.matmul(rotation, full_u)
+
+                if p.bath_names is not None:
+                    ps_counter += 1
+                    hamiltonian = self.ham_generator(ps_counter)
+                    u = simple_propagator(delays, hamiltonian)
+
+            full_u = np.matmul(u, full_u)
+
+        return full_u
+
+    def _delays_no_ps(self):
+
+        evalues, evec = np.linalg.eigh(self.hamiltonian * PI2)
+
+        full_u = np.eye(self.base_hamiltonian.data.shape[0], dtype=np.complex128)
+
+        for delay, rotation in zip(self.delays, self.rotations):
+            eigexp = np.exp(-1j * np.outer(delay, evalues),
+                            dtype=np.complex128)
+
+            u = np.matmul(np.einsum('ij,kj->kij', evec, eigexp, dtype=np.complex128),
+                          evec.conj().T)
+
+            full_u = np.matmul(u, full_u)
+
+            if rotation is not None:
+                full_u = np.matmul(rotation, full_u)
+
+            full_u = np.matmul(u, full_u)
+
+        return full_u
+
+    def _delays_ps(self):
+
+        hamiltonian = self.ham_generator(0)
+        full_u = np.eye(self.base_hamiltonian.data.shape[0], dtype=np.complex128)
+
+        ps_counter = 0
+        times = 0
+
+        for p, rotation, delay in zip(self.pulses, self.rotations, self.delays):
+            times += delay
+            u = simple_propagator(delay, hamiltonian)
+            full_u = np.matmul(u, full_u)
+
+            if rotation is not None:
+                full_u = np.matmul(rotation, full_u)
+
+                if p.bath_names is not None:
+                    ps_counter += 1
+                    hamiltonian = self.ham_generator(ps_counter)
+
+        which = np.isclose(self.timespace, times)
+
+        if ((self.timespace - times)[~which] >= 0).all():
+            u = simple_propagator(self.timespace - times, hamiltonian)
+
+            full_u = np.matmul(u, full_u)
+
+        elif not which.all():
+            raise ValueError(f"Pulse sequence time steps add up to larger than total times. Delays at"
+                             f"{self.timespace[(self.timespace - times) < 0]} ms are longer than total time.")
+
+        return full_u

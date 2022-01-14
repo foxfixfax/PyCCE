@@ -79,7 +79,10 @@ class Center:
         self.energies = None
         """ndarray with shape (2s-1,): Array of energies of all states of the central spin."""
         self.eigenvectors = None
+        """ndarray: Eigen states of the central spin hamiltonian."""
+
         self.hamiltonian = None
+        """ndarray: Central spin Hamiltonian."""
 
         self._alpha = None
         self._beta = None
@@ -91,6 +94,18 @@ class Center:
         self.beta = beta
 
         self._sigma = None
+
+    def get_projections(self, which):
+        if which == 'alpha' or which == 1:
+            return self.projections_alpha
+        elif which == 'beta' or which == 0:
+            return self.projections_beta
+
+    def get_projections_all(self, which):
+        if which == 'alpha' or which == 1:
+            return self.projections_alpha_all
+        elif which == 'beta' or which == 0:
+            return self.projections_beta_all
 
     @property
     def xyz(self):
@@ -560,6 +575,12 @@ class CenterArray(Center, collections.abc.Sequence):
         for i, center in enumerate(self):
             center.projections_alpha = self.projections_alpha[i]
             center.projections_beta = self.projections_beta[i]
+
+    def get_energy(self, which):
+        if which == 'alpha' or which == True:
+            return self.energy_alpha
+        elif which == 'beta' or which == False:
+            return self.energy_beta
 
     def generate_sigma(self):
         self._check_states()

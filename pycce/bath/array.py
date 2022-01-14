@@ -659,7 +659,7 @@ class BathArray(np.ndarray):
                          style=style, inplace=inplace)
         return bath
 
-    def from_center(self, center, inplace=True):
+    def from_center(self, center, inplace=True, cube=None, which=0, **kwarg):
         if inplace:
             array = self
         else:
@@ -671,9 +671,20 @@ class BathArray(np.ndarray):
                 warnings.warn("Cannot change array inplace, using a copy instead.")
 
         if center.size == 1:
-            array.from_point_dipole(center[0].xyz, center[0].gyro, inplace=True)
+            if cube is None:
+                array.from_point_dipole(center[0].xyz, center[0].gyro, inplace=True)
+            else:
+                array.from_cube(cube, center[0].gyro, inplace=True, **kwarg)
         else:
-            array.from_point_dipole(center.xyz, center.gyro, inplace=True)
+            if cube is None:
+                array.from_point_dipole(center.xyz, center.gyro, inplace=True)
+            else:
+                try:
+                    for index, (cen, cub) in enumerate(zip(center, cube)):
+                        array.from_cube(cub, cen.gyro, inplace=True, which=index, **kwarg)
+                except TypeError:
+                    array.from_point_dipole(center.xyz, center.gyro, inplace=True)
+                    array.from_cube(cube, center[which].gyro, inplace=True, which=which, **kwarg)
 
         return array
 
@@ -720,7 +731,7 @@ class BathArray(np.ndarray):
 
         return array
 
-    def from_cube(self, cube, gyro_center=ELECTRON_GYRO, inplace=True, **kwargs):
+    def from_cube(self, cube, gyro_center=ELECTRON_GYRO, inplace=True, which=0, **kwargs):
         """
         Generate hyperfine couplings, assuming that bath spins interaction with central spin can be approximated as
         a point dipole, interacting with given spin density distribution.
@@ -742,7 +753,14 @@ class BathArray(np.ndarray):
             array = self.copy()
 
         gyros = array.types[array].gyro
+
+        if array.nc > 1:
+            array.A[:, which] = cube.integrate(array.xyz, gyros, gyro_center, **kwargs)
+
+            return array
+
         array.A = cube.integrate(array.xyz, gyros, gyro_center, **kwargs)
+
         return array
 
     def from_func(self, func, *args, inplace=True, **kwargs):

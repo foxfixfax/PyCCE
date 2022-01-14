@@ -24,7 +24,8 @@ from .run.cce import CCE
 from .run.corr import CCENoise, gCCENoise
 from .run.gcce import gCCE
 from .run.pulses import Sequence
-from .utilities import zfs_tensor, project_bath_states
+from .utilities import zfs_tensor
+from pycce.bath.state import project_bath_states
 
 
 def _add_args(after):
@@ -906,7 +907,7 @@ class Simulator:
             self._hyperfine = 'pd'
 
         elif isinstance(self._hyperfine, Cube):
-            bath = bath.from_cube(self._hyperfine, gyro_center=self.center.gyro)
+            bath = bath.from_center(self.center, cube=self._hyperfine)
 
         elif self._hyperfine:
             bath = bath.from_func(self._hyperfine, **func_kw)

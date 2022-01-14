@@ -2,7 +2,7 @@ import operator
 
 import numpy as np
 from pycce.h import total_hamiltonian, bath_interactions, expanded_single, conditional_hyperfine, \
-    dimensions_spinvectors, overhauser_bath, Hamiltonian
+    dimensions_spinvectors, overhauser_bath, Hamiltonian, zero_order_addition, bath_hamiltonian, projected_addition
 from pycce.run.base import RunObject
 from pycce.run.gcce import propagator
 from pycce.utilities import generate_initial_state
@@ -26,10 +26,10 @@ _newcols = None
 #         if _rows is None:
 #             _gen_indexes(corr.size)
 #
-#         res = np.zeros((corr.size, corr.size), dtype=np.complex128)
-#         res[_rows, _newcols] = np.triu(corr[np.newaxis, :] - corr[:, np.newaxis])[_rows, _cols]
-#         top = res.sum(axis=0)
-#         bottom = np.count_nonzero(res, axis=0)
+#         density_matrix = np.zeros((corr.size, corr.size), dtype=np.complex128)
+#         density_matrix[_rows, _newcols] = np.triu(corr[np.newaxis, :] - corr[:, np.newaxis])[_rows, _cols]
+#         top = density_matrix.sum(axis=0)
+#         bottom = np.count_nonzero(density_matrix, axis=0)
 #         bottom[bottom == 0] = 1
 #         corr = top / bottom
 
@@ -166,7 +166,9 @@ class gCCENoise(RunObject):
             Hamiltonian: Cluster hamiltonian.
 
         """
-        ham = total_hamiltonian(self.cluster, self.center, self.magnetic_field, others=self.others)
+        ham = total_hamiltonian(self.cluster, self.center, self.magnetic_field)
+        # ham.data += zero_order_addition(ham.vectors, self.cluster, self.others, self.others.proj)
+
         return ham
 
     def compute_result(self):
@@ -178,9 +180,9 @@ class gCCENoise(RunObject):
 
             ndarray: Computed autocorrelation function.
         """
-        time_propagator = propagator(self.timespace, self.cluster_hamiltonian.data)
+        time_propagator = propagator(self.timespace, self.hamiltonian)
 
-        dmtotal0 = generate_initial_state(self.cluster_hamiltonian.dimensions, central_state=self.dm0, states=self.states)
+        dmtotal0 = generate_initial_state(self.base_hamiltonian.dimensions, central_state=self.dm0, states=self.states)
 
         return compute_correlations(self.cluster, dmtotal0, time_propagator, central_spin=self.center)
 
@@ -252,17 +254,10 @@ class CCENoise(RunObject):
             Hamiltonian: Cluster hamiltonian.
 
         """
+        totalh = bath_hamiltonian(self.cluster, self.magnetic_field)
 
-        dims, vectors = dimensions_spinvectors(self.cluster, central_spin=None)
-        totalh = bath_interactions(self.cluster, vectors)
-
-        for ivec, n in zip(vectors, self.cluster):
-            hsingle = expanded_single(ivec, n.gyro, self.magnetic_field, n['Q'], n.detuning)
-
-            if self.others is not None:
-                hsingle += overhauser_bath(ivec, n['xyz'], n.gyro, self.others.gyro,
-                                           self.others['xyz'], self.others.states)
-
+        for ivec, n in zip(totalh.vectors, self.cluster):
+            hsingle = 0
             for i, proj in enumerate(self.projections):
                 if self.center.size > 1:
                     hf = n['A'][i]
@@ -271,9 +266,9 @@ class CCENoise(RunObject):
 
                 hsingle += conditional_hyperfine(hf, ivec, proj)
 
-            totalh += hsingle
+            totalh.data += hsingle
 
-        totalh = Hamiltonian(dims, vectors, data=totalh)
+        # totalh.data += zero_order_addition(totalh.vectors, self.cluster, self.others, self.others.proj)
 
         return totalh
         # ham = total_hamiltonian(self.cluster, self.magnetic_field, self.zfs, others=self.others,
@@ -289,9 +284,9 @@ class CCENoise(RunObject):
 
             ndarray: Computed autocorrelation function.
         """
-        dm0_expanded = generate_initial_state(self.cluster_hamiltonian.dimensions, states=self.states, central_state=None)
+        dm0_expanded = generate_initial_state(self.base_hamiltonian.dimensions, states=self.states, central_state=None)
 
-        time_propagator = propagator(self.timespace, self.cluster_hamiltonian.data)
+        time_propagator = propagator(self.timespace, self.hamiltonian)
 
         return compute_correlations(self.cluster, dm0_expanded, time_propagator)
 

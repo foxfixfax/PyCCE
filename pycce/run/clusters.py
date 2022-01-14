@@ -165,8 +165,11 @@ def optimized_approach(function, self, *arg,
                 # As all of them have to be divided by v
                 current_power[index] -= np.sum(power[higherorder][containv], dtype=np.int32)
 
-            vcalc = function(v, *arg, **kwarg)
-            vcalc = contribution_operator(vcalc, current_power[index])
+            if current_power[index] == 0:
+                vcalc = contribution_operator(1, 0)
+            else:
+                vcalc = function(v, *arg, **kwarg)
+                vcalc = contribution_operator(vcalc, current_power[index])
 
             result = result_operator(result, vcalc)
 

@@ -11,11 +11,6 @@ def projected_hamiltonian(bath, center, mfield,
     Args:
         bath (BathArray):
             array of all bath spins in the cluster.
-        projections_alpha (ndarray with shape (3,)): Projections of the central spin level alpha
-            :math:`[\braket{\hat{S}_x}, \braket{\hat{S}_y}, \braket{\hat{S}_z}]`.
-
-        projections_beta (ndarray with shape (3,)): Projections of the central spin level beta.
-            :math:`[\braket{\hat{S}_x}, \braket{\hat{S}_y}, \braket{\hat{S}_z}]`
 
         mfield (ndarray with shape (3,)):
             Magnetic field of type ``mfield = np.array([Bx, By, Bz])``.
@@ -76,7 +71,38 @@ def projected_hamiltonian(bath, center, mfield,
     return halpha, hbeta
 
 
-def total_hamiltonian(bath, center, mfield, others=None):
+def bath_hamiltonian(bath, mfield):
+    r"""
+    Compute projected hamiltonian on state and beta qubit states. Wrapped function so the actual call does not
+    follow the one above!
+
+    Args:
+        bath (BathArray):
+            array of all bath spins in the cluster.
+
+        mfield (ndarray with shape (3,)):
+            Magnetic field of type ``mfield = np.array([Bx, By, Bz])``.
+
+        others (BathArray with shape (m,)):
+            array of all bath spins outside the cluster
+
+        other_states (ndarray with shape (m,) or (m, 3)):
+            Array of Iz projections for each bath spin outside of the given cluster.
+
+    Returns:
+        Hamiltonian: Hamiltonian of the given cluster without qubit.
+    """
+    dims, vectors = dimensions_spinvectors(bath, central_spin=None)
+    clusterint = bath_interactions(bath, vectors)
+
+    for ivec, n in zip(vectors, bath):
+        clusterint += expanded_single(ivec, n.gyro, mfield, n.Q, n.detuning)
+
+    return Hamiltonian(dims, vectors, data=clusterint)
+
+
+# TODO FINISH CONVERSION OF MEANFIELD OUTSIDE
+def total_hamiltonian(bath, center, mfield):
     """
     Compute total Hamiltonian for the given cluster including mean field effect of all bath spins.
     Wrapped function so the actual call does not follow the one above!
@@ -95,6 +121,7 @@ def total_hamiltonian(bath, center, mfield, others=None):
         Hamiltonian: hamiltonian of the given cluster, including central spin.
 
     """
+
     dims, vectors = dimensions_spinvectors(bath, central_spin=center)
 
     totalh = bath_interactions(bath, vectors)
@@ -103,30 +130,18 @@ def total_hamiltonian(bath, center, mfield, others=None):
     for i, c in enumerate(center):
         totalh += self_central(vectors[bath.size + i], mfield, c.zfs, c.gyro, c.detuning)
 
-        if others is not None:
-            if ncenters == 1:
-                hf = others['A']
-            else:
-                hf = others['A'][:, i]
-            totalh += overhauser_central(vectors[bath.size + i], hf, others.proj)
-
     totalh += center_interactions(center, vectors[bath.size:])
 
-    for j, n in enumerate(bath):
-        ivec = vectors[j]
-
-        hsingle = expanded_single(ivec, n.gyro, mfield, n['Q'], n.detuning)
-
-        if others is not None:
-            hsingle += overhauser_bath(ivec, n['xyz'], n.gyro, others.gyro, others['xyz'], others.proj)
+    for ivec, n in zip(vectors, bath):
+        hsingle = expanded_single(ivec, n.gyro, mfield, n.Q, n.detuning)
 
         hhyperfine = 0
 
         for i in range(ncenters):
             if ncenters == 1:
-                hf = n['A']
+                hf = n.A
             else:
-                hf = n['A'][i]
+                hf = n.A[i]
 
             hhyperfine += hyperfine(hf, vectors[bath.size + i], ivec)
 
@@ -168,54 +183,66 @@ def central_hamiltonian(center, magnetic_field, hyperfine=None, bath_state=None)
 
     return Hamiltonian(dims, vectors, data=totalh)
 
-# def hamiltonian_wrapper(_func=None, *, projected=False):
-#     """
-#     Wrapper with the general structure for the cluster Hamiltonian.
-#     Adds several additional arguments to the wrapped function.
-#
-#     **Additional parameters**:
-#
-#         * **central_spin** (*float*) -- value of the central spin.
-#
-#     Args:
-#         _func (func): Function to be wrapped.
-#         projected (bool): True if return two projected Hamiltonians, False if remove single not projected one.
-#
-#     Returns:
-#         func: Wrapped function.
-#     """
-#
-#     def inner_hamiltonian_wrapper(function):
-#
-#         def base_hamiltonian(bath, *arg,
-#                              central_spin=None,
-#                              **kwargs):
-#             if projected:
-#                 dim, spinvectors = dimensions_spinvectors(bath, central_spin=None)
-#             else:
-#                 dim, spinvectors = dimensions_spinvectors(bath, central_spin=central_spin)
-#
-#             clusterint = bath_interactions(bath, spinvectors)
-#
-#             if projected:
-#                 halpha, hbeta = Hamiltonian(dim, vectors=spinvectors), Hamiltonian(dim, vectors=spinvectors)
-#
-#                 data1, data2 = function(bath, spinvectors, central_spin, *arg, **kwargs)
-#
-#                 halpha.data += data1 + clusterint
-#                 hbeta.data += data2 + clusterint
-#
-#                 return halpha, hbeta
-#
-#             totalh = Hamiltonian(dim)
-#             data = function(bath, spinvectors, central_spin, *arg, **kwargs)
-#             totalh.data += data + clusterint
-#
-#             return totalh
-#
-#         return base_hamiltonian
-#
-#     if _func is None:
-#         return inner_hamiltonian_wrapper
-#     else:
-#         return inner_hamiltonian_wrapper(_func)
+
+def projected_addition(vectors, bath, center, state):
+
+    ncenters = len(center)
+    addition = 0
+
+    for ivec, n in zip(vectors, bath):
+        try:
+
+            iterator = iter(state)  # iterable
+            state = state[0]
+
+        except TypeError:
+            for i, c in enumerate(center):
+                if ncenters > 1:
+                    hf = n.A[i]
+                else:
+                    hf = n.A
+                projections = c.get_projections(state)
+                addition += conditional_hyperfine(hf, ivec,projections)
+        else:
+
+            for i, (c, s) in enumerate(zip(center, iterator)):
+                if ncenters > 1:
+                    hf = n.A[i]
+                else:
+                    hf = n.A
+
+                projections = c.get_projections(state)
+                addition += conditional_hyperfine(hf, ivec,projections)
+
+    energy = center.get_energy(state)
+
+    if energy is not None:
+        for i, c in enumerate(center):
+            if ncenters > 1:
+                hf = bath.A[:, i]
+            else:
+                hf = bath.A
+
+            projections_state_all = c.get_projections_all(state)
+
+            addition += bath_mediated(hf, vectors, energy,
+                                      center.energies, projections_state_all)
+
+    return addition
+
+
+def zero_order_addition(vectors, cluster, outer_spin, outer_state):
+    addition = 0
+    ncenters = vectors.size - cluster.size
+    for i, v in enumerate(vectors[cluster.size:]):
+        if ncenters == 1:
+            hf = outer_spin.A
+        else:
+            hf = outer_spin.A[:, i]
+
+        addition += overhauser_central(v, hf, outer_state)
+
+    for ivec, n in zip(vectors, cluster):
+        addition += overhauser_bath(ivec, n.xyz, n.gyro, outer_spin.gyro,
+                                    outer_spin.xyz, outer_state)
+    return addition
