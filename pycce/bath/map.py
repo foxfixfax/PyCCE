@@ -28,7 +28,7 @@ class InteractionMap(MutableMapping):
     def __init__(self, rows=None, columns=None, tensors=None):
         self.mapping = dict()
         self._indexes = None
-
+        self._data = None
         if (rows is not None) & (columns is not None) & (tensors is not None):
             self[rows, columns] = tensors
             self.__gen_indexes()
@@ -45,6 +45,12 @@ class InteractionMap(MutableMapping):
     @indexes.setter
     def indexes(self, newindexes):
         self._indexes = newindexes
+
+    @property
+    def data(self):
+        if self._data is None:
+            self.__gen_data()
+        return self._data
 
     def __getitem__(self, key):
         a, b = _index(key)
@@ -80,6 +86,7 @@ class InteractionMap(MutableMapping):
                     del self.mapping[k, j]
 
         self.indexes = None
+        self._data = None
 
     def __setitem__(self, key, value):
         value = np.asarray(value, dtype=np.float64)
@@ -114,7 +121,7 @@ class InteractionMap(MutableMapping):
 
             except TypeError as e:
                 raise TypeError('invalid index format') from e
-
+        self._data = None
         self.indexes = None
 
     def shift(self, start, inplace=True):
@@ -138,7 +145,7 @@ class InteractionMap(MutableMapping):
             imap.mapping[i + start, j + start] = imap.mapping.pop((i, j))
 
         imap.indexes = None
-
+        imap._data = None
         return imap
 
     def __iter__(self):
@@ -164,6 +171,15 @@ class InteractionMap(MutableMapping):
     def __gen_indexes(self):
         self.indexes = np.fromiter((ind for pair in self.mapping.keys() for ind in pair),
                                    dtype=np.int32).reshape(-1, 2)
+
+    def __gen_data(self):
+        length = self.indexes.shape[0]
+
+        self._data = np.zeros((length, 3, 3), dtype=np.float64)
+
+        for j, pair in enumerate(self.indexes):
+            self._data[j] = self[pair]
+
 
     def subspace(self, array):
         r"""

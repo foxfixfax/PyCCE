@@ -281,6 +281,8 @@ class gCCE(RunObject):
         # Emulate kernel
         self.base_hamiltonian = self.center.generate_hamiltonian(magnetic_field=self.magnetic_field)
         self.cluster = BathArray((0,))
+        self.cluster_indexes = np.array([], dtype=int)
+
         if self.has_states:
             self.others = self.bath
             self.others_mask = np.ones(self.bath.size, dtype=bool)
@@ -302,7 +304,6 @@ class gCCE(RunObject):
 
         if self.pulses is not None:
             self.center.generate_sigma()
-            self.base_hamiltonian = self.center.hamiltonian
             self.generate_pulses()
 
             for rotation in self.rotations:

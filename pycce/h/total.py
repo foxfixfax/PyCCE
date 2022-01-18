@@ -185,7 +185,6 @@ def central_hamiltonian(center, magnetic_field, hyperfine=None, bath_state=None)
 
 
 def projected_addition(vectors, bath, center, state):
-
     ncenters = len(center)
     addition = 0
 
@@ -202,7 +201,7 @@ def projected_addition(vectors, bath, center, state):
                 else:
                     hf = n.A
                 projections = c.get_projections(state)
-                addition += conditional_hyperfine(hf, ivec,projections)
+                addition += conditional_hyperfine(hf, ivec, projections)
         else:
 
             for i, (c, s) in enumerate(zip(center, iterator)):
@@ -212,7 +211,7 @@ def projected_addition(vectors, bath, center, state):
                     hf = n.A
 
                 projections = c.get_projections(state)
-                addition += conditional_hyperfine(hf, ivec,projections)
+                addition += conditional_hyperfine(hf, ivec, projections)
 
     energy = center.get_energy(state)
 
@@ -231,9 +230,10 @@ def projected_addition(vectors, bath, center, state):
     return addition
 
 
-def zero_order_addition(vectors, cluster, outer_spin, outer_state):
+def center_zo_addition(vectors, cluster, outer_spin, outer_state):
     addition = 0
     ncenters = vectors.size - cluster.size
+
     for i, v in enumerate(vectors[cluster.size:]):
         if ncenters == 1:
             hf = outer_spin.A
@@ -242,7 +242,67 @@ def zero_order_addition(vectors, cluster, outer_spin, outer_state):
 
         addition += overhauser_central(v, hf, outer_state)
 
+    return addition
+
+
+def bath_pd_zo_addition(vectors, cluster, outer_spin, outer_state):
+    addition = 0
     for ivec, n in zip(vectors, cluster):
         addition += overhauser_bath(ivec, n.xyz, n.gyro, outer_spin.gyro,
                                     outer_spin.xyz, outer_state)
+    return addition
+
+
+def zero_order_addition(vectors, cluster, outer_spin, outer_state):
+    addition = center_zo_addition(vectors, cluster, outer_spin, outer_state) + bath_pd_zo_addition(vectors, cluster,
+                                                                                                   outer_spin,
+                                                                                                   outer_state)
+
+    return addition
+
+
+def zero_order_imap(vectors, indexes, bath, projected_state):
+    outer_mask = np.ones(bath.size, dtype=bool)
+    outer_mask[indexes] = False
+
+    outer_spin = bath[outer_mask]
+    outer_state = projected_state[outer_mask]
+    cluster = bath[indexes]
+
+    addition = center_zo_addition(vectors, cluster, outer_spin, outer_state)
+
+    if bath.imap is None:
+        addition += bath_pd_zo_addition(vectors, cluster, outer_spin, outer_state)
+
+        return addition
+
+    imap_indexes = bath.imap.indexes
+    remove_j = np.ones(indexes.shape, dtype=bool)
+
+    for j, (ind, ivec) in enumerate(zip(indexes, vectors)):
+
+        outer_mask[:] = True
+        outer_mask[indexes] = False
+
+        where_index = (imap_indexes == ind)
+
+        if where_index.any():
+            remove_j[j] = False
+            which_pairs = where_index.any(axis=1) & (~np.isin(imap_indexes, indexes[remove_j]).any(axis=1))
+            remove_j[j] = True
+
+            other_indexes = imap_indexes[which_pairs][~(where_index[which_pairs])]
+
+            addition += overhauser_from_tensors(ivec, bath.imap.data[which_pairs], projected_state[other_indexes])
+
+
+            outer_mask[other_indexes] = False
+
+        if outer_mask.any():
+            outer_spin = bath[outer_mask]
+            outer_state = projected_state[outer_mask]
+            n = bath[ind]
+            addition += overhauser_bath(ivec, n.xyz, n.gyro, outer_spin.gyro,
+                                        outer_spin.xyz, outer_state)
+
     return addition

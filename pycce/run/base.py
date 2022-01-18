@@ -3,7 +3,7 @@ from collections import defaultdict
 
 import numpy as np
 import scipy.linalg
-from pycce.h import zero_order_addition
+from pycce.h import zero_order_addition, zero_order_imap
 from pycce.run.clusters import cluster_expansion_decorator, interlaced_decorator
 from pycce.run.mc import monte_carlo_method_decorator
 from pycce.run.pulses import Sequence
@@ -179,7 +179,7 @@ class RunObject:
 
         self.cluster = None
         """BathArray: Array of the bath spins inside the given cluster."""
-
+        self.cluster_indexes = None
         self.others = None
         """BathArray: Array of the bath spins outside the given cluster."""
         self.others_mask = None
@@ -216,6 +216,7 @@ class RunObject:
         self.hamiltonian = None
 
         self.cluster = None
+        self.cluster_indexes = None
         self.others = None
         self.others_mask = None
 
@@ -245,7 +246,6 @@ class RunObject:
             Method which will be called after cluster-expanded run.
         """
 
-
         pass
 
     def generate_hamiltonian(self):
@@ -268,6 +268,7 @@ class RunObject:
             ndarray: Results of the calculations.
 
         """
+        self.cluster_indexes = cluster
         self.cluster = self.bath[cluster]
 
         if self.has_states:
@@ -597,9 +598,12 @@ class RunObject:
         if self.projected_states is None:
 
             if self.others is not None:
-                self.hamiltonian = self.base_hamiltonian.data + zero_order_addition(self.base_hamiltonian.vectors,
-                                                                                    self.cluster, self.others,
-                                                                                    self.others.proj)
+                addition = zero_order_imap(self.base_hamiltonian.vectors, self.cluster_indexes, self.bath,
+                                           self.bath.proj)
+                # addition = zero_order_addition(self.base_hamiltonian.vectors, self.cluster, self.others,
+                #                                self.others.proj)
+                self.hamiltonian = self.base_hamiltonian.data + addition
+
             else:
                 self.hamiltonian = self.base_hamiltonian.data
 
@@ -607,8 +611,10 @@ class RunObject:
         if self.projected_states is None:
             return self.hamiltonian
         if self.others is not None:
-            addition = zero_order_addition(self.base_hamiltonian.vectors, self.cluster, self.others,
-                                           self.projected_states[self.others_mask, index])
+            # addition = zero_order_addition(self.base_hamiltonian.vectors, self.cluster, self.others,
+            #                                self.projected_states[self.others_mask, index])
+            addition = zero_order_imap(self.base_hamiltonian.vectors, self.cluster_indexes, self.bath,
+                                       self.projected_states[:, index])
         else:
             addition = 0
         return self.base_hamiltonian.data + addition

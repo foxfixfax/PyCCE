@@ -347,3 +347,7 @@ def overhauser_bath(ivec, position, gyro,
 
     return zfield * ivec[2]  # + xfield * ivec[0] + yfield * ivec[1]
 
+
+@jit(cache=True, nopython=True)
+def overhauser_from_tensors(vec, tensors, projected_state):
+    return (tensors[:, 2, 2] * projected_state).sum() * vec[2]
