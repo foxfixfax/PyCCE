@@ -464,11 +464,22 @@ def find_valid_subclusters(graph, maximum_order, nclusters=None, bath=None, stro
             # Transform list of numpy arrays into numpy array
 
             try:
+
                 ltriplets = np.concatenate(ltriplets, axis=0)
+
+                # First order by lowest strength, so from two identical triplets
+                # one with lower strength will be first in np.unique call
+
+                if nclusters is not None:
+                    ltstr = np.concatenate(ltstr)
+                    ordered_by_lowest_strength = ltstr.argsort()
+                    ltriplets = ltriplets[ordered_by_lowest_strength]
+                    ltstr = ltstr[ordered_by_lowest_strength]
+
                 ltriplets, indexes = np.unique(np.sort(ltriplets, axis=1), axis=0, return_index=True)
 
                 if nclusters is not None:
-                    ltstr = np.concatenate(ltstr)[indexes]
+                    ltstr = ltstr[indexes]
                     ordered_by_strength = ltstr.argsort()[::-1]
                     ltriplets = ltriplets[ordered_by_strength]
                     ltstr = ltstr[ordered_by_strength]
