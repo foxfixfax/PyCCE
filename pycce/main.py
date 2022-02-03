@@ -676,7 +676,7 @@ class Simulator:
         self.total_bath = self._bath
 
         self._r_bath = None
-        self.external_bath = None
+        self._external_bath = None
         self._ext_r_bath = None
         self.hyperfine = None
 
@@ -1184,10 +1184,22 @@ def _broadcast_simulator(simulator=None, root=0):
     # size = comm.Get_size()
     rank = comm.Get_rank()
 
-    nsim = comm.bcast(simulator, root=root)
+    if rank == root:
+        bath = simulator.bath
+        center = simulator.center
 
-    nbath = broadcast_array(simulator.bath)
-    ncenter = broadcast_array(simulator.center)
+        simulator._bath = None
+        simulator.center = None
+
+    else:
+        bath = None
+        center = None
+        simulator = None
+
+    nbath = broadcast_array(bath, root=root)
+    ncenter = broadcast_array(center, root=root)
+
+    nsim = comm.bcast(simulator, root=root)
 
     nsim.center = ncenter
     nsim._bath = nbath

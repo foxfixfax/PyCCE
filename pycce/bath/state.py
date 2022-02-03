@@ -330,7 +330,6 @@ def project_bath_states(states, single=False, rotation=None):
 
     return projected_bath_state
 
-
 @jit(nopython=True)
 def _loop_trace(states):
     proj_states = np.empty((len(states),), dtype=np.float64)  # (len(states), 3)

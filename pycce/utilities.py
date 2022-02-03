@@ -175,14 +175,18 @@ def zfs_tensor(D, E=0):
     Returns:
         ndarray with shape (3, 3): Total ZFS tensor.
     """
-    if isinstance(D, (np.floating, float, int)):
+    D = np.asarray(D)
+
+    if D.size == 1:
 
         tensor = np.zeros((3, 3), dtype=np.float64)
         tensor[2, 2] = 2 / 3 * D
         tensor[1, 1] = -D / 3 - E
         tensor[0, 0] = -D / 3 + E
+
     else:
         tensor = D
+
     return tensor
 
 

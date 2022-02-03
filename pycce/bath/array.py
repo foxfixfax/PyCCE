@@ -1259,6 +1259,25 @@ def _inner_set_attr(types, key, attr, value):
         setattr(types[key], attr, value)
     return
 
+def broadcast_ba(array, root=0):
+    import mpi4py
+    comm = mpi4py.MPI.COMM_WORLD
+    rank = comm.Get_rank()
+
+    if rank == root:
+        center = array.nc
+        shape = array.shape
+    else:
+        center = None
+        shape = None
+    center = comm.bcast(center, root=root)
+    shape = comm.bcast(shape, root=root)
+
+    if rank != root:
+        array = 1
+
+
+
 
 def broadcast_array(array, root=0):
 
