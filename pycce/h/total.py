@@ -232,7 +232,7 @@ def projected_addition(vectors, bath, center, state):
 
 def center_zo_addition(vectors, cluster, outer_spin, outer_state):
     addition = 0
-    ncenters = vectors.size - cluster.size
+    ncenters = vectors.shape[0] - cluster.size
 
     for i, v in enumerate(vectors[cluster.size:]):
         if ncenters == 1:

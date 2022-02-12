@@ -6,8 +6,11 @@ from pycce.utilities import generate_initial_state
 
 
 def _rotmul(rotation, u, **kwargs):
-    if rotation is not None:
+    if rotation is not None and u is not None:
         u = np.matmul(rotation, u, **kwargs)
+    elif rotation is not None:
+        u = rotation
+
     return u
 
 
@@ -502,19 +505,22 @@ class CCE(RunObject):
         unitary_1 = None
         ps_counter = 0
         for p, delay, rotation in zip(self.pulses, self.delays, self.rotations):
+            if np.any(delay):
+                eigen_exp0 = np.exp(-1j * np.outer(delay, eval0), dtype=np.complex128)
 
-            eigen_exp0 = np.exp(-1j * np.outer(delay, eval0), dtype=np.complex128)
+                eigen_exp1 = np.exp(-1j * np.outer(delay, eval1), dtype=np.complex128)
 
-            eigen_exp1 = np.exp(-1j * np.outer(delay, eval1), dtype=np.complex128)
+                u0 = np.matmul(np.einsum('...ij,...j->...ij', evec0, eigen_exp0, dtype=np.complex128), evec0.conj().T)
 
-            u0 = np.matmul(np.einsum('...ij,...j->...ij', evec0, eigen_exp0, dtype=np.complex128), evec0.conj().T)
+                u1 = np.matmul(np.einsum('...ij,...j->...ij', evec1, eigen_exp1, dtype=np.complex128), evec1.conj().T)
 
-            u1 = np.matmul(np.einsum('...ij,...j->...ij', evec1, eigen_exp1, dtype=np.complex128), evec1.conj().T)
+                times += delay
 
-            times += delay
-
-            unitary_0 = _rotmul(rotation, u0) if unitary_0 is None else np.matmul(u0, _rotmul(rotation, unitary_0))
-            unitary_1 = _rotmul(rotation, u1) if unitary_1 is None else np.matmul(u1, _rotmul(rotation, unitary_1))
+                unitary_0 = _rotmul(rotation, u0) if unitary_0 is None else np.matmul(u0, _rotmul(rotation, unitary_0))
+                unitary_1 = _rotmul(rotation, u1) if unitary_1 is None else np.matmul(u1, _rotmul(rotation, unitary_1))
+            else:
+                unitary_0 = _rotmul(rotation, unitary_0)
+                unitary_1 = _rotmul(rotation, unitary_1)
 
             if p.bath_names is not None:
                 ps_counter += 1

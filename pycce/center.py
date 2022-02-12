@@ -306,6 +306,8 @@ class Center:
             magnetic_field = np.array([0., 0., 0.], dtype=np.float64)
 
         magnetic_field = np.asarray(magnetic_field)
+        if magnetic_field.size == 1:
+            magnetic_field = np.array([0., 0., magnetic_field.reshape(-1)[0]])
 
         if isinstance(bath, BathArray):
             bath = bath.A
