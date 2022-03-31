@@ -8,6 +8,12 @@ from numba.typed import List
 
 
 class BathState:
+    r"""
+    Class for storing the state of the bath spins.
+
+    Args:
+        size (int): Number of bath states to be stored.
+    """
     _dtype_state = np.dtype([
         ('proj', np.float64),
         ('state', object),
@@ -153,6 +159,16 @@ class BathState:
                 self.pure[key] = [(len(rho.shape) == 1) if rho is not None else False for rho in value]
 
     def gen_pure(self, rho, dim):
+        """
+        Generate pure states from the :math:`S_z` projections to be stored in the given `BathState` object.
+
+        Args:
+            rho (ndarray with shape (n,)): Array of the desired projections.
+            dim (ndarray with shape (n,)): Array of the dimensions of the spins.
+
+        Returns:
+            BathState: A given instance of the BathState object.
+        """
         rho = np.asarray(rho)
 
         if not rho.shape:
@@ -170,21 +186,31 @@ class BathState:
             rho = gen_state_list(rho, np.broadcast_to(dim, self.shape))
         self[...] = rho
 
+        return self
     @property
     def state(self):
+        """
+        ndarray: Return an underlying object array.
+        """
         return self._data['state']
 
     @property
     def pure(self):
+        """
+        ndarray: Bool property. True if given entry is a pure state, False otherwise.
+        """
         return self._data['pure']
 
     @pure.setter
     def pure(self, pure):
+
         self._data['pure'] = pure
 
     @property
     def _up_to_date(self):
-
+        """
+        bool: True if projections are up to date, False otherwise.
+        """
         if self.__up_to_date is None:
             self.__up_to_date = np.asarray(False)
 
@@ -200,7 +226,9 @@ class BathState:
 
     @property
     def proj(self):
-
+        """
+        ndarray: Projections of bath states on :math:`S_z`.
+        """
         if not self._up_to_date:
             self._project()
 
@@ -208,13 +236,23 @@ class BathState:
 
     @property
     def has_state(self):
-
+        """
+        ndarray: Bool property. True if given element was initialized as a state, False otherwise.
+        """
         # if self._in_need_of_checking.any():
         #     self._has_state[self._in_need_of_checking] = False
         return self._data['hs']
 
     def project(self, rotation=None):
+        """
+        Generate projections of bath states on :math:`S_z`.
+        Args:
+            rotation (optional, ndarray with shape (3, 3)):
+                Matrix used to transform :math:`S_z` matrix as :math:`S_z' = R^{\dagger} S_z R`.
 
+        Returns:
+            ndarray with shape (n, ): Array with projections of the state.
+        """
         if rotation is None:
             self._data['hps'] = False
             self._project()
@@ -248,10 +286,16 @@ class BathState:
 
     @property
     def shape(self):
+        """
+        Shape of the BathState underlying array.
+        """
         return self._data.shape
 
     @property
     def size(self):
+        """
+        Size of the BathState underlying array.
+        """
         return self._data.size
 
     def any(self, *args, **kawrgs):
@@ -266,6 +310,14 @@ class BathState:
 
 
 def objarr(array):
+    """
+    Make an array with object entries from iterable.
+    Args:
+        array (iterable): Iterable containing elements of the future array.
+
+    Returns:
+        ndarray: Object array.
+    """
     nar = len(array)
     obj = np.empty(nar, dtype=object)
 
@@ -277,11 +329,15 @@ def objarr(array):
 def project_bath_states(states, single=False, rotation=None):
     r"""
     Generate projections of bath states on :math:`S_z` axis from any type of states input.
+
     Args:
         states (array-like): Array of bath spin states.
+        single (bool): True if a single bath spin. Default False.
+        rotation (optional, ndarray with shape (3, 3)):
+            Matrix used to transform :math:`S_z` matrix as :math:`S_z' = R^{\dagger} S_z R`.
 
     Returns:
-        ndarray: Array of :math:`S_z` projections of the bath states
+        ndarray: Array of :math:`S_z` projections of the bath states.
     """
     # Ask for single b/c check against shape cannot distinguish 2x2 dm and 2 vectors of 2
     # Other checks are kinda expensive

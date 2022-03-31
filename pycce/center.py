@@ -423,11 +423,11 @@ class CenterArray(Center, collections.abc.Sequence):
         attr_arr_setter(self, '_gyro', gyro)
 
     def __getitem__(self, item):
-        if isinstance(item, int):
-            return self._array.__getitem__(item)
+        newarray = self._array.__getitem__(item)
+        if isinstance(newarray, Center):
+            return newarray
 
         else:
-            newarray = self._array.__getitem__(item)
             xyz = self.xyz[item]
             gyro = self.gyro[item]
             s = self.s[item]
@@ -617,7 +617,7 @@ class CenterArray(Center, collections.abc.Sequence):
             if s is None:
                 return None
             state = np.kron(state, s)
-
+        state = normalize(state)
         return state
 
 

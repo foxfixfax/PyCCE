@@ -8,7 +8,7 @@ from pycce.run.clusters import cluster_expansion_decorator, interlaced_decorator
 from pycce.run.mc import monte_carlo_method_decorator
 from pycce.run.pulses import Sequence
 from pycce.sm import _smc
-from pycce.utilities import expand, shorten_dimensions, gen_state_list
+from pycce.utilities import expand, shorten_dimensions, gen_state_list, numba_gen_sm
 
 
 class RunObject:
@@ -495,6 +495,105 @@ class RunObject:
         for single in states:
             yield single
 
+    # def generate_pulses(self):
+    #     """
+    #     Generate list of matrix representations of the rotations, induced by the sequence of the pulses.
+    #
+    #     The rotations are stored in the ``.rotation`` attribute of the each ``Pulse`` object
+    #     and in ``Sequence.rotations``.
+    #
+    #     Args:
+    #         dimensions (ndarray with shape (N,)): Array of spin dimensions in the system.
+    #         bath (BathArray with shape (n,)): Array of bath spins in the system.
+    #         vectors (ndarray  with shape (N, 3, prod(dimensions), prod(dimensions))):
+    #              Array with vectors of spin matrices for each spin in the system.
+    #
+    #         central_spin (CenterArray): Optional. Array of central spins.
+    #
+    #     Returns:
+    #         tuple: *tuple* containing:
+    #
+    #         * **list** or **None**: List with delays before each pulse or None if equispaced.
+    #
+    #         * **list**: List with matrix representations of the rotation from each pulse.
+    #     """
+    #     dimensions = self.base_hamiltonian.dimensions
+    #     vectors = self.base_hamiltonian.vectors
+    #
+    #     cs = self.center
+    #     bath = self.cluster
+    #     ndims = len(dimensions)
+    #     if cs is not None:
+    #         if bath is not None and ndims == bath.size:
+    #             cs = None  # Ignore central spin
+    #             nc = None
+    #             shortdims = None
+    #         else:
+    #             nc = len(cs)  # number of central spins
+    #             shortdims = shorten_dimensions(dimensions, nc)
+    #
+    #     self.delays = None
+    #     self.rotations = None
+    #
+    #     equispaced = not any(p._has_delay for p in self.pulses)
+    #
+    #     if equispaced:
+    #         delays = None
+    #
+    #     else:
+    #         delays = [p.delay if p.delay is not None else 0 for p in self.pulses]
+    #
+    #     rots = []
+    #     # Sigma as if central spin array is total spin. Sigma - pauli matrix
+    #     total_sigma = {}
+    #     separate_sigma = defaultdict(dict)
+    #     for p in self.pulses:
+    #
+    #         initial_rotation = rotation = 1
+    #
+    #         if p.angle and cs is not None:
+    #             if p.which is None:
+    #                 if p.axis not in total_sigma:
+    #                     total_sigma[p.axis] = expand(cs.sigma[p.axis], ndims - nc, shortdims)
+    #                 rotation = spin_matrix_rotation(total_sigma[p.axis] / 2, p.angle, spin_half=True)
+    #
+    #             else:
+    #                 for i in p.which:
+    #                     c = cs[i]
+    #                     if p.axis not in separate_sigma[i]:
+    #                         separate_sigma[i][p.axis] = expand(c.sigma[p.axis], ndims - nc, shortdims)
+    #                     rotation = np.dot(spin_matrix_rotation(separate_sigma[i][p.axis] / 2,
+    #                                                            p.angle, spin_half=True),
+    #                                       rotation)
+    #
+    #         if p.bath_names is not None and bath is not None:
+    #             if vectors.shape != bath.shape:
+    #                 vectors = vectors[:bath.shape[0]]
+    #                 # print(vectors.shape)
+    #             properties = np.broadcast(p.bath_names, p.bath_axes, p.bath_angles)
+    #
+    #             for name, axis, angle in properties:
+    #                 if angle:
+    #                     which = (bath.N == name)
+    #
+    #                     if any(which):
+    #                         vecs = vectors[which]
+    #                         rotation = np.dot(bath_rotation(vecs, axis, angle), rotation)
+    #
+    #         if initial_rotation is rotation:
+    #             rotation = None
+    #
+    #         p.rotation = rotation
+    #
+    #         rots.append(rotation)
+    #
+    #     self.delays = delays
+    #     self.rotations = rots
+    #
+    #     return delays, rots
+    #
+
+
     def generate_pulses(self):
         """
         Generate list of matrix representations of the rotations, induced by the sequence of the pulses.
@@ -519,18 +618,21 @@ class RunObject:
         """
         dimensions = self.base_hamiltonian.dimensions
         vectors = self.base_hamiltonian.vectors
-
         cs = self.center
         bath = self.cluster
         ndims = len(dimensions)
+        bathvectors = vectors[:bath.shape[0]]
+
+        shortdims = None
+        csindex = None
+
         if cs is not None:
             if bath is not None and ndims == bath.size:
                 cs = None  # Ignore central spin
-                nc = None
-                shortdims = None
             else:
                 nc = len(cs)  # number of central spins
                 shortdims = shorten_dimensions(dimensions, nc)
+                csindex = ndims - nc
 
         self.delays = None
         self.rotations = None
@@ -545,40 +647,36 @@ class RunObject:
 
         rots = []
         # Sigma as if central spin array is total spin. Sigma - pauli matrix
-        total_sigma = {}
-        separate_sigma = defaultdict(dict)
+
+        total_svec = None
+        separate_svec = dict()
+
         for p in self.pulses:
 
             initial_rotation = rotation = 1
 
-            if p.angle and cs is not None:
+            if p.naxes and cs is not None:
                 if p.which is None:
-                    if p.axis not in total_sigma:
-                        total_sigma[p.axis] = expand(cs.sigma[p.axis], ndims - nc, shortdims)
-                    rotation = spin_matrix_rotation(total_sigma[p.axis] / 2, p.angle, spin_half=True)
+
+                    if total_svec is None:
+                        total_svec = from_sigma(cs.sigma, csindex, shortdims) / 2
+                    rotation = p.generate_rotation(total_svec, spin_half=True)
 
                 else:
                     for i in p.which:
                         c = cs[i]
-                        if p.axis not in separate_sigma[i]:
-                            separate_sigma[i][p.axis] = expand(c.sigma[p.axis], ndims - nc, shortdims)
-                        rotation = np.dot(spin_matrix_rotation(separate_sigma[i][p.axis] / 2,
-                                                               p.angle, spin_half=True),
+                        if i not in separate_svec:
+                            separate_svec[i] = from_sigma(c.sigma, csindex, shortdims) / 2
+                        rotation = np.dot(p.generate_rotation(separate_svec[i], spin_half=True),
                                           rotation)
 
-            if p.bath_names is not None and bath is not None:
-                if vectors.shape != bath.shape:
-                    vectors = vectors[:bath.shape[0]]
-                    # print(vectors.shape)
-                properties = np.broadcast(p.bath_names, p.bath_axes, p.bath_angles)
+            for name in p:
 
-                for name, axis, angle in properties:
-                    if angle:
-                        which = (bath.N == name)
+                which = (bath.N == name)
 
-                        if any(which):
-                            vecs = vectors[which]
-                            rotation = np.dot(bath_rotation(vecs, axis, angle), rotation)
+                if any(which):
+                    vecs = bathvectors[which]
+                    rotation = np.dot(pulse_bath_rotation(p[name], vecs), rotation)
 
             if initial_rotation is rotation:
                 rotation = None
@@ -591,6 +689,7 @@ class RunObject:
         self.rotations = rots
 
         return delays, rots
+
 
     def check_hamiltonian(self):
         self.hamiltonian = None
@@ -620,22 +719,27 @@ class RunObject:
         return self.base_hamiltonian.data + addition
 
 
+def from_sigma(sigma, i, dims):
+    return np.array([expand(sigma[ax], i, dims) for ax in sigma])
+
+
 def generate_rotated_projected_states(bath, pulses):
     state = bath.state
     projected = [state.proj]
     rotations = {}
     for p in pulses:
+
         if p.bath_names is not None:
             proj = state.proj.copy()
 
-            properties = np.broadcast(p.bath_names, p.bath_axes, p.bath_angles)
-            for name, axis, angle in properties:
+            for name in p:
+
                 which = (bath.N == name)
 
-                if any(which) and angle:
+                if any(which):
                     spin = bath.types[name].s
 
-                    rotation = spin_matrix_rotation(getattr(_smc[spin], axis), angle, spin < 1)
+                    rotation = p[name].generate_rotation(np.array(numba_gen_sm(round(2 * spin + 1))))
 
                     if name in rotations:
                         rotation = rotation @ rotations[name]
@@ -669,6 +773,26 @@ def bath_rotation(vectors, axis, angle):
 
     for v in vectors[1:]:
         np.matmul(rotation, spin_matrix_rotation(v[ax], angle, spin_half=v[0, 0, 0] < 1), out=rotation)
+
+    return rotation
+
+def pulse_bath_rotation(pulse, vectors):
+    """
+    Generate rotation of the bath spins with given spin vectors.
+
+    Args:
+        vectors (ndarray with shape (n, 3, x, x)): Array of *n* bath spin vectors.
+        axis (str): Axis of rotation.
+        angle (float): Angle of rotation.
+
+    Returns:
+        ndarray with shape (x, x): Matrix representation of the spin rotation.
+
+    """
+    rotation = pulse.generate_rotation(vectors[0], spin_half=vectors[0, 0, 0, 0] < 1)
+
+    for v in vectors[1:]:
+        np.matmul(rotation, pulse.generate_rotation(v, spin_half=v[0, 0, 0] < 1), out=rotation)
 
     return rotation
 

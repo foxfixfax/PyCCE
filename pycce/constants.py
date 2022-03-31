@@ -50,7 +50,7 @@ HARTREE_TO_MHZ = 6579680000.0
 M_TO_BOHR = 18897300000.0
 
 ELECTRON_GYRO = -17608.597050  # rad / (ms * Gauss) or rad * kHz / G
-HBAR = 1.05457172  # When everything else in rad, kHz, ms, G, A
+HBAR_MU0_O4PI = 1.05457172  # When everything else in rad, kHz, ms, G, A
 
 COMPLEX_DTYPE = np.complex128
 

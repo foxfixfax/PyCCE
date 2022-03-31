@@ -713,14 +713,17 @@ class Simulator:
         if magnetic_field is None:
             magnetic_field = 0
 
-        magnetic_field = np.asarray(magnetic_field, dtype=np.float64)
+        if callable(magnetic_field):
+            self._magnetic_field = magnetic_field
+        else:
+            magnetic_field = np.asarray(magnetic_field, dtype=np.float64)
 
-        if magnetic_field.size == 1:
-            magnetic_field = np.array([0, 0, magnetic_field.flatten()[0]])
+            if magnetic_field.size == 1:
+                magnetic_field = np.array([0, 0, magnetic_field.flatten()[0]])
 
-        assert magnetic_field.size == 3, "Improper magnetic field format."
+            assert magnetic_field.size == 3, "Improper magnetic field format."
 
-        self._magnetic_field = magnetic_field
+            self._magnetic_field = magnetic_field
 
     def generate_clusters(self, order=None, r_dipole=None, r_inner=0, strong=False, ignore=None, n_clusters=None):
         r"""

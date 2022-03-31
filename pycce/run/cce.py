@@ -319,11 +319,12 @@ class CCE(RunObject):
             pulses = self.initial_pulses
             number = len(self.initial_pulses)
 
-            angles = [p.angle for p in pulses]
+            angles = np.array([p._angles for p in pulses])
+            naxes = [p.naxes for p in pulses]
 
             c0 = all(p.which is None for p in pulses)
-            c1 = not (None in angles)
-            c2 = all([p.bath_names is None for p in pulses])
+            c1 = all(n <= 1 for n in naxes)
+            c2 = all([not p.keys() for p in pulses])
             c3 = all([not p._has_delay for p in pulses])
 
             if (c0 & c1 & c2 & c3) or not number:
@@ -333,12 +334,7 @@ class CCE(RunObject):
                 self.pulses = self.initial_pulses
                 self.use_pulses = True
 
-            if not c1:
-                pure_angles = [value for value in angles if value]
-            else:
-                pure_angles = angles
-
-            if not all(np.isclose(pure_angles, np.pi)):
+            if not c1 or not (np.isclose(angles, np.pi) | np.isclose(angles, 0)).all():
                 raise ValueError('Only pi-pulses are supported in CCE. Use gCCE for user-defined sequences.')
 
             if not c0 and self.second_order:

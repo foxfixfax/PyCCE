@@ -41,7 +41,7 @@ def rotmatrix(initial_vector, final_vector):
     return r
 
 
-@jit(nopython=True)
+@jit(cache=True, nopython=True)
 def expand(matrix, i, dim):
     """
     Expand matrix M from it's own dimensions to the total Hilbert space.
@@ -108,9 +108,9 @@ def vecs_from_dims(dimensions):
     return vectors
 
 
-@jit(nopython=True)
+@jit(cache=True, nopython=True)
 def spinvec(j, dimensions):
-    x, y, z = _gen_sm(dimensions[j])
+    x, y, z = numba_gen_sm(dimensions[j])
     vec = np.stack((expand(x, j, dimensions),
                     expand(y, j, dimensions),
                     expand(z, j, dimensions))
@@ -190,8 +190,8 @@ def zfs_tensor(D, E=0):
     return tensor
 
 
-@jit(nopython=True)
-def _gen_sm(dim):
+@jit(cache=True, nopython=True)
+def numba_gen_sm(dim):
     """
     Numba-friendly spin matrix.
     Args:
@@ -240,7 +240,7 @@ def partial_inner_product(avec, total, dimensions, index=-1):
     return avec @ matrix
 
 
-@jit(nopython=True)
+@jit(cache=True, nopython=True)
 def shorten_dimensions(dimensions, central_number):
     if central_number > 1:
         shortdims = dimensions[:-central_number + 1].copy()
@@ -251,7 +251,7 @@ def shorten_dimensions(dimensions, central_number):
     return shortdims
 
 
-@jit(nopython=True)
+@jit(cache=True, nopython=True)
 def gen_state_list(states, dims):
     list_of_vectors = List()
     for s, d in zip(states, dims):
@@ -259,7 +259,7 @@ def gen_state_list(states, dims):
     return list_of_vectors
 
 
-@jit(nopython=True)
+@jit(cache=True, nopython=True)
 def vector_from_s(s, d):
     vec_nucleus = np.zeros(d, dtype=np.complex128)
     state_number = np.int32((d - 1) / 2 - s)
@@ -267,18 +267,17 @@ def vector_from_s(s, d):
     return vec_nucleus
 
 
-@jit(nopython=True)
+@jit(cache=True, nopython=True)
 def from_central_state(dimensions, central_state):
     return expand(central_state, len(dimensions) - 1, dimensions) / dimensions[:-1].prod()
 
 
-@jit(nopython=True)
+@jit(cache=True, nopython=True)
 def from_none(dimensions):
     tdim = np.prod(dimensions)
     return np.eye(tdim) / tdim
 
 
-@jit(nopython=True)
 def from_states(states):
     cluster_state = states[0]
     for s in states[1:]:
@@ -297,7 +296,7 @@ def combine_cluster_central(cluster_state, central_state):
         return eq_cc(cluster_state, central_state)
 
 
-@jit(nopython=True)
+@jit(cache=True, nopython=True)
 def noneq_cc(cluster_state, central_state):
     if len(cluster_state.shape) == 1:
         matrix = outer(cluster_state, cluster_state)
@@ -308,12 +307,12 @@ def noneq_cc(cluster_state, central_state):
         return np.kron(cluster_state, matrix)
 
 
-@jit(nopython=True)
+@jit(cache=True, nopython=True)
 def eq_cc(cluster_state, central_state):
     return np.kron(cluster_state, central_state)
 
 
-@jit(nopython=True)
+@jit(cache=True, nopython=True)
 def rand_state(d):
     return np.eye(d, dtype=np.complex128) / d
 
@@ -352,7 +351,7 @@ def generate_initial_state(dimensions, states=None, central_state=None):
             if len(states[i].shape) < 2:
                 states[i] = outer(states[i], states[i])
 
-    cluster_state = from_states(list(states))
+    cluster_state = from_states(states)
 
     if central_state is not None:
         cluster_state = combine_cluster_central(cluster_state, central_state)

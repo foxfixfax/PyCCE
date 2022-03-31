@@ -7,7 +7,7 @@ import numpy as np
 from numpy.lib.recfunctions import repack_fields
 from pycce.bath.map import InteractionMap
 from pycce.bath.state import BathState
-from pycce.constants import HBAR, ELECTRON_GYRO, HBAR_SI, NUCLEAR_MAGNETON, PI2
+from pycce.constants import HBAR_MU0_O4PI, ELECTRON_GYRO, HBAR_SI, NUCLEAR_MAGNETON, PI2
 from pycce.utilities import gen_state_list, vector_from_s, rotate_coordinates, rotate_tensor
 
 HANDLED_FUNCTIONS = {}
@@ -1068,10 +1068,10 @@ def point_dipole(pos, gyro_array, gyro_center):
         else:
             pref = gyro_center * gyro_array
         out = -(3 * posxpos - identity * r ** 2) / (r ** 5)
-        out = out * pref.reshape(*pref.shape, 1, 1) * HBAR / PI2
+        out = out * pref.reshape(*pref.shape, 1, 1) * HBAR_MU0_O4PI / PI2
         return out
 
-    out = -(3 * posxpos - identity * r ** 2) / (r ** 5) * HBAR / PI2
+    out = -(3 * posxpos - identity * r ** 2) / (r ** 5) * HBAR_MU0_O4PI / PI2
 
     if not check_array:
         out = np.matmul(out, gyro_array)

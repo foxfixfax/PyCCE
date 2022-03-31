@@ -400,8 +400,9 @@ def find_valid_subclusters(graph, maximum_order, nclusters=None, bath=None, stro
         if nclusters is not None:
             r = bath[col_ind].dist(bath[row_ind])
             # cos_theta = (bath[col_ind].z - bath[row_ind].z) / r
-            strength[2] = np.abs(bath[col_ind].gyro * bath[row_ind].gyro / r ** 3)  # * (1 - 2 * cos_theta ** 2))
-            ordered = strength[2].argsort()[::-1]
+            # strength[2] = np.abs(bath[col_ind].gyro * bath[row_ind].gyro / r ** 3)  # * (1 - 2 * cos_theta ** 2))
+            strength[2] = 1 / np.abs(bath[col_ind].gyro * bath[row_ind].gyro / r ** 3)  # * (1 - 2 * cos_theta ** 2))
+            ordered = strength[2].argsort()  # [::-1] return if strength = np.abs
             bonds = bonds[ordered]
             strength[2] = strength[2][ordered]
 
@@ -450,7 +451,8 @@ def find_valid_subclusters(graph, maximum_order, nclusters=None, bath=None, stro
                 if nclusters is not None:
                     teststrength = strength[order - 1][i]
                     tripletstrength = strength[2][choosebonds][rows]
-                    tripletstrength[tripletstrength > teststrength] = teststrength
+                    # tripletstrength[tripletstrength > teststrength] = teststrength
+                    tripletstrength += teststrength
 
                 if strong and triplets.any():
                     unique, index, counts = np.unique(np.sort(triplets, axis=1), axis=0, return_index=True,
@@ -481,7 +483,8 @@ def find_valid_subclusters(graph, maximum_order, nclusters=None, bath=None, stro
 
                 if nclusters is not None:
                     ltstr = np.concatenate(ltstr)
-                    ordered_by_lowest_strength = ltstr.argsort()
+                    ordered_by_lowest_strength = ltstr.argsort()  # [::-1]  # reverse indexes b/c strength is 1/strength
+                    # ordered_by_lowest_strength = ltstr.argsort()
                     ltriplets = ltriplets[ordered_by_lowest_strength]
                     ltstr = ltstr[ordered_by_lowest_strength]
 
@@ -489,7 +492,9 @@ def find_valid_subclusters(graph, maximum_order, nclusters=None, bath=None, stro
 
                 if nclusters is not None:
                     ltstr = ltstr[indexes]
-                    ordered_by_strength = ltstr.argsort()[::-1]
+                    ordered_by_strength = ltstr.argsort()  # 0 strength - all bonds are strongly coupled
+                    # ordered_by_strength = ltstr.argsort()[::-1]
+
                     ltriplets = ltriplets[ordered_by_strength]
                     ltstr = ltstr[ordered_by_strength]
 

@@ -2,7 +2,7 @@ import \
     numpy as np
 
 from pycce.bath.array import check_gyro
-from pycce.constants import HBAR, PI2, ELECTRON_GYRO
+from pycce.constants import HBAR_MU0_O4PI, PI2, ELECTRON_GYRO
 from pycce.utilities import dimensions_spinvectors, expand, tensor_vdot, vvdot
 from numba import jit, generated_jit, types
 
@@ -40,6 +40,17 @@ def expanded_single(ivec, gyro, mfield, self_tensor, detuning=.0):
 
 @generated_jit(cache=True, nopython=True)
 def zeeman(ivec, gyro, mfield):
+    """
+    Function
+    Args:
+        ivec (ndarray with shape (3, n, n)): Spin vector of the  spin in the full Hilbert space of the cluster.
+        gyro (float or ndarray with shape (3, 3)): Gyromagnetic ratio of the spin.
+        mfield (ndarray with shape (3, )): Magnetic field at the position of the spin.
+
+    Returns:
+        ndarray with shape (n, n): Zeeman interactions.
+
+    """
     if isinstance(gyro, types.Float):
         def z(ivec, gyro, mfield):
             return - gyro / PI2 * (mfield[0] * ivec[0] + mfield[1] * ivec[1] + mfield[2] * ivec[2])
@@ -55,25 +66,38 @@ def zeeman(ivec, gyro, mfield):
 
 @generated_jit(cache=True, nopython=True)
 def dd_tensor(coord_1, coord_2, g1, g2):
+    """
+    Generate dipole-dipole interaction tensor.
+
+    Args:
+        coord_1 (ndarray with shape (3,)): Coordinates of the first spin.
+        coord_2 (ndarray with shape (3,)): Coordinates of the second spin.
+        g1 (float or ndarray with shape (3, 3)): Gyromagnetic ratio of the first spin.
+        g2 (float or ndarray with shape (3, 3)): Gyromagnetic ratio of the second spin.
+
+    Returns:
+        ndarray with shape (3, 3): Interaction tensor.
+
+    """
     if isinstance(g2, types.Float) and isinstance(g1, types.Float):
         def func(coord_1, coord_2, g1, g2):
-            p_tensor = gen_pos_tensor(coord_1, coord_2)
+            p_tensor = gen_pos_tensor(coord_1, coord_2) * HBAR_MU0_O4PI / PI2
             p_tensor *= g2 * g1
             return p_tensor
 
     elif isinstance(g1, types.Float):
         def func(coord_1, coord_2, g1, g2):
-            p_tensor = gen_pos_tensor(coord_1, coord_2)
+            p_tensor = gen_pos_tensor(coord_1, coord_2) * HBAR_MU0_O4PI / PI2
             p_tensor = g1 * p_tensor @ g2
             return p_tensor
     elif isinstance(g2, types.Float):
         def func(coord_1, coord_2, g1, g2):
-            p_tensor = gen_pos_tensor(coord_1, coord_2)
+            p_tensor = gen_pos_tensor(coord_1, coord_2) * HBAR_MU0_O4PI / PI2
             p_tensor = g1 @ p_tensor * g2
             return p_tensor
     else:
         def func(coord_1, coord_2, g1, g2):
-            p_tensor = gen_pos_tensor(coord_1, coord_2)
+            p_tensor = gen_pos_tensor(coord_1, coord_2) * HBAR_MU0_O4PI / PI2
             p_tensor = g1 @ p_tensor @ g2
             return p_tensor
     return func
@@ -102,14 +126,36 @@ def dipole_dipole(coord_1, coord_2, g1, g2, ivec_1, ivec_2):
 
 @jit(cache=True, nopython=True)
 def gen_pos_tensor(coord_1, coord_2):
+    """
+    Generate positional tensor -(3*r @ r.T - r*r), used for hyperfine tensor (without gyro factor).
+
+    Args:
+        coord_1 (ndarray with shape (3,)): Coordinates of the first spin.
+        coord_2 (ndarray with shape (3,)): Coordinates of the second spin.
+
+    Returns:
+        ndarray with shape (3, 3): Positional tensor.
+
+    """
     pos = coord_1 - coord_2
     r = np.linalg.norm(pos)
 
-    return -(3 * np.outer(pos, pos) - np.eye(3, dtype=np.complex128) * r ** 2) / (r ** 5) * HBAR / PI2
+    return -(3 * np.outer(pos, pos) - np.eye(3, dtype=np.complex128) * r ** 2) / (r ** 5)
 
 
 @jit(cache=True, nopython=True)
 def vec_tensor_vec(v1, tensor, v2):
+    """
+    Compute product V @ T @ V.
+    Args:
+        v1 (ndarray with shape (3, n, n)): Leftmost expanded spin vector.
+        tensor (ndarray with shape (3, 3)): 3x3 interaction tensor in real space.
+        v2 (ndarray with shape (3, n, n)): Rightmost expanded spin vector.
+
+    Returns:
+        ndarray with shape (n, n): Product vTv.
+
+    """
     t_vec = tensor_vdot(tensor, v2)
     return vvdot(v1, t_vec)
 
@@ -246,7 +292,7 @@ def hyperfine(hyperfine_tensor, svec, ivec):
 
 
 @jit(cache=True, nopython=True)
-def self_central(svec, mfield, tensor=None, gyro=ELECTRON_GYRO, detuning=0):
+def self_central(svec, mfield, tensor, gyro=ELECTRON_GYRO, detuning=0):
     """
     Function to compute the central spin term in the Hamiltonian.
 
@@ -277,6 +323,17 @@ def self_central(svec, mfield, tensor=None, gyro=ELECTRON_GYRO, detuning=0):
 
 
 def center_interactions(center, vectors):
+    """
+    Compute interactions between central spins.
+
+    Args:
+        center (CenterArray): Array of central spins
+        vectors (ndarray with shape (x, 3, n, n)): Array of spin vectors of central spins.
+
+    Returns:
+        ndarray with shape (n, n): Central spin Overhauser term.
+
+    """
     ncenters = len(center)
     if (ncenters == 1) or (not center.imap):
         return 0
@@ -339,7 +396,7 @@ def overhauser_bath(ivec, position, gyro,
 
     """
 
-    pre = np.asarray(gyro * other_gyros * HBAR / PI2)
+    pre = np.asarray(gyro * other_gyros * HBAR_MU0_O4PI / PI2)
 
     pos = position - others_position
     r = np.sqrt((pos ** 2).sum(axis=-1))
