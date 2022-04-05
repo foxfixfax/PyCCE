@@ -1,7 +1,7 @@
 import numpy as np
 from pycce.constants import PI2
 from pycce.h import projected_addition, bath_hamiltonian
-from pycce.run.base import RunObject
+from pycce.run.base import RunObject, simple_propagator
 from pycce.utilities import generate_initial_state
 
 
@@ -15,22 +15,45 @@ def _rotmul(rotation, u, **kwargs):
 
 
 def simple_propagators(delays, hamiltonian_alpha, hamiltonian_beta):
-    eval0, evec0 = np.linalg.eigh(hamiltonian_alpha * PI2)
-    eval1, evec1 = np.linalg.eigh(hamiltonian_beta * PI2)
+    r"""
+    Generate two simple propagators :math:`U=\exp[-\frac{i}{\hbar} \hat H]` from the Hamiltonians, conditioned
+    on two qubit levels.
 
-    eigen_exp0 = np.exp(-1j * np.outer(delays, eval0), dtype=np.complex128)
-    eigen_exp1 = np.exp(-1j * np.outer(delays, eval1), dtype=np.complex128)
+    Args:
+        delays (ndarray with shape (n, )): Time points at which to evaluate the propagator.
+        hamiltonian_alpha (ndarray with shape (N, N)): Hamiltonian of the bath spins with qubit in alpha state.
+        hamiltonian_beta (ndarray with shape (N, N)): Hamiltonian of the bath spins with qubit in beta state.
 
-    u0 = np.matmul(np.einsum('...ij,...j->...ij', evec0, eigen_exp0, dtype=np.complex128),
-                   evec0.conj().T)
+    Returns:
+        tuple:
+            * **ndarray with shape (n, N, N)**:
+              Matrix representation of the propagator conditioned on the alpha qubit state for each time point.
+            * **ndarray with shape (n, N, N)**:
+              Matrix representation of the propagator conditioned on the beta qubit state for each time point.
 
-    u1 = np.matmul(np.einsum('...ij,...j->...ij', evec1, eigen_exp1, dtype=np.complex128),
-                   evec1.conj().T)
+    """
+    u0 = simple_propagator(delays, hamiltonian_alpha)
+    u1 = simple_propagator(delays, hamiltonian_beta)
 
     return u0, u1
 
 
 def propagate_propagators(v0, v1, number):
+    """
+    From two simple propagators and number of pulses in CPMG sequence generate two full propagators.
+    Args:
+        v0 (ndarray with shape (n, N, N)): Propagator conditioned on the alpha qubit state for each time point.
+        v1 (ndarray with shape (n, N, N)): Propagator conditioned on the beta qubit state for each time point.
+        number (int): Number of pulses.
+
+    Returns:
+        tuple:
+            * **ndarray with shape (n, N, N)**:
+              Matrix representation of the propagator conditioned on the alpha qubit state for each time point.
+            * **ndarray with shape (n, N, N)**:
+              Matrix representation of the propagator conditioned on the beta qubit state for each time point.
+
+    """
     v0_he = np.matmul(v0, v1, dtype=np.complex128)
     v1_he = np.matmul(v1, v0, dtype=np.complex128)
 
@@ -48,167 +71,6 @@ def propagate_propagators(v0, v1, number):
         unitary_1 = np.matmul(unitary_1, v1_he)
 
     return unitary_0, unitary_1
-
-
-def propagators(timespace, H0, H1, pulses, as_delay=False):
-    """
-    Function to compute propagators U0 and U1 in conventional CCE.
-
-    Args:
-        timespace (ndarray with shape (t, )): Time delay values at which to compute propagators.
-
-        H0 (ndarray with shape (n, n)): Hamiltonian projected on alpha qubit state.
-
-        H1 (ndarray with shape (n, n)): Hamiltonian projected on beta qubit state.
-
-        pulses (int or Sequence): Sequence of pulses.
-
-        as_delay (bool):
-            True if time points are delay between pulses.
-            False if time points are total time.
-
-    Returns:
-        tuple: *tuple* containing:
-
-            * **ndarray with shape (t, n, n)**:
-              Matrix representation of the propagator conditioned on the alpha qubit state for each time point.
-            * **ndarray with shape (t, n, n)**:
-              Matrix representation of the propagator conditioned on the beta qubit state for each time point.
-
-    """
-    try:
-        number = len(pulses)
-        check = (not as_delay) & (pulses.delays is None)
-        use_rotations = True
-    except TypeError:
-        number = pulses
-        check = (not as_delay)
-        use_rotations = False
-
-    if check and number:
-        timespace = timespace / (2 * number)
-
-    if not use_rotations:
-        v0, v1 = simple_propagators(timespace, H0, H1)
-
-        if not number:
-            return v0, v1
-        else:
-            return propagate_propagators(v0, v1, number)
-
-    if pulses.delays is None:
-
-        v0, v1 = simple_propagators(timespace, H0, H1)
-
-        vs = [v0, v1]
-
-        U0 = np.eye(v0.shape[1], dtype=np.complex128)
-        U1 = np.eye(v1.shape[1], dtype=np.complex128)
-
-        Us = [U0, U1]
-
-        for p in pulses:
-            for i in range(2):
-                Us[i] = np.matmul(vs[i], Us[i])
-                Us[i] = _rotmul(p.rotation, Us[i])
-
-            if p.flip:
-                vs = vs[::-1]
-
-            for i in range(2):
-                Us[i] = np.matmul(vs[i], Us[i])
-
-        return Us[0], Us[1]
-
-    U0 = None
-    U1 = None
-
-    times = 0
-
-    eval0, evec0 = np.linalg.eigh(H0 * PI2)
-    eval1, evec1 = np.linalg.eigh(H1 * PI2)
-
-    # for timesteps, rotation in zip(pulses.delays, pulses.rotations):
-    evalues = [eval0, eval1]
-    evec = [evec0, evec1]
-
-    for p in pulses:
-        timesteps = p.delay
-        rotation = p.rotation
-        eigen_exp0 = np.exp(-1j * np.outer(timesteps,
-                                           evalues[0]), dtype=np.complex128)
-        eigen_exp1 = np.exp(-1j * np.outer(timesteps,
-                                           evalues[1]), dtype=np.complex128)
-
-        u0 = np.matmul(np.einsum('...ij,...j->...ij', evec[0], eigen_exp0, dtype=np.complex128),
-                       evec[0].conj().T)
-
-        u1 = np.matmul(np.einsum('...ij,...j->...ij', evec[1], eigen_exp1, dtype=np.complex128),
-                       evec[1].conj().T)
-
-        times += timesteps
-
-        if U0 is None:
-            U0 = _rotmul(rotation, u0)
-            U1 = _rotmul(rotation, u1)
-
-        else:
-            U0 = np.matmul(u0, U0)
-            U0 = _rotmul(rotation, U0)
-
-            U1 = np.matmul(u1, U1)
-            U1 = _rotmul(rotation, U1)
-
-        if p.flip:
-            evalues = evalues[::-1]
-            evec = evec[::-1]
-
-    which = np.isclose(timespace, times)
-    if ((timespace - times)[~which] >= 0).all():
-
-        eigen_exp0 = np.exp(-1j * np.outer(timespace - times,
-                                           evalues[0]), dtype=np.complex128)
-        eigen_exp1 = np.exp(-1j * np.outer(timespace - times,
-                                           evalues[1]), dtype=np.complex128)
-
-        u0 = np.matmul(np.einsum('ij,kj->kij', evec[0], eigen_exp0, dtype=np.complex128),
-                       evec[0].conj().T)
-
-        u1 = np.matmul(np.einsum('ij,kj->kij', evec[1], eigen_exp1, dtype=np.complex128),
-                       evec[1].conj().T)
-
-        U0 = np.matmul(u0, U0)
-        U1 = np.matmul(u1, U1)
-
-    elif not which.all():
-        raise ValueError(f"Pulse sequence time steps add up to larger than total times"
-                         f"{np.argwhere((timespace - times) < 0)} are longer than total time.")
-
-    return U0, U1
-
-
-def compute_coherence(H0, H1, timespace, N, as_delay=False, states=None):
-    """
-    Function to compute cluster coherence function in conventional CCE.
-
-    Args:
-        H0 (ndarray): Hamiltonian projected on alpha qubit state.
-        H1 (ndarray): Hamiltonian projected on beta qubit state.
-        timespace (ndarray): Time points at which to compute coherence function.
-        N (int): Number of pulses in CPMG.
-        as_delay (bool):
-            True if time points are delay between pulses,
-            False if time points are total time.
-        states (ndarray): ndarray of bath states in any accepted format.
-
-    Returns:
-        ndarray: Coherence function of the central spin.
-
-    """
-    # if timespace was given not as delay between pulses,
-    # divide to obtain the delay
-    coherence_function = None
-    return coherence_function
 
 
 def _close_state_index(state, eiv, level_confidence=0.95):
@@ -403,6 +265,18 @@ class CCE(RunObject):
         return coherence_function
 
     def propagators(self):
+        """
+        Generate two propagators, conditioned on the qubit state.
+
+        Returns:
+            tuple: *tuple* containing:
+
+                * **ndarray with shape (t, n, n)**:
+                  Matrix representation of the propagator conditioned on the alpha qubit state for each time point.
+                * **ndarray with shape (t, n, n)**:
+                  Matrix representation of the propagator conditioned on the beta qubit state for each time point.
+
+        """
         if not self.use_pulses:
             return self._no_pulses()
 
@@ -412,14 +286,13 @@ class CCE(RunObject):
         return self._delays()
 
     def _proj_ham(self, index=0, alpha=True, beta=False):
+        self.get_hamiltonian_variable_bath_state(index)
 
-        ham = self.ham_generator(index)
+        ha = self.hamiltonian + projected_addition(self.base_hamiltonian.vectors,
+                                                   self.cluster, self.center, alpha)
 
-        ha = ham + projected_addition(self.base_hamiltonian.vectors,
-                                      self.cluster, self.center, alpha)
-
-        hb = ham + projected_addition(self.base_hamiltonian.vectors,
-                                      self.cluster, self.center, beta)
+        hb = self.hamiltonian + projected_addition(self.base_hamiltonian.vectors,
+                                                   self.cluster, self.center, beta)
 
         return ha, hb
 
@@ -567,3 +440,163 @@ def _gen_key(p, key_alpha, key_beta):
             for index in p.which:
                 key_alpha[index], key_beta[index] = key_beta[index], key_alpha[index]
     return key_alpha, key_beta
+
+# def compute_coherence(H0, H1, timespace, N, as_delay=False, states=None):
+#     """
+#     Function to compute cluster coherence function in conventional CCE.
+#
+#     Args:
+#         H0 (ndarray): Hamiltonian projected on alpha qubit state.
+#         H1 (ndarray): Hamiltonian projected on beta qubit state.
+#         timespace (ndarray): Time points at which to compute coherence function.
+#         N (int): Number of pulses in CPMG.
+#         as_delay (bool):
+#             True if time points are delay between pulses,
+#             False if time points are total time.
+#         states (ndarray): ndarray of bath states in any accepted format.
+#
+#     Returns:
+#         ndarray: Coherence function of the central spin.
+#
+#     """
+#     # if timespace was given not as delay between pulses,
+#     # divide to obtain the delay
+#     coherence_function = None
+#     return coherence_function
+
+# def propagators(timespace, H0, H1, pulses, as_delay=False):
+#     """
+#     Function to compute propagators U0 and U1 in conventional CCE.
+#
+#     Args:
+#         timespace (ndarray with shape (t, )): Time delay values at which to compute propagators.
+#
+#         H0 (ndarray with shape (n, n)): Hamiltonian projected on alpha qubit state.
+#
+#         H1 (ndarray with shape (n, n)): Hamiltonian projected on beta qubit state.
+#
+#         pulses (int or Sequence): Sequence of pulses.
+#
+#         as_delay (bool):
+#             True if time points are delay between pulses.
+#             False if time points are total time.
+#
+#     Returns:
+#         tuple: *tuple* containing:
+#
+#             * **ndarray with shape (t, n, n)**:
+#               Matrix representation of the propagator conditioned on the alpha qubit state for each time point.
+#             * **ndarray with shape (t, n, n)**:
+#               Matrix representation of the propagator conditioned on the beta qubit state for each time point.
+#
+#     """
+#     try:
+#         number = len(pulses)
+#         check = (not as_delay) & (pulses.delays is None)
+#         use_rotations = True
+#     except TypeError:
+#         number = pulses
+#         check = (not as_delay)
+#         use_rotations = False
+#
+#     if check and number:
+#         timespace = timespace / (2 * number)
+#
+#     if not use_rotations:
+#         v0, v1 = simple_propagators(timespace, H0, H1)
+#
+#         if not number:
+#             return v0, v1
+#         else:
+#             return propagate_propagators(v0, v1, number)
+#
+#     if pulses.delays is None:
+#
+#         v0, v1 = simple_propagators(timespace, H0, H1)
+#
+#         vs = [v0, v1]
+#
+#         U0 = np.eye(v0.shape[1], dtype=np.complex128)
+#         U1 = np.eye(v1.shape[1], dtype=np.complex128)
+#
+#         Us = [U0, U1]
+#
+#         for p in pulses:
+#             for i in range(2):
+#                 Us[i] = np.matmul(vs[i], Us[i])
+#                 Us[i] = _rotmul(p.rotation, Us[i])
+#
+#             if p.flip:
+#                 vs = vs[::-1]
+#
+#             for i in range(2):
+#                 Us[i] = np.matmul(vs[i], Us[i])
+#
+#         return Us[0], Us[1]
+#
+#     U0 = None
+#     U1 = None
+#
+#     times = 0
+#
+#     eval0, evec0 = np.linalg.eigh(H0 * PI2)
+#     eval1, evec1 = np.linalg.eigh(H1 * PI2)
+#
+#     # for timesteps, rotation in zip(pulses.delays, pulses.rotations):
+#     evalues = [eval0, eval1]
+#     evec = [evec0, evec1]
+#
+#     for p in pulses:
+#         timesteps = p.delay
+#         rotation = p.rotation
+#         eigen_exp0 = np.exp(-1j * np.outer(timesteps,
+#                                            evalues[0]), dtype=np.complex128)
+#         eigen_exp1 = np.exp(-1j * np.outer(timesteps,
+#                                            evalues[1]), dtype=np.complex128)
+#
+#         u0 = np.matmul(np.einsum('...ij,...j->...ij', evec[0], eigen_exp0, dtype=np.complex128),
+#                        evec[0].conj().T)
+#
+#         u1 = np.matmul(np.einsum('...ij,...j->...ij', evec[1], eigen_exp1, dtype=np.complex128),
+#                        evec[1].conj().T)
+#
+#         times += timesteps
+#
+#         if U0 is None:
+#             U0 = _rotmul(rotation, u0)
+#             U1 = _rotmul(rotation, u1)
+#
+#         else:
+#             U0 = np.matmul(u0, U0)
+#             U0 = _rotmul(rotation, U0)
+#
+#             U1 = np.matmul(u1, U1)
+#             U1 = _rotmul(rotation, U1)
+#
+#         if p.flip:
+#             evalues = evalues[::-1]
+#             evec = evec[::-1]
+#
+#     which = np.isclose(timespace, times)
+#     if ((timespace - times)[~which] >= 0).all():
+#
+#         eigen_exp0 = np.exp(-1j * np.outer(timespace - times,
+#                                            evalues[0]), dtype=np.complex128)
+#         eigen_exp1 = np.exp(-1j * np.outer(timespace - times,
+#                                            evalues[1]), dtype=np.complex128)
+#
+#         u0 = np.matmul(np.einsum('ij,kj->kij', evec[0], eigen_exp0, dtype=np.complex128),
+#                        evec[0].conj().T)
+#
+#         u1 = np.matmul(np.einsum('ij,kj->kij', evec[1], eigen_exp1, dtype=np.complex128),
+#                        evec[1].conj().T)
+#
+#         U0 = np.matmul(u0, U0)
+#         U1 = np.matmul(u1, U1)
+#
+#     elif not which.all():
+#         raise ValueError(f"Pulse sequence time steps add up to larger than total times"
+#                          f"{np.argwhere((timespace - times) < 0)} are longer than total time.")
+#
+#     return U0, U1
+#

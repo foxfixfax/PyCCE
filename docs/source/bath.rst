@@ -1,24 +1,6 @@
 
-Generating the Spin bath
+Spin Bath
 ====================================================================
-
-Random bath
----------------------------------------------------------------------
-Documentation for the ``pycce.random_bath`` function, used to generate random bath.
-
-.. autofunction:: pycce.bath.cell.random_bath
-
-
-BathCell
----------------------------------------------------------------------
-
-Documentation for the ``pycce.BathCell`` - class for convenient generation of ``BathArray`` and the
-necessary helper functions.
-
-.. automodule:: pycce.bath.cell
-   :members:
-   :exclude-members: random_bath
-
 
 BathArray
 -----------------------------------------------------------------------
@@ -44,7 +26,8 @@ Cube
    :members:
 
 SpinDict and SpinType
------------------------------------------------------------------------
+..............................................................
+
 Documentation for the ``SpinDict`` - dict-like class which describes
 the properties of the different types of the spins in the bath.
 
@@ -58,3 +41,28 @@ the properties of the different types of the spins in the bath.
 
 .. autodata:: pycce.bath.array.common_concentrations
    :annotation: = {element ('H', 'He',...) : { isotope ('1H', '2H', ..) : concentration}}
+
+BathState
+..............................................................
+
+.. automodule:: pycce.bath.state
+   :members:
+
+
+Random bath
+---------------------------------------------------------------------
+Documentation for the ``pycce.random_bath`` function, used to generate random bath.
+
+.. autofunction:: pycce.bath.cell.random_bath
+
+
+BathCell
+---------------------------------------------------------------------
+
+Documentation for the ``pycce.BathCell`` - class for convenient generation of ``BathArray`` and the
+necessary helper functions.
+
+.. automodule:: pycce.bath.cell
+   :members:
+   :exclude-members: random_bath
+

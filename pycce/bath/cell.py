@@ -318,7 +318,7 @@ class BathCell:
 
         return self.isotopes
 
-    def gen_supercell(self, size, add=None, remove=None, seed=None):
+    def gen_supercell(self, size, add=None, remove=None, seed=None, recenter=True):
         """
         Generate supercell populated with spins.
 
@@ -343,6 +343,10 @@ class BathCell:
                 and its coordinates in the cell basis: ``(atom_name, x_cell, y_cell, z_cell)``.
 
             seed (int): Seed for random number generator.
+
+            recenter (bool):
+                True if place approximate center of the supercell at (0,0,0). False if start supercell
+                at (0, 0, 0). Default True.
 
         .. note::
 
@@ -406,9 +410,14 @@ class BathCell:
                 bcn = bnumber * cnumber * nsites
                 cn = cnumber * nsites
 
-                aindexes = seedsites // bcn - (anumber - 1) // 2  # recenter at 0
-                bindexes = (seedsites % bcn) // cn - (bnumber - 1) // 2
-                cindexes = ((seedsites % bcn) % cn) // nsites - (cnumber - 1) // 2
+                if recenter:
+                    aindexes = seedsites // bcn - (anumber - 1) // 2  # recenter at 0
+                    bindexes = (seedsites % bcn) // cn - (bnumber - 1) // 2
+                    cindexes = ((seedsites % bcn) % cn) // nsites - (cnumber - 1) // 2
+                else:
+                    aindexes = seedsites // bcn
+                    bindexes = (seedsites % bcn) // cn
+                    cindexes = ((seedsites % bcn) % cn) // nsites
 
                 # indexes of the sites
                 nindexes = ((seedsites % bcn) % cn) % nsites

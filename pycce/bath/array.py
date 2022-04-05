@@ -44,12 +44,12 @@ class BathArray(np.ndarray):
         Generate BathArray from the set of arrays:
 
         >>> import numpy as np
-        >>> ca = np.random.random((3, 3))
-        >>> sn = ['1H', '2H', '3H']
-        >>> hf = np.random.random((3, 3, 3))
+        >>> ca = np.random.random((2, 3))
+        >>> sn = ['1H', '2H']
+        >>> hf = np.random.random((2, 3, 3))
         >>> ba = BathArray(ca=ca, hf=hf, sn=sn)
         >>> print(ba.N, ba.types)
-        ['1H' '2H' '3H'] SpinDict(1H: (1H, 0.5, 26.7519), 2H: (2H, 1, 4.1066, 0.00286), 3H: (3H, 0.5, 28.535))
+        ['1H' '2H'] SpinDict(1H: (1H, 0.5, 26.7519), 2H: (2H, 1, 4.1066, 0.00286))
 
     .. warning::
         Due to how structured arrays work, if one uses a boolean array to access an subarray,
@@ -57,19 +57,22 @@ class BathArray(np.ndarray):
 
         Example:
 
-            >>> ba = BathArray((10,), sn='1H')
-            >>> print(ba.N)
+            >>> ha = BathArray((10,), sn='1H')
+            >>> print(ha.N)
             ['1H' '1H' '1H' '1H' '1H' '1H' '1H' '1H' '1H' '1H']
             >>> bool_mask = np.arange(10) % 2 == 0
-            >>> ba[bool_mask]['N'] = 'e'
-            >>> print(ba.N)
+            >>> ha[bool_mask]['N'] = 'e'
+            >>> print(ha.N)
             ['1H' '1H' '1H' '1H' '1H' '1H' '1H' '1H' '1H' '1H']
 
             To achieve the desired result, one should first access the name field and only then apply the boolean mask:
 
-            >>> ba['N'][bool_mask] = 'e'
-            >>> print(ba.N)
+            >>> ha['N'][bool_mask] = 'e'
+            >>> print(ha.N)
             ['e' '1H' 'e' '1H' 'e' '1H' 'e' '1H' 'e' '1H']
+
+    Each bath spin can initiallized in some specific state accessing the ``.state`` attribute. It takes
+    both state vectors and density matrices as values. See ``.state`` attribute documentation for details.
 
     Args:
         shape (tuple): Shape of the array.
@@ -272,7 +275,7 @@ class BathArray(np.ndarray):
             While the value of this attribute should be the same as the ``N`` field of the BathArray instance,
             ``.name`` *should not* be used for production as it creates a *new* array from ``types`` dictionary.
         """
-        return self.types[self].name
+        return _get_sd_attribute(self, 'name')
 
     @name.setter
     def name(self, initial_value):
@@ -283,7 +286,7 @@ class BathArray(np.ndarray):
         """
         ndarray: Array of the ``spin`` (spin value) attribute for each spin in the array from ``types`` dictionary.
         """
-        return self.types[self].s
+        return _get_sd_attribute(self, 's')
 
     @s.setter
     def s(self, initial_value):
@@ -295,7 +298,7 @@ class BathArray(np.ndarray):
         ndarray: Array of the ``dim`` (dimensions of the spin) attribute
             for each spin in the array from ``types`` dictionary.
         """
-        return self.types[self].dim
+        return _get_sd_attribute(self, 'dim')
 
     @property
     def gyro(self):
@@ -303,7 +306,7 @@ class BathArray(np.ndarray):
         ndarray: Array of the ``gyro`` (gyromagnetic ratio)
             attribute for each spin in the array from ``types`` dictionary.
         """
-        return self.types[self].gyro
+        return _get_sd_attribute(self, 'gyro')
 
     @gyro.setter
     def gyro(self, initial_value):
@@ -315,7 +318,7 @@ class BathArray(np.ndarray):
         ndarray: Array of the ``q`` (quadrupole moment)
             attribute for each spin in the array from ``types`` dictionary.
         """
-        return self.types[self].q
+        return _get_sd_attribute(self, 'q')
 
     @q.setter
     def q(self, initial_value):
@@ -327,7 +330,7 @@ class BathArray(np.ndarray):
         ndarray: Array of the ``detuning``
             attribute for each spin in the array from ``types`` dictionary.
         """
-        return self.types[self].detuning
+        return _get_sd_attribute(self, 'detuning')
 
     @detuning.setter
     def detuning(self, initial_value):
@@ -418,6 +421,22 @@ class BathArray(np.ndarray):
 
     @property
     def state(self):
+        """
+        BathState: Array of the bath spin states.
+        Can have three types of entries:
+
+            - *None*. If entry is *None*, assumes fully random density matrix. Default value.
+            - ndarray with shape (s,). If entry is vector, corresponds to the pure state of the spin.
+            - ndarray with shape (s, s). If entry is a matrix, corresponds to the density matrix of the spin.
+
+        Examples:
+
+            >>> print(ba.state)
+            [None None]
+            >>> ba[0].state = np.array([0, 1])
+            >>> print(ba.state)
+            [array([0, 1]) None]
+        """
         return self._state
 
     @state.setter
@@ -426,6 +445,9 @@ class BathArray(np.ndarray):
 
     @property
     def proj(self):
+        """
+        ndarray: Array of :math:`S_z` projections of the bath spin states.
+        """
         return self.state.proj
 
     @proj.setter
@@ -454,6 +476,9 @@ class BathArray(np.ndarray):
 
     @property
     def has_state(self):
+        """
+        ndarray: Bool array. True if given spin was initialized with a state, False otherwise.
+        """
         return self.state.has_state
 
     def __getitem__(self, item):
@@ -660,6 +685,28 @@ class BathArray(np.ndarray):
         return bath
 
     def from_center(self, center, inplace=True, cube=None, which=0, **kwarg):
+        """
+        Generate hyperfine couplings using either the point dipole approximation or spin density in the .cube format,
+        with the information from the CenterArray instance.
+
+        Args:
+            center (CenterArray): Array, containing properties of the central spin
+
+            inplace (bool): True if changes parameters of the array in place. If False, returns copy of the array.
+
+            cube (Cube or iterable of Cubes): An instance of ``Cube`` object,
+                which contains spatial distribution of spin density of central spins.
+                For details see documentation of ``Cube`` class.
+
+            which (int): If ``cube`` is a single Cube instance,
+                this is an index of the central spin it corresponds to.
+
+            **kwarg: Additional arguments for .from_cube method.
+
+        Returns:
+            BathArray: Updated BathArray instance.
+
+        """
         if inplace:
             array = self
         else:
@@ -706,7 +753,7 @@ class BathArray(np.ndarray):
             inplace (bool): True if changes parameters of the array in place. If False, returns copy of the array.
 
         Returns:
-            BathArray: updated BathArray instance with changed hyperfine couplings.
+            BathArray: Updated BathArray instance with changed hyperfine couplings.
         """
         if inplace:
             array = self
@@ -775,9 +822,6 @@ class BathArray(np.ndarray):
                     func(array, *args, **kwargs)
 
                 where ``array`` is array of the bath spins,
-                ``gyro`` is the gyromagnetic ratio of bath spin,
-                ``central_gyro`` is the gyromagnetic ratio of the central bath spin.
-
             *args: Positional arguments of the ``func``.
             **kwargs: Keyword arguments of the ``func``.
             inplace (bool): True if changes parameters of the array in place. If False, returns copy of the array.
@@ -943,6 +987,7 @@ def delete(arr, obj, axis=None):
     newarr.state = np.delete(arr.state[...], obj, axis=axis)
     return newarr
 
+
 @implements(np.concatenate)
 def concatenate(arrays, axis=0, out=None):
     """
@@ -972,7 +1017,7 @@ def concatenate(arrays, axis=0, out=None):
         if x.imap:
             imap += x.imap.shift(offset, inplace=False)
 
-        state[offset:offset+x.size] = x.state
+        state[offset:offset + x.size] = x.state
         offset += x.size
 
     new_array.types = types
@@ -1151,7 +1196,6 @@ def update_bath(total_bath, added_bath, error_range=0.2, ignore_isotopes=True, i
     indexes, ext_indexes = same_bath_indexes(total_bath, added_bath, error_range, ignore_isotopes)
     neq = total_bath.nc != added_bath.nc
     if neq and added_bath.nc != 1:
-
         raise ValueError('Arrays correspond to different number of central spins.')
 
     for n in added_bath.dtype.names:
@@ -1259,28 +1303,71 @@ def _inner_set_attr(types, key, attr, value):
         setattr(types[key], attr, value)
     return
 
-def broadcast_ba(array, root=0):
-    import mpi4py
-    comm = mpi4py.MPI.COMM_WORLD
-    rank = comm.Get_rank()
 
-    if rank == root:
-        center = array.nc
-        shape = array.shape
+def _get_sd_attribute(array, attribute_name):
+    if not array.shape:
+        return getattr(array.types[array], attribute_name)
+
+    if array.size == 1:
+        newarr = np.array([getattr(array.types[array.N[0]], attribute_name)])
+
+        if attribute_name == 'dim':
+            newarr = newarr.astype(int)
+
+        return newarr
+
+    unique_names = np.unique(array.N)
+
+    if unique_names.size == 1:
+        n = unique_names[0]
+        v = getattr(array.types[n], attribute_name)
+        if attribute_name == 'gyro' and isinstance(v, np.ndarray):
+            values = np.tile(v, reps=(array.size, 1, 1))
+        else:
+            if attribute_name == 'dim':
+                ones = np.ones(array.shape, dtype=int)
+            else:
+                ones = np.ones(array.shape, dtype=np.float64)
+            values = v * ones
+
     else:
-        center = None
-        shape = None
-    center = comm.bcast(center, root=root)
-    shape = comm.bcast(shape, root=root)
 
-    if rank != root:
-        array = 1
+        temp_values = []
+        check = True
+        for n in unique_names:
+            v = getattr(array.types[n], attribute_name)
+            if attribute_name == 'gyro' and isinstance(v, np.ndarray):
+                check = False
+            temp_values.append(v)
 
+        if check:
+            if attribute_name == 'dim':
+                values = np.empty(array.shape, dtype=np.float64)
+            else:
+                values = np.empty(array.shape, dtype=int)
 
+            for n, v in zip(unique_names, temp_values):
+                values[array.N == n] = v
+        else:
+            values = np.empty((array.size, 3, 3), dtype=np.float64)
+            for i, n in enumerate(unique_names):
+                v = temp_values[i]
+                if not isinstance(v, np.ndarray):
+                    temp_values[i] = np.eye(3, dtype=np.float64) * v
+                values[array.N == n] = v
+    return values
 
 
 def broadcast_array(array, root=0):
+    """
+    Using mpi4py broadcast ``BathArray`` or ``CenterArray`` to all processes.
+    Args:
+        array (BathArray or CenterArray): Array to broadcast.
+        root (int): Rank of the process to broadcast from.
 
+    Returns:
+        BathArray or CenterArray: Broadcasted array.
+    """
     import mpi4py
     comm = mpi4py.MPI.COMM_WORLD
     rank = comm.Get_rank()
@@ -1298,6 +1385,7 @@ def broadcast_array(array, root=0):
         setattr(nbath, k, nparam[k])
 
     return nbath
+
 
 class SpinType:
     r"""
@@ -1370,6 +1458,9 @@ class SpinType:
     def s(self, s):
 
         try:
+            if isinstance(s, np.ndarray) and s.shape:
+                raise TypeError
+
             self._s = float(s)
             self._dim = int(2 * s + 1 + 1e-8)
 
@@ -1537,30 +1628,41 @@ class SpinDict(UserDict):
                 if key.dtype.names:
                     key = key['N']
 
-                unique_names = np.unique(key)
-
-                if unique_names.size == 1:
-                    n = unique_names[0]
-                    ones = np.ones(key.shape, dtype=np.float64)
-
-                    spins = self._super_get_item(n).s * ones
-                    gyros = self._super_get_item(n).gyro * ones
-                    quads = self._super_get_item(n).q * ones
-                    detus = self._super_get_item(n).detuning * ones
-
+                key = np.asarray(key)
+                if key.size == 1:
+                    n = key[0]
+                    spins = np.array([self._super_get_item(n).s])
+                    gyros = np.array([self._super_get_item(n).gyro])
+                    quads = np.array([self._super_get_item(n).q])
+                    detus = np.array([self._super_get_item(n).detuning])
+                    return SpinType(key, s=spins, gyro=gyros, q=quads, detuning=detus)
                 else:
-                    spins = np.empty(key.shape, dtype=np.float64)
-                    gyros = np.empty(key.shape, dtype=np.float64)
-                    quads = np.empty(key.shape, dtype=np.float64)
-                    detus = np.empty(key.shape, dtype=np.float64)
+                    raise TypeError('Unsupported key.')
 
-                    for n in unique_names:
-                        spins[key == n] = self._super_get_item(n).s
-                        gyros[key == n] = self._super_get_item(n).gyro
-                        quads[key == n] = self._super_get_item(n).q
-                        detus[key == n] = self._super_get_item(n).detuning
-
-                return SpinType(key, s=spins, gyro=gyros, q=quads, detuning=detus)
+                # unique_names = np.unique(key)
+                #
+                # if unique_names.size == 1:
+                #     n = unique_names[0]
+                #     ones = np.ones(key.shape, dtype=np.float64)
+                #
+                #     spins = self._super_get_item(n).s * ones
+                #     gyros = self._super_get_item(n).gyro * ones
+                #     quads = self._super_get_item(n).q * ones
+                #     detus = self._super_get_item(n).detuning * ones
+                #
+                # else:
+                #     spins = np.empty(key.shape, dtype=np.float64)
+                #     gyros = np.empty(key.shape, dtype=np.float64)
+                #     quads = np.empty(key.shape, dtype=np.float64)
+                #     detus = np.empty(key.shape, dtype=np.float64)
+                #
+                #     for n in unique_names:
+                #         spins[key == n] = self._super_get_item(n).s
+                #         gyros[key == n] = self._super_get_item(n).gyro
+                #         quads[key == n] = self._super_get_item(n).q
+                #         detus[key == n] = self._super_get_item(n).detuning
+                #
+                # return SpinType(key, s=spins, gyro=gyros, q=quads, detuning=detus)
 
                 # params = {}
                 # unique_names = np.unique(key)

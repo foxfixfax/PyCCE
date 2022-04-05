@@ -1,13 +1,11 @@
 import operator
-from collections import defaultdict
 
 import numpy as np
-import scipy.linalg
-from pycce.h import zero_order_addition, zero_order_imap
+from pycce.constants import PI2
+from pycce.h import external_spins_field
 from pycce.run.clusters import cluster_expansion_decorator, interlaced_decorator
 from pycce.run.mc import monte_carlo_method_decorator
 from pycce.run.pulses import Sequence
-from pycce.sm import _smc
 from pycce.utilities import expand, shorten_dimensions, gen_state_list, numba_gen_sm
 
 
@@ -151,7 +149,8 @@ class RunObject:
         # """ndarray with shape (n,): Array with z-projections of the bath spins states.
         # Overridden in runs with random bath state sampling."""
         self.magnetic_field = magnetic_field
-        """ndarray: Magnetic field of type ``magnetic_field = np.array([Bx, By, Bz])``."""
+        """ndarray or callable: Magnetic field of type ``magnetic_field = np.array([Bx, By, Bz])``,
+        or a function that takes position as an argument."""
 
         self.parallel = parallel
         """bool: True if parallelize calculation of cluster contributions over different mpi processes.
@@ -175,15 +174,15 @@ class RunObject:
         # self._cluster_hamiltonian = None
 
         self.hamiltonian = None
-        """ndarray: Cluster Hamiltonian."""
+        """ndarray: Full cluster Hamiltonian."""
 
         self.cluster = None
         """BathArray: Array of the bath spins inside the given cluster."""
         self.cluster_indexes = None
-        self.others = None
-        """BathArray: Array of the bath spins outside the given cluster."""
-        self.others_mask = None
-        """ndarray: Bool array of of size self.bath with True entries for each of the spin outside of the cluster."""
+        # self.others = None
+        # """BathArray: Array of the bath spins outside the given cluster."""
+        # self.others_mask = None
+        # """ndarray: Bool array of of size self.bath with True entries for each of the spin outside of the cluster."""
         self.states = None
 
         self.has_states = False
@@ -194,10 +193,12 @@ class RunObject:
         """ Sequence: Sequence object, containing series of pulses, applied to the system."""
 
         self.projected_states = None
-
+        """ndarray: Array of :math:`S_z` projections of the bath spins after each control pulse, 
+        involving bath spins.
+        """
         self.base_hamiltonian = None
-        """Hamiltonian or tuple: Full hamiltonian of the given cluster. In conventional CCE, tuple with two 
-        projected hamiltonians."""
+        """Hamiltonian: Hamiltonian of the given cluster without mean field additions.
+        In conventional CCE, also excludes additions from central spins."""
         self.result = None
         """ndarray: Result of the calculation."""
         self.delays = None
@@ -217,8 +218,8 @@ class RunObject:
 
         self.cluster = None
         self.cluster_indexes = None
-        self.others = None
-        self.others_mask = None
+        # self.others = None
+        # self.others_mask = None
 
         self.states = None
         self.projected_states = None
@@ -243,9 +244,8 @@ class RunObject:
 
     def postprocess(self):
         """
-            Method which will be called after cluster-expanded run.
+        Method which will be called after cluster-expanded run.
         """
-
         pass
 
     def generate_hamiltonian(self):
@@ -256,7 +256,7 @@ class RunObject:
 
     def kernel(self, cluster, *args, **kwargs):
         """
-        Central kernel that will be called in the cluster-expanded calculations
+        Central kernel that will be called in the cluster-expanded calculations.
 
         Args:
             cluster (ndarray): Indexes of the bath spins in the given cluster.
@@ -272,17 +272,12 @@ class RunObject:
         self.cluster = self.bath[cluster]
 
         if self.has_states:
-            others_mask = np.ones(self.bath.shape, dtype=bool)
-            others_mask[cluster] = False
-            self.others_mask = others_mask
-            self.others = self.bath[others_mask]
-            self.states = self.cluster.state  # list(  [...])
+            self.states = self.cluster.state
         else:
-            self.others = None
             self.states = None
 
         self.base_hamiltonian = self.generate_hamiltonian()
-        self.check_hamiltonian()
+        self._check_hamiltonian()
         if isinstance(self.pulses, Sequence):
             self.generate_pulses()
 
@@ -358,21 +353,26 @@ class RunObject:
             ndarray: Results of the calculations.
 
         """
+        sc_mask = ~np.isin(supercluster, cluster)
 
+        self.cluster_indexes = cluster
         self.cluster = self.bath[cluster]
 
-        others_mask = np.ones(self.bath.shape, dtype=bool)
-        others_mask[supercluster] = False
-        self.others_mask = others_mask
-        self.base_hamiltonian = self.generate_hamiltonian()
+        if not sc_mask.any():
+            result = self.kernel(cluster, *args, **kwargs)
+            return result
 
-        sc_mask = ~np.isin(supercluster, cluster)
+        if self.has_states:
+            self.states = self.cluster.state
+        else:
+            self.states = None
+
+        self.base_hamiltonian = self.generate_hamiltonian()
+        if isinstance(self.pulses, Sequence):
+            self.generate_pulses()
 
         outer_indexes = supercluster[sc_mask]
         outer_spin = self.bath[outer_indexes]
-
-        # initial_h0 = self.cluster_hamiltonian.data
-        # vectors = self.cluster_hamiltonian.vectors
 
         index_state = 0
         initial_outer_spin_state = outer_spin.state
@@ -383,11 +383,12 @@ class RunObject:
 
             self.bath.state[outer_indexes] = gen_state_list(state, outer_spin.dim)
             # Note that if put others in different line the updated bath state might not copy properly
-            self.others = self.bath[others_mask]
 
             if self.projected_states is not None:
-                self.projected_states[outer_indexes] = generate_rotated_projected_states(outer_spin, self.pulses)
-            self.check_hamiltonian()
+                self.projected_states[outer_indexes] = generate_rotated_projected_states(self.bath[outer_indexes],
+                                                                                         self.pulses)
+
+            self._check_hamiltonian()
             result += self.compute_result()
 
         self.bath.state[outer_indexes] = initial_outer_spin_state
@@ -418,6 +419,7 @@ class RunObject:
         self.preprocess()
         self.result = self.__inner_interlaced_kernel(self, *args, **kwargs)
         self.postprocess()
+
         return self.result
 
     @monte_carlo_method_decorator
@@ -495,119 +497,9 @@ class RunObject:
         for single in states:
             yield single
 
-    # def generate_pulses(self):
-    #     """
-    #     Generate list of matrix representations of the rotations, induced by the sequence of the pulses.
-    #
-    #     The rotations are stored in the ``.rotation`` attribute of the each ``Pulse`` object
-    #     and in ``Sequence.rotations``.
-    #
-    #     Args:
-    #         dimensions (ndarray with shape (N,)): Array of spin dimensions in the system.
-    #         bath (BathArray with shape (n,)): Array of bath spins in the system.
-    #         vectors (ndarray  with shape (N, 3, prod(dimensions), prod(dimensions))):
-    #              Array with vectors of spin matrices for each spin in the system.
-    #
-    #         central_spin (CenterArray): Optional. Array of central spins.
-    #
-    #     Returns:
-    #         tuple: *tuple* containing:
-    #
-    #         * **list** or **None**: List with delays before each pulse or None if equispaced.
-    #
-    #         * **list**: List with matrix representations of the rotation from each pulse.
-    #     """
-    #     dimensions = self.base_hamiltonian.dimensions
-    #     vectors = self.base_hamiltonian.vectors
-    #
-    #     cs = self.center
-    #     bath = self.cluster
-    #     ndims = len(dimensions)
-    #     if cs is not None:
-    #         if bath is not None and ndims == bath.size:
-    #             cs = None  # Ignore central spin
-    #             nc = None
-    #             shortdims = None
-    #         else:
-    #             nc = len(cs)  # number of central spins
-    #             shortdims = shorten_dimensions(dimensions, nc)
-    #
-    #     self.delays = None
-    #     self.rotations = None
-    #
-    #     equispaced = not any(p._has_delay for p in self.pulses)
-    #
-    #     if equispaced:
-    #         delays = None
-    #
-    #     else:
-    #         delays = [p.delay if p.delay is not None else 0 for p in self.pulses]
-    #
-    #     rots = []
-    #     # Sigma as if central spin array is total spin. Sigma - pauli matrix
-    #     total_sigma = {}
-    #     separate_sigma = defaultdict(dict)
-    #     for p in self.pulses:
-    #
-    #         initial_rotation = rotation = 1
-    #
-    #         if p.angle and cs is not None:
-    #             if p.which is None:
-    #                 if p.axis not in total_sigma:
-    #                     total_sigma[p.axis] = expand(cs.sigma[p.axis], ndims - nc, shortdims)
-    #                 rotation = spin_matrix_rotation(total_sigma[p.axis] / 2, p.angle, spin_half=True)
-    #
-    #             else:
-    #                 for i in p.which:
-    #                     c = cs[i]
-    #                     if p.axis not in separate_sigma[i]:
-    #                         separate_sigma[i][p.axis] = expand(c.sigma[p.axis], ndims - nc, shortdims)
-    #                     rotation = np.dot(spin_matrix_rotation(separate_sigma[i][p.axis] / 2,
-    #                                                            p.angle, spin_half=True),
-    #                                       rotation)
-    #
-    #         if p.bath_names is not None and bath is not None:
-    #             if vectors.shape != bath.shape:
-    #                 vectors = vectors[:bath.shape[0]]
-    #                 # print(vectors.shape)
-    #             properties = np.broadcast(p.bath_names, p.bath_axes, p.bath_angles)
-    #
-    #             for name, axis, angle in properties:
-    #                 if angle:
-    #                     which = (bath.N == name)
-    #
-    #                     if any(which):
-    #                         vecs = vectors[which]
-    #                         rotation = np.dot(bath_rotation(vecs, axis, angle), rotation)
-    #
-    #         if initial_rotation is rotation:
-    #             rotation = None
-    #
-    #         p.rotation = rotation
-    #
-    #         rots.append(rotation)
-    #
-    #     self.delays = delays
-    #     self.rotations = rots
-    #
-    #     return delays, rots
-    #
-
-
     def generate_pulses(self):
         """
         Generate list of matrix representations of the rotations, induced by the sequence of the pulses.
-
-        The rotations are stored in the ``.rotation`` attribute of the each ``Pulse`` object
-        and in ``Sequence.rotations``.
-
-        Args:
-            dimensions (ndarray with shape (N,)): Array of spin dimensions in the system.
-            bath (BathArray with shape (n,)): Array of bath spins in the system.
-            vectors (ndarray  with shape (N, 3, prod(dimensions), prod(dimensions))):
-                 Array with vectors of spin matrices for each spin in the system.
-
-            central_spin (CenterArray): Optional. Array of central spins.
 
         Returns:
             tuple: *tuple* containing:
@@ -690,15 +582,14 @@ class RunObject:
 
         return delays, rots
 
-
-    def check_hamiltonian(self):
+    def _check_hamiltonian(self):
         self.hamiltonian = None
         # if no projected states hamiltonian is simple
         if self.projected_states is None:
 
-            if self.others is not None:
-                addition = zero_order_imap(self.base_hamiltonian.vectors, self.cluster_indexes, self.bath,
-                                           self.bath.proj)
+            if self.has_states:
+                addition = external_spins_field(self.base_hamiltonian.vectors, self.cluster_indexes, self.bath,
+                                                self.bath.proj)
                 # addition = zero_order_addition(self.base_hamiltonian.vectors, self.cluster, self.others,
                 #                                self.others.proj)
                 self.hamiltonian = self.base_hamiltonian.data + addition
@@ -706,24 +597,62 @@ class RunObject:
             else:
                 self.hamiltonian = self.base_hamiltonian.data
 
-    def ham_generator(self, index=0):
+    def get_hamiltonian_variable_bath_state(self, index=0):
+        """
+        Generate Hamiltonian in case of the complicated pulse sequence.
+
+        Args:
+            index (int): Index of the flips of spin states.
+
+        Returns:
+            ndarray with shape (n, n): Hamiltonian with mean field additions from the given set of projected states.
+        """
         if self.projected_states is None:
             return self.hamiltonian
-        if self.others is not None:
+
+        if self.has_states:
             # addition = zero_order_addition(self.base_hamiltonian.vectors, self.cluster, self.others,
             #                                self.projected_states[self.others_mask, index])
-            addition = zero_order_imap(self.base_hamiltonian.vectors, self.cluster_indexes, self.bath,
-                                       self.projected_states[:, index])
+            addition = external_spins_field(self.base_hamiltonian.vectors, self.cluster_indexes, self.bath,
+                                            self.projected_states[:, index])
         else:
             addition = 0
-        return self.base_hamiltonian.data + addition
+
+        self.hamiltonian = self.base_hamiltonian.data + addition
+
+        return self.hamiltonian
 
 
 def from_sigma(sigma, i, dims):
+    """
+    Generate spin vector from dictionary with spin matrices.
+
+    Args:
+        sigma (dict): Dictionary, which contains spin matrices of form ``{'x': Sx, 'y': Sy, 'z': Sz}``.
+        i (int): Index of the spin in the order of ``dims``.
+        dims (ndarray with shape (N,)): Dimensions of the spins in the given cluster.
+
+    Returns:
+        ndarray with shape (3, n, n): Spin vector in a full Hilbert space.
+
+    """
     return np.array([expand(sigma[ax], i, dims) for ax in sigma])
 
 
 def generate_rotated_projected_states(bath, pulses):
+    """
+    Generate projected states after each control pulse, involving bath spins.
+
+    Args:
+        bath (BathArray with shape (n, )): Array of bath spins.
+        pulses (Sequence): Sequence of pulses.
+
+    Returns:
+        ndarray with shape (n, x):
+            Array of :math:`S_z` projections of bath spin states after each pulse, involving bath spins.
+            Each :math:`i`-th column is projections before the :math:`i`-th pulse involving bath spins.
+
+    """
     state = bath.state
     projected = [state.proj]
     rotations = {}
@@ -755,35 +684,13 @@ def generate_rotated_projected_states(bath, pulses):
 _rot = {'x': 0, 'y': 1, 'z': 2}
 
 
-def bath_rotation(vectors, axis, angle):
-    """
-    Generate rotation of the bath spins with given spin vectors.
-
-    Args:
-        vectors (ndarray with shape (n, 3, x, x)): Array of *n* bath spin vectors.
-        axis (str): Axis of rotation.
-        angle (float): Angle of rotation.
-
-    Returns:
-        ndarray with shape (x, x): Matrix representation of the spin rotation.
-
-    """
-    ax = _rot[axis]  # name -> index
-    rotation = spin_matrix_rotation(vectors[0][ax], angle, spin_half=vectors[0, 0, 0, 0] < 1)
-
-    for v in vectors[1:]:
-        np.matmul(rotation, spin_matrix_rotation(v[ax], angle, spin_half=v[0, 0, 0] < 1), out=rotation)
-
-    return rotation
-
 def pulse_bath_rotation(pulse, vectors):
     """
-    Generate rotation of the bath spins with given spin vectors.
+    Generate rotation of the bath spins from the given pulse.
 
     Args:
-        vectors (ndarray with shape (n, 3, x, x)): Array of *n* bath spin vectors.
-        axis (str): Axis of rotation.
-        angle (float): Angle of rotation.
+        pulse (Pulse): Control pulse.
+        vectors (ndarray with shape (n, 3, N, N): Array of spin vectors.
 
     Returns:
         ndarray with shape (x, x): Matrix representation of the spin rotation.
@@ -797,25 +704,22 @@ def pulse_bath_rotation(pulse, vectors):
     return rotation
 
 
-def spin_matrix_rotation(sm, angle, spin_half=False):
-    if angle == np.pi and spin_half:
-        rotation = -1j * 2 * sm
-    else:
-        rotation = scipy.linalg.expm(-1j * sm * angle)
-    return rotation
+def simple_propagator(timespace, hamiltonian):
+    r"""
+    Generate a simple propagator :math:`U=\exp[-\frac{i}{\hbar} \hat H]` from the Hamiltonian.
 
+    Args:
 
-def _check_projected_states(cluster, allspin, states=None, projected_states=None):
-    others = None
-    other_states = None
+        timespace (ndarray with shape (n, )): Time points at which to evaluate the propagator.
+        hamiltonian (ndarray with shape (N, N)): Hamiltonian of the system.
 
-    if states is not None:
-        states = states[cluster]
+    Returns:
+        ndarray with shape (n, N, N): Propagators, evaluated at each timepoint.
+    """
+    evalues, evec = np.linalg.eigh(hamiltonian * PI2)
 
-    if projected_states is not None:
-        others_mask = np.ones(allspin.shape, dtype=bool)
-        others_mask[cluster] = False
-        others = allspin[others_mask]
-        other_states = projected_states[others_mask]
+    eigexp = np.exp(-1j * np.outer(timespace, evalues),
+                    dtype=np.complex128)
 
-    return states, others, other_states
+    return np.matmul(np.einsum('...ij,...j->...ij', evec, eigexp, dtype=np.complex128),
+                     evec.conj().T)

@@ -101,6 +101,15 @@ def dimensions_spinvectors(bath=None, central_spin=None):
 
 @jit(cache=True, nopython=True)
 def vecs_from_dims(dimensions):
+    """
+    Generate ndarray of spin vectors, given the array of spin dimensions.
+
+    Args:
+        dimensions (ndarray with shape (n,)): Dimensions of spins.
+
+    Returns:
+        ndarray with shape (n, 3, X, X): Array of spin vectors in full Hilbert space.
+    """
     td = dimensions.prod()
     vectors = np.zeros((len(dimensions), 3, td, td), dtype=np.complex128)
     for j, d in enumerate(dimensions):
@@ -110,6 +119,17 @@ def vecs_from_dims(dimensions):
 
 @jit(cache=True, nopython=True)
 def spinvec(j, dimensions):
+    """
+    Generate single spin vector, given the index and dimensions of all spins in the cluster.
+
+    Args:
+        j (int): Index of the spin.
+        dimensions (ndarray with shape (n,)): Dimensions of spins.
+
+    Returns:
+        ndarray with shape (3, X, X): Spin vector of :math:`j`-sth spin in full Hilbert space.
+
+    """
     x, y, z = numba_gen_sm(dimensions[j])
     vec = np.stack((expand(x, j, dimensions),
                     expand(y, j, dimensions),
@@ -120,7 +140,7 @@ def spinvec(j, dimensions):
 
 def generate_projections(state_a, state_b=None, spins=None):
     r"""
-    Generate vector with the spin projections of the given spin states:
+    Generate vector or list of vectors (if ``spins`` is not None) with the spin projections of the given spin states:
 
     .. math::
 
@@ -129,11 +149,14 @@ def generate_projections(state_a, state_b=None, spins=None):
     where :math:`\ket{a}` and :math:`\ket{b}` are the given spin states.
 
     Args:
-        state_a (ndarray): state `a` of the central spin in :math:`\hat{S}_z` basis.
-        state_b (ndarray): state `b` of the central spin in :math:`\hat{S}_z` basis.
-
+        state_a (ndarray): State :math:`\ket{a}` of the central spin or spins in :math:`\hat{S}_z` basis.
+        state_b (ndarray): State :math:`\ket{b}` of the central spin or spins in :math:`\hat{S}_z` basis.
+        spins (ndarray, optional): Array of spins, comprising the given state vectors.
+            If provided, assumes that states correspond to a Hilbert space of several spins, and projections
+            of states are computed for each spin separately.
     Returns:
-        ndarray with shape (3,): :math:`[\braket{\hat{S}_x}, \braket{\hat{S}_y}, \braket{\hat{S}_z}]` projections.
+        ndarray with shape (3,) or list:
+            :math:`[\braket{\hat{S}_x}, \braket{\hat{S}_y}, \braket{\hat{S}_z}]` projections or list of projections.
     """
     if state_b is None:
         state_b = state_a
@@ -242,6 +265,17 @@ def partial_inner_product(avec, total, dimensions, index=-1):
 
 @jit(cache=True, nopython=True)
 def shorten_dimensions(dimensions, central_number):
+    """
+    Combine the dimensions, corresponding to the central spins.
+
+    Args:
+        dimensions (ndarray with shape (n, )): Array of the dimensions of the spins in the cluster.
+        central_number (int): Number of central spins.
+
+    Returns:
+        ndarray with shape (n - central_number): Array of the shortened dimensions;
+
+    """
     if central_number > 1:
         shortdims = dimensions[:-central_number + 1].copy()
         # reduced dimension so all central spin dimensions are gathered in one
@@ -253,6 +287,17 @@ def shorten_dimensions(dimensions, central_number):
 
 @jit(cache=True, nopython=True)
 def gen_state_list(states, dims):
+    """
+    Generate list of states from :math:`S_z` projections of the pure states.
+
+    Args:
+        states (ndarray with shape (n,)): Array of :math:`S_z` projections.
+        dims (ndarray with shape (n,)): Array of the dimensions of the spins in the cluster.
+
+    Returns:
+        List: list of state vectors.
+
+    """
     list_of_vectors = List()
     for s, d in zip(states, dims):
         list_of_vectors.append(vector_from_s(s, d))
@@ -261,6 +306,16 @@ def gen_state_list(states, dims):
 
 @jit(cache=True, nopython=True)
 def vector_from_s(s, d):
+    """
+    Generate vector state from :math:`S_z` projection.
+
+    Args:
+        s (float): :math:`S_z` projection.
+        d (int): Dimensions of the given spin.
+
+    Returns:
+        ndarray with shape (d, ): State vector of a pure state.
+    """
     vec_nucleus = np.zeros(d, dtype=np.complex128)
     state_number = np.int32((d - 1) / 2 - s)
     vec_nucleus[state_number] = 1
@@ -269,16 +324,45 @@ def vector_from_s(s, d):
 
 @jit(cache=True, nopython=True)
 def from_central_state(dimensions, central_state):
+    """
+    Generate density matrix of the system if all spins apart from central spin are in completely mixed state.
+
+    Args:
+        dimensions (ndarray with shape (n,)): Array of the dimensions of the spins in the cluster.
+        central_state (ndarray with shape (x,)): Density matrix of central spins.
+
+    Returns:
+        ndarray with shape (N, N): Density matrix for the whole cluster.
+    """
+
     return expand(central_state, len(dimensions) - 1, dimensions) / dimensions[:-1].prod()
 
 
 @jit(cache=True, nopython=True)
 def from_none(dimensions):
+    """
+    Generate density matrix of the systems if all spins are in completely mixed state.
+    Args:
+        dimensions (ndarray with shape (n,)): Array of the dimensions of the spins in the cluster.
+
+    Returns:
+        ndarray with shape (N, N): Density matrix for the whole cluster.
+
+    """
     tdim = np.prod(dimensions)
     return np.eye(tdim) / tdim
 
 
 def from_states(states):
+    """
+    Generate density matrix of the systems if all spins are in pure states.
+    Args:
+        states (array-like): Array of the pure spin states.
+
+    Returns:
+        ndarray with shape (N, N): Spin vector for the whole cluster.
+
+    """
     cluster_state = states[0]
     for s in states[1:]:
         cluster_state = np.kron(cluster_state, s)
@@ -287,17 +371,26 @@ def from_states(states):
 
 
 def combine_cluster_central(cluster_state, central_state):
+    """
+    Combine bath spin states and the state of central spin.
+    Args:
+        cluster_state (ndarray with shape (n,) or (n, n)): State vector or density matrix of the bath spins.
+        central_state (ndarray with shape (m,) or (m, m)): State vector or density matrix of the central spins.
+
+    Returns:
+        ndarray with shape (mn, ) or (mn, mn): State vector or density matrix of the full system.
+    """
     lcs = len(cluster_state.shape)
     ls = len(central_state.shape)
 
     if lcs != ls:
-        return noneq_cc(cluster_state, central_state)
+        return _noneq_cc(cluster_state, central_state)
     else:
-        return eq_cc(cluster_state, central_state)
+        return _eq_cc(cluster_state, central_state)
 
 
 @jit(cache=True, nopython=True)
-def noneq_cc(cluster_state, central_state):
+def _noneq_cc(cluster_state, central_state):
     if len(cluster_state.shape) == 1:
         matrix = outer(cluster_state, cluster_state)
         return np.kron(matrix, central_state)
@@ -308,21 +401,53 @@ def noneq_cc(cluster_state, central_state):
 
 
 @jit(cache=True, nopython=True)
-def eq_cc(cluster_state, central_state):
+def _eq_cc(cluster_state, central_state):
     return np.kron(cluster_state, central_state)
 
 
 @jit(cache=True, nopython=True)
 def rand_state(d):
+    """
+    Generate random state of the spin.
+
+    Args:
+        d (int): Dimensions of the spin.
+
+    Returns:
+        ndarray with shape (d, d): Density matrix of the random state.
+    """
     return np.eye(d, dtype=np.complex128) / d
 
 
-@jit(nopython=True)
+@jit(cache=True, nopython=True)
 def outer(s1, s2):
+    """
+    Outer product of two complex vectors :math:`\ket{s_1}\bra{s_2}`.
+
+    Args:
+        s1 (ndarray with shape (n, )): First vector.
+        s2 (ndarray with shape (m, )): Second vector.
+
+    Returns:
+        ndarray with shape (n, m): Outer product.
+    """
     return np.outer(s1, s2.conj())
 
 
 def generate_initial_state(dimensions, states=None, central_state=None):
+    """
+    Generate initial state of the cluster.
+
+    Args:
+        dimensions (ndarray with shape (n, )): Dimensions of all spins in the cluster.
+        states (BathState, optional): States of the bath spins. If None, assumes completely random state.
+        central_state (ndarray): State of the central spin. If None, assumes that no central spin is present
+            in the Hilbert space of the cluster.
+
+    Returns:
+        ndarray with shape (N,) or (N, N): State vector or density matrix of the cluster.
+
+    """
     if states is None:
         if central_state is None:
             return from_none(dimensions)
@@ -359,8 +484,18 @@ def generate_initial_state(dimensions, states=None, central_state=None):
     return cluster_state
 
 
-@jit(nopython=True)
+@jit(cache=True, nopython=True)
 def tensor_vdot(tensor, ivec):
+    """
+    Compute product of the tensor and spin vector.
+
+    Args:
+        tensor ():
+        ivec ():
+
+    Returns:
+
+    """
     result = np.zeros((tensor.shape[1], *ivec.shape[1:]), dtype=ivec.dtype)
     for i, row in enumerate(tensor):
         for j, a_ij in enumerate(row):
@@ -368,8 +503,18 @@ def tensor_vdot(tensor, ivec):
     return result
 
 
-@jit(nopython=True)
+@jit(cache=True, nopython=True)
 def vvdot(vec_1, vec_2):
+    """
+    Compute product of two spin vectors.
+
+    Args:
+        vec_1 (ndarray with shape (3, N, N)): First spin vector.
+        vec_2 (ndarray with shape (3, N, N)): Second spin vector.
+
+    Returns:
+        ndarray with shape (N, N): Product of two vectors.
+    """
     result = np.zeros(vec_1.shape[1:], vec_1.dtype)
     for v1, v2 in zip(vec_1, vec_2):
         result += v1 @ v2
@@ -377,6 +522,17 @@ def vvdot(vec_1, vec_2):
 
 
 def rotate_tensor(tensor, rotation=None, style='col'):
+    """
+    Rootate tensor in real space, given rotation matrix.
+
+    Args:
+        tensor (ndarray with shape (3, 3)): Tensor to be rotated.
+        rotation (ndarray with shape (3, 3)): Rotation matrix.
+        style (str): Can be 'row' or 'col'. Determines how rotation matrix is initialized.
+
+    Returns:
+        ndarray with shape (3, 3): Rotated tensor.
+    """
     if rotation is None:
         return tensor
     if style.lower == 'row':
@@ -394,6 +550,18 @@ def rotate_tensor(tensor, rotation=None, style='col'):
 
 
 def rotate_coordinates(xyz, rotation=None, cell=None, style='col'):
+    """
+    Rootate coordinates in real space, given rotation matrix.
+
+    Args:
+        xyz (ndarray with shape (..., 3)): Array of coordinates.
+        rotation (ndarray with shape (3, 3)): Rotation matrix.
+        cell (ndarray with shape (3, 3)): Cell matrix if coordinates are given in cell coordinates.
+        style (str): Can be 'row' or 'col'. Determines how rotation matrix and cell matrix are initialized.
+
+    Returns:
+        ndarray with shape (..., 3)): Array of rotated coordinates.
+    """
     if style.lower() == 'row':
         if rotation is not None:
             rotation = rotation.T
@@ -416,5 +584,14 @@ def rotate_coordinates(xyz, rotation=None, cell=None, style='col'):
 
 
 def normalize(vec):
+    """
+    Normalize vector to 1.
+
+    Args:
+        vec (ndarray with shape (n, )): Vector to be normalized.
+
+    Returns:
+        ndarray with shape (n, ): Normalized vector.
+    """
     vec = np.asarray(vec, dtype=np.complex128)
     return vec / np.linalg.norm(vec)

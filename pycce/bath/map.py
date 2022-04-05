@@ -1,23 +1,23 @@
 import copy
-
-import numpy as np
 from collections import defaultdict
 from collections.abc import MutableMapping
+
+import numpy as np
 from scipy.sparse.sputils import isintlike
 
-TwoLayerDict = lambda: defaultdict(dict)
+two_layer_dict = lambda: defaultdict(dict)
 
 
 class InteractionMap(MutableMapping):
     """
     Dict-like object containing information about tensor interactions between two spins.
 
-    Each key is a tuple of two bath spin indexes.
+    Each key is a tuple of two spin indexes.
 
     Args:
-        rows (array-like with shape (n,)):
+        rows (array-like with shape (n, )):
             Indexes of the bath spins, appearing on the left in the pairwise interaction.
-        columns (array-like with shape (n,)):
+        columns (array-like with shape (n, )):
             Indexes of the bath spins, appearing on the right in the pairwise interaction.
         tensors (array-like with shape (n, 3, 3)):
             Tensors of pairwise interactions between two spins with the indexes in ``rows`` and ``columns``.
@@ -36,7 +36,7 @@ class InteractionMap(MutableMapping):
     @property
     def indexes(self):
         """
-        ndarray with shape (n, 2): Array with the indexes of pairs of bath spins, for which the tensors are stored.
+        ndarray with shape (n, 2): Array with the indexes of pairs of spins, for which the tensors are stored.
         """
         if self._indexes is None:
             self.__gen_indexes()
@@ -180,7 +180,6 @@ class InteractionMap(MutableMapping):
         for j, pair in enumerate(self.indexes):
             self._data[j] = self[pair]
 
-
     def subspace(self, array):
         r"""
         Get new InteractionMap with indexes readressed from array. Within the subspace indexes are renumbered.
@@ -253,11 +252,15 @@ class InteractionMap(MutableMapping):
     def from_dict(cls, dictionary, presorted=False):
         """
         Generate InteractionMap from the dictionary.
+
         Args:
+
             dictionary (dict): Dictionary with tensors.
+
             presorted (bool): If true, assumes that the keys in the dictionary were already presorted.
 
         Returns:
+
             InteractionMap: New instance generated from the dictionary.
         """
         obj = cls()
@@ -333,9 +336,6 @@ class _CompressedIMap:
         return _CompressedIMap(newpairs, newtensors)
 
     def __getitem__(self, key):
-        a, b = _index(key)
-
-        which = (self.indexes[0] == a) & (self.indexes[b] == a)
 
         if not key.shape[-1] == 2:
             raise KeyError

@@ -84,18 +84,23 @@ def total_hamiltonian(bath, center, mfield):
 
 
 def central_hamiltonian(center, magnetic_field, hyperfine=None, bath_state=None):
-    """
-    Compute hamiltonian, containing only central spin.
+    r"""
+    Compute Hamiltonian, containing only central spin.
+
     Args:
         center (CenterArray or Center): Center spin.
+
         magnetic_field (ndarray with shape (3,) or func):
             Magnetic field of type ``magnetic_field = np.array([Bx, By, Bz])``
             or callable with signature ``magnetic_field(pos)``, where ``pos`` is ndarray with shape (3,) with the
             position of the spin.
+
         hyperfine (ndarray with shape (..., n, 3, 3)): Array of hyperfine tensors of bath spins.
-        bath_state (ndarray with shape (n, )): Array of Sz projections of bath spins.
+
+        bath_state (ndarray with shape (n, )): Array of :math:`S_z` projections of bath spins.
 
     Returns:
+        Hamiltonian: Central spin Hamiltonian.
 
     """
     dims, vectors = dimensions_spinvectors(central_spin=center)
@@ -139,16 +144,18 @@ def central_hamiltonian(center, magnetic_field, hyperfine=None, bath_state=None)
 
 
 def projected_addition(vectors, bath, center, state):
-    """
+    r"""
+    Compute the first order addition of the interactions with the cental spin to the cluster Hamiltonian.
 
     Args:
-        vectors ():
-        bath ():
-        center ():
-        state ():
+        vectors (array-like): Array of expanded spin vectors, each with shape (3, n, n).
+        bath (BathArray): Array of bath spins.
+        center (CenterArray): Array of central spins.
+        state (str, bool, or array-like): Identificator of the qubit spin. ``'alpha'`` or ``True``
+            for :math:`\ket{0}` state, ``'beta'`` of ``False`` for :math:`\ket{1}` state.
 
     Returns:
-
+        ndarray with shape (n, n): Addition to the Hamiltonian.
     """
     ncenters = len(center)
     addition = 0
@@ -175,7 +182,7 @@ def projected_addition(vectors, bath, center, state):
                 else:
                     hf = n.A
 
-                projections = c.get_projections(state)
+                projections = c.get_projections(s)
                 addition += conditional_hyperfine(hf, ivec, projections)
 
     energy = center.get_energy(state)
@@ -195,17 +202,19 @@ def projected_addition(vectors, bath, center, state):
     return addition
 
 
-def center_zo_addition(vectors, cluster, outer_spin, outer_state):
+def center_external_addition(vectors, cluster, outer_spin, outer_state):
     """
+    Compute the first order addition of the interactions between central spin and external bath spins
+    to the cluster Hamiltonian.
 
     Args:
-        vectors ():
-        cluster ():
-        outer_spin ():
-        outer_state ():
+        vectors (array-like): Array of expanded spin vectors, each with shape (3, n, n).
+        cluster (BathArray): Array of cluster spins.
+        outer_spin (BathArray with shape (o, )): Array of the spins outside the cluster.
+        outer_state (ndarray with shape (o, )): Array of the :math:`S_z` projections of the external bath spins.
 
     Returns:
-
+        ndarray with shape (n, n): Addition to the Hamiltonian.
     """
     addition = 0
     ncenters = vectors.shape[0] - cluster.size
@@ -221,17 +230,19 @@ def center_zo_addition(vectors, cluster, outer_spin, outer_state):
     return addition
 
 
-def bath_pd_zo_addition(vectors, cluster, outer_spin, outer_state):
+def bath_external_point_dipole(vectors, cluster, outer_spin, outer_state):
     """
+    Compute the first order addition of the point-dipole interactions between cluster spins and external bath spins
+    to the cluster Hamiltonian.
 
     Args:
-        vectors ():
-        cluster ():
-        outer_spin ():
-        outer_state ():
+        vectors (array-like): Array of expanded spin vectors, each with shape (3, n, n).
+        cluster (BathArray): Array of cluster spins.
+        outer_spin (BathArray with shape (o, )): Array of the spins outside the cluster.
+        outer_state (ndarray with shape (o, )): Array of the :math:`S_z` projections of the external bath spins.
 
     Returns:
-
+        ndarray with shape (n, n): Addition to the Hamiltonian.
     """
     addition = 0
     for ivec, n in zip(vectors, cluster):
@@ -240,36 +251,19 @@ def bath_pd_zo_addition(vectors, cluster, outer_spin, outer_state):
     return addition
 
 
-def zero_order_addition(vectors, cluster, outer_spin, outer_state):
+def external_spins_field(vectors, indexes, bath, projected_state):
     """
+    Compute the first order addition of the point-dipole interactions between cluster spins and external bath spins
+    to the cluster Hamiltonian.
 
     Args:
-        vectors ():
-        cluster ():
-        outer_spin ():
-        outer_state ():
+        vectors (array-like): Array of expanded spin vectors, each with shape (3, n, n).
+        indexes (ndarray with shape (n,)): Array of indexes of bath spins inside the given cluster.
+        bath (BathArray with shape (N,)): Array of all bath spins.
+        projected_state (ndarray with shape (N, ):  Array of the :math:`S_z` projections of all bath spins.
 
     Returns:
-
-    """
-    addition = center_zo_addition(vectors, cluster, outer_spin, outer_state) + bath_pd_zo_addition(vectors, cluster,
-                                                                                                   outer_spin,
-                                                                                                   outer_state)
-
-    return addition
-
-
-def zero_order_imap(vectors, indexes, bath, projected_state):
-    """
-
-    Args:
-        vectors ():
-        indexes ():
-        bath ():
-        projected_state ():
-
-    Returns:
-
+        ndarray with shape (n, n): Addition to the Hamiltonian.
     """
     outer_mask = np.ones(bath.size, dtype=bool)
     outer_mask[indexes] = False
@@ -278,10 +272,10 @@ def zero_order_imap(vectors, indexes, bath, projected_state):
     outer_state = projected_state[outer_mask]
     cluster = bath[indexes]
 
-    addition = center_zo_addition(vectors, cluster, outer_spin, outer_state)
+    addition = center_external_addition(vectors, cluster, outer_spin, outer_state)
 
     if bath.imap is None:
-        addition += bath_pd_zo_addition(vectors, cluster, outer_spin, outer_state)
+        addition += bath_external_point_dipole(vectors, cluster, outer_spin, outer_state)
 
         return addition
 
@@ -303,7 +297,6 @@ def zero_order_imap(vectors, indexes, bath, projected_state):
             other_indexes = imap_indexes[which_pairs][~(where_index[which_pairs])]
 
             addition += overhauser_from_tensors(ivec, bath.imap.data[which_pairs], projected_state[other_indexes])
-
 
             outer_mask[other_indexes] = False
 

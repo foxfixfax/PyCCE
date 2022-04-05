@@ -19,6 +19,7 @@ PyCCE: A Python Package for CCE Simulations
    :caption: User Documentation
 
    bath
+   center
    simulator
    parameters
    dft
@@ -41,6 +42,11 @@ PyCCE: A Python Package for CCE Simulations
 **PyCCE** is an open source Python library to simulate the dynamics of
 a spin qubit interacting with a spin bath using the cluster-correlation expansion (CCE) method.
 
+Updates
+------------
+The **PyCCE** 1.0 has been released!
+
+Main highlights from the different
 
 Installation
 ----------------

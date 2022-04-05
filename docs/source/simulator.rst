@@ -7,7 +7,6 @@ Documentation for the ``pycce.Simulator`` - main class for conducting CCE Simula
 
 .. autoclass:: pycce.main.Simulator
    :members:
-   :inherited-members: Environment
    :exclude-members: compute, cce_coherence, gcce_coherence, cce_noise, gcce_noise, read_bath, generate_clusters,
 
 Reading the Bath

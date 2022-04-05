@@ -2,9 +2,8 @@ import operator
 
 import numpy as np
 from pycce.h import total_hamiltonian, bath_interactions, expanded_single, conditional_hyperfine, \
-    dimensions_spinvectors, overhauser_bath, Hamiltonian, zero_order_addition, bath_hamiltonian, projected_addition
-from pycce.run.base import RunObject
-from pycce.run.gcce import propagator
+    dimensions_spinvectors, overhauser_bath, Hamiltonian, bath_hamiltonian, projected_addition
+from pycce.run.base import RunObject, simple_propagator
 from pycce.utilities import generate_initial_state
 
 _rows = None
@@ -180,7 +179,7 @@ class gCCENoise(RunObject):
 
             ndarray: Computed autocorrelation function.
         """
-        time_propagator = propagator(self.timespace, self.hamiltonian)
+        time_propagator = simple_propagator(self.timespace, self.hamiltonian)
 
         dmtotal0 = generate_initial_state(self.base_hamiltonian.dimensions, central_state=self.dm0, states=self.states)
 
@@ -286,7 +285,7 @@ class CCENoise(RunObject):
         """
         dm0_expanded = generate_initial_state(self.base_hamiltonian.dimensions, states=self.states, central_state=None)
 
-        time_propagator = propagator(self.timespace, self.hamiltonian)
+        time_propagator = simple_propagator(self.timespace, self.hamiltonian)
 
         return compute_correlations(self.cluster, dm0_expanded, time_propagator)
 

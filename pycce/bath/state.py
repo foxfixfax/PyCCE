@@ -9,7 +9,8 @@ from numba.typed import List
 
 class BathState:
     r"""
-    Class for storing the state of the bath spins.
+    Class for storing the state of the bath spins. Usually is not generated directly, but accessed as
+    an ``BathArray.state`` attribute.
 
     Args:
         size (int): Number of bath states to be stored.
@@ -122,14 +123,19 @@ class BathState:
                         if v1 == v2:
                             # Matrix
                             if v1 == inshape[0]:
-                                if np.isclose(np.trace(value), 1):
+                                if np.isclose(np.linalg.norm(value, axis=1), 1).all():
+                                    # Array of vectors
+                                    fshape = value.shape
+
+                                elif np.isclose(np.trace(value), 1):
                                     # Density matrix b/c trace is 1
                                     # warnings.warn("Cannot decide whether a stack of vectors or density matrix. "
                                     #               "Assuming density matrix", stacklevel=2)
                                     fshape = inshape + value.shape
                                 else:
+                                    raise ValueError('Something is really wrong with this world.')
                                     # Else array of vectors
-                                    fshape = value.shape
+
                             else:
                                 # Still matrix
                                 fshape = inshape + value.shape
@@ -299,7 +305,15 @@ class BathState:
         return self._data.size
 
     def any(self, *args, **kawrgs):
+        """
+        Returns the output of ``.has_state.any`` method.
+        Args:
+            *args: Positional arguments of ``.has_state.any`` method.
+            **kawrgs: Keyword arguments of ``.has_state.any`` method.
 
+        Returns:
+            bool: True if any entry is initialized. Otherwise False.
+        """
         return self.has_state.any(*args, **kawrgs)
 
     def __repr__(self):
@@ -357,9 +371,9 @@ def project_bath_states(states, single=False, rotation=None):
 
         except ValueError:
             if rotation is None:
-                projected_bath_state = _loop_trace(list(states))
+                projected_bath_state = _loop_trace(List(states))
             else:
-                projected_bath_state = _loop_trace_rotate(list(states))
+                projected_bath_state = _loop_trace_rotate(List(states))
 
     if projected_bath_state is None:
         spin = (ndstates.shape[1] - 1) / 2
@@ -386,7 +400,7 @@ def project_bath_states(states, single=False, rotation=None):
 
     return projected_bath_state
 
-@jit(nopython=True)
+@jit(cache=True, nopython=True)
 def _loop_trace(states):
     proj_states = np.empty((len(states),), dtype=np.float64)  # (len(states), 3)
     dims = List()
@@ -425,7 +439,7 @@ def _loop_trace(states):
     return proj_states
 
 
-@jit(nopython=True)
+@jit(cache=True, nopython=True)
 def _loop_trace_rotate(states, rotation):
     proj_states = np.empty((len(states),), dtype=np.float64)  # (len(states), 3)
     dims = List()

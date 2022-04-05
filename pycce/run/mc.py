@@ -3,6 +3,7 @@ import functools
 import numpy as np
 from numpy import ma as ma
 from pycce.utilities import gen_state_list
+from numba.typed import List
 
 
 def generate_bath_state(bath, nbstates, seed=None, parallel=False):
@@ -13,8 +14,7 @@ def generate_bath_state(bath, nbstates, seed=None, parallel=False):
         bath (BathArray): Array of bath spins.
         nbstates (int): Number of random bath states to generate.
         seed (int): Optional. Seed for RNG.
-        fixstates (dict): Optional. dict of which bath states to fix. Each key is the index of bath spin,
-            value - fixed :math:`\hat{I}_z` projection of the mixed state of nuclear spin.
+        parallel (bool): True if run in parallel mode. Default False.
 
     Yields:
         ndarray: Array of ``shape = len(bath)`` containing z-projections of the bath spins states.

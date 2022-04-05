@@ -208,11 +208,11 @@ def bath_mediated(hyperfines, ivectors, energy_state, energies, projections):
     Compute all hyperfine-mediated interactions between bath spins.
 
     Args:
-        hyperfines (ndarray with shape (n, 3,3)): Array of hyperfine tensors of the bath spins in the given cluster.
-        ivectors (array-like): array of expanded spin vectors, each with shape (3,n,n).
+        hyperfines (ndarray with shape (n, 3, 3)): Array of hyperfine tensors of the bath spins in the given cluster.
+        ivectors (array-like): array of expanded spin vectors, each with shape (3, n, n).
         energy_state (float): Energy of the qubit state on which the interaction is conditioned.
-        energies (ndarray with shape (2s-1,)): Array of energies of all states of the central spin.
-        projections (ndarray with shape (2s-1, 3)):
+        energies (ndarray with shape (2s - 1,)): Array of energies of all states of the central spin.
+        projections (ndarray with shape (2s - 1, 3)):
             Array of vectors of the central spin matrix elements of form:
 
             .. math::
@@ -225,7 +225,7 @@ def bath_mediated(hyperfines, ivectors, energy_state, energies, projections):
         ndarray with shape (n, n): Hyperfine-mediated interactions.
 
     """
-    mediated = np.zeros(ivectors[0,0].shape, dtype=np.complex128)
+    mediated = np.zeros(ivectors[0, 0].shape, dtype=np.complex128)
 
     others_mask = energies != energy_state
     energies = energies[others_mask]
@@ -293,7 +293,7 @@ def hyperfine(hyperfine_tensor, svec, ivec):
 
 @jit(cache=True, nopython=True)
 def self_central(svec, mfield, tensor, gyro=ELECTRON_GYRO, detuning=0):
-    """
+    r"""
     Function to compute the central spin term in the Hamiltonian.
 
     Args:
@@ -323,7 +323,7 @@ def self_central(svec, mfield, tensor, gyro=ELECTRON_GYRO, detuning=0):
 
 
 def center_interactions(center, vectors):
-    """
+    r"""
     Compute interactions between central spins.
 
     Args:
@@ -362,7 +362,7 @@ def overhauser_central(svec, others_hyperfines, others_state):
         others_hyperfines (ndarray with shape (m, 3, 3)):
             Array of hyperfine tensors for all bath spins not included in the cluster.
         others_state (ndarray with shape (m,) or (m, 3)):
-            Array of Iz projections for each bath spin outside of the given cluster.
+            Array of :math:`I_z` projections for each bath spin outside of the given cluster.
 
     Returns:
         ndarray with shape (n, n): Central spin Overhauser term.
@@ -389,7 +389,7 @@ def overhauser_bath(ivec, position, gyro,
         others_position (ndarray with shape (m, 3)):
             Array of the positions of the bath spins, not included in the cluster.
         others_state (ndarray with shape (m,) or (m, 3)):
-            Array of Iz projections for each bath spin outside of the given cluster.
+            Array of :math:`I_z` projections for each bath spin outside of the given cluster.
 
     Returns:
         ndarray with shape (n, n): Bath spin Overhauser term.
@@ -407,4 +407,19 @@ def overhauser_bath(ivec, position, gyro,
 
 @jit(cache=True, nopython=True)
 def overhauser_from_tensors(vec, tensors, projected_state):
+    """
+    Compute Overhauser field from array of tensors.
+
+    Args:
+        vec (ndarray with shape (3, n, n)): Spin vector of the bath spin in the full Hilbert space of the cluster.
+
+        tensors (ndarray with shape (N, 3, 3)): Array of interaction tensors.
+
+        projected_state (ndarray with shape (N, )):
+            Array of :math:`I_z` projections of the spins outside of the given cluster..
+
+    Returns:
+        ndarray with shape (n, n): Bath spin Overhauser term.
+
+    """
     return (tensors[:, 2, 2] * projected_state).sum() * vec[2]

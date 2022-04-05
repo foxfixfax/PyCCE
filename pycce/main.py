@@ -10,22 +10,20 @@ Default Units:
 
 """
 
+import warnings
 
 import numpy as np
-import warnings
 from pycce.io.xyz import read_xyz
-from .center import CenterArray
-from .bath.array import BathArray, SpinDict, check_gyro, broadcast_array
+
+from .bath.array import BathArray, SpinDict, broadcast_array
 from .bath.cube import Cube
+from .center import CenterArray
 from .constants import ELECTRON_GYRO
 from .find_clusters import generate_clusters
-from .h import total_hamiltonian
 from .run.cce import CCE
 from .run.corr import CCENoise, gCCENoise
 from .run.gcce import gCCE
 from .run.pulses import Sequence
-from .utilities import zfs_tensor
-from pycce.bath.state import project_bath_states
 
 
 def _add_args(after):
@@ -43,9 +41,11 @@ _returns = r"""
                 ndarray: Computed property."""
 
 _args = r"""
-            magnetic_field (ndarray with shape (3,)): Magnetic field vector of form (Bx, By, Bz). 
-    
-                Default is **None**. Overrides  ``Simulator.magnetic_field`` if provided.
+            magnetic_field (ndarray with shape (3,) or callable): Magnetic field vector of form (Bx, By, Bz)
+                or callable with signature ``magnetic_field(pos)``, where ``pos`` is an array with shape (3,) with the
+                position of the spin. 
+                
+                Default is **None**. Overrides ``Simulator.magnetic_field`` if provided.
 
             D (float or ndarray with shape (3,3)):
                 D (longitudinal splitting) parameter of central spin in ZFS tensor of central spin in kHz.
@@ -66,7 +66,7 @@ _args = r"""
                 **OR**
 
                 Sequence of the instantaneous ideal control pulses.
-                It can be provided as an instance of ``Sequence`` class
+                It can be provided as an instance of ``Sequence`` class or a list with ``Pulse`` objects.
                 (See documentation for pycce.Sequence).
                 
                 ``pulses`` can be provided as a list with tuples or dictionaries,
@@ -106,7 +106,29 @@ _args = r"""
                 In the calculations of noise autocorrelation this parameter is ignored.
 
                 Default is **None**. Overrides``Simulator.pulses`` if provided.
+            
+            i (int or ndarray with shape (2s+1, ) or callable): Used in gCCE calculations.
+                Along with ``j`` parameter indicates which density matrix element is to compute with gCCE as:
+                
+                ..math::
+                
+                    L=\bra{i}\hat \rho \ket{j}
+                
+                By default is equal to :math:`R\ket{0}` state of the ``.center``
+                where :math:`R` is a product of all rotations applied in the pulse sequence.
+                Can be set as a vector in :math:`S_z` basis, the index of the central spin Hamiltonian
+                eigenstate, or as a callable with call signature ``i(dm)``, where ``dm`` is a density matrix of the 
+                central spin. If callable, ``j`` parameter is ignored.
 
+            j (int or ndarray with shape (2s+1, ) or callable): Used in gCCE calculations.
+                Along with ``i`` parameter indicates which density matrix element is to compute.
+                
+                By default is equal to :math:`R\ket{1}` state of the ``.center``
+                where :math:`R` is a product of all rotations applied in the pulse sequence.
+                Can be set as a vector in :math:`S_z` basis, the index of the central spin Hamiltonian
+                eigenstate, or as a callable with call signature ``j(dm)``, where ``dm`` is a density matrix of the 
+                central spin. If callable, ``i`` parameter is ignored.
+            
             alpha (int or ndarray with shape (2s+1, )): :math:`\ket{0}` state of the qubit in :math:`S_z`
                 basis or the index of eigenstate to be used as one.
 
@@ -267,20 +289,10 @@ class Simulator:
 
         >>> atoms = random_bath('13C', 100, number=2000, seed=10)
         >>> calc = Simulator(1, bath=atoms, r_bath=40, r_dipole=6,
-        >>>                  order=2, D=2.88 * 2 * np.pi * 1e6,
+        >>>                  order=2, D=2.88 * 1e6,
         >>>                  magnetic_field=500, pulses=1)
         >>> print(calc)
-        Simulator for spin-1.
-        alpha: [0.+0.j 1.+0.j 0.+0.j]
-        beta: [0.+0.j 0.+0.j 1.+0.j]
-        gyromagnetic ratio: -17608.59705 kHz * rad / G
-        zero field splitting:
-        array([[-6031857.895,        0.   ,        0.   ],
-               [       0.   , -6031857.895,        0.   ],
-               [       0.   ,        0.   , 12063715.79 ]])
-        magnetic field:
-        array([  0.,   0., 500.])
-
+        Simulator for center array of size 1.
         Parameters of cluster expansion:
         r_bath: 40
         r_dipole: 6
@@ -295,25 +307,36 @@ class Simulator:
 
     Args:
 
-        spin (float): Total spin of the central spin.
+        spin (CenterArray or float or array with shape (n,)):
+            CenterArray containing properties of all central spins.
 
-        position (ndarray): Cartesian coordinates in Angstrom of the central spin. Default (0., 0., 0.).
+            *OR*
 
-        alpha (float or ndarray with shape (2s+1, )): :math:`\ket{0}` state of the qubit in :math:`S_z`
+            Total spin of the central spin (Assumes one central spin).
+
+            *OR*
+
+            Array of total spins of the central spins (Assumes *n* central spins).
+
+        position (ndarray):
+            Cartesian coordinates ar array of coordinates in Angstrom of the central spin(s).
+            Default (0., 0., 0.). If provided, overrides the position in CenterArray.
+
+        alpha (float or ndarray with shape (S, )): :math:`\ket{0}` state of the qubit in :math:`S_z`
             basis or the index of eigenstate to be used as one.
 
-            Default: state with :math:`m_s = +s` where :math:`m_s` is the z-projection of the spin
-            and :math:`s` is the total spin if no information of central spin Hamiltonian is provided.
-            Otherwise lowest energy eigenstate of the central spin Hamiltonian.
+            Default: Lowest energy eigenstate of the central spin Hamiltonian.
 
-        beta (float or ndarray with shape (2s+1, )): :math:`\ket{1}` state of the qubit in :math:`S_z` basis
+            If provided, overrides the alpha state in the CenterArray.
+
+        beta (float or ndarray with shape (S, )): :math:`\ket{1}` state of the qubit in :math:`S_z` basis
             or the index of the eigenstate to be used as one.
 
-            Default: state with :math:`m_s = +s - 1` where :math:`m_s` is the z-projection of the spin
-            and :math:`s` is the total spin if no information of central spin Hamiltonian is provided.
-            Otherwise second lowest energy eigenstate of the central spin Hamiltonian.
+            Default: Second lowest energy eigenstate of the central spin Hamiltonian.
 
-        gyro (float or ndarray with shape (3,3)): Gyromagnetic ratio of central spin in rad / ms / G.
+            If provided, overrides the beta state in the CenterArray.
+
+        gyro (float or ndarray with shape (3, 3)): Gyromagnetic ratio of the central spin(s) in rad / ms / G.
 
             *OR*
 
@@ -321,12 +344,17 @@ class Simulator:
 
             Default -17608.597050 kHz * rad / G - gyromagnetic ratio of the free electron spin.
 
+            If provided, overrides the gyro value in CenterArray.
+
+
         D (float or ndarray with shape (3, 3)): D (longitudinal splitting) parameter of central spin
             in ZFS tensor of central spin in kHz.
 
             *OR*
 
             Total ZFS tensor. Default 0.
+
+            If provided, overrides the ZFS value in CenterArray.
 
         E (float): E (transverse splitting) parameter of central spin in ZFS tensor of central spin in kHz.
             Default 0. Ignored if ``D`` is None or tensor.
@@ -338,7 +366,7 @@ class Simulator:
             - Instance of BathArray class;
             - ndarray with ``dtype([('N', np.unicode_, 16), ('xyz', np.float64, (3,))])`` containing names
               of bath spins (same ones as stored in self.ntype) and positions of the spins in angstroms;
-            - the name of the xyz text file containing 4 cols: name of the bath spin and xyz coordinates in A.
+            - the name of the .xyz text file containing 4 columns: name of the bath spin and xyz coordinates in A.
 
         r_dipole (float): Maximum connectivity distance between two bath spins.
 
@@ -358,21 +386,41 @@ class Simulator:
 
     """
 
-    def __init__(self, spin, position=None, alpha=0, beta=1, gyro=ELECTRON_GYRO, magnetic_field=None,
-                 D=0., E=0., r_dipole=None, order=None, bath=None, pulses=None, as_delay=False, n_clusters=None,
+    def __init__(self, spin, position=None, alpha=None, beta=None, gyro=None, magnetic_field=None,
+                 D=None, E=0., r_dipole=None, order=None, bath=None, pulses=None, as_delay=False, n_clusters=None,
                  **bath_kw):
-
-        if position is None:
-            position = np.zeros(3)
 
         self.center = None
         """CenterArray: Array of central spins."""
         if isinstance(spin, CenterArray):
             self.center = spin
+
+            if position is not None:
+                self.center.xyz = position
+            if gyro is not None:
+                self.center.gyro = gyro
+            if D is not None:
+                self.center.set_zfs(D, E)
+            if alpha is not None:
+                self.alpha = alpha
+            if beta is not None:
+                self.beta = beta
         else:
+
+            if position is None:
+                position = np.zeros(3)
+            if gyro is None:
+                gyro = ELECTRON_GYRO
+            if D is None:
+                D = 0.
+
+            if alpha is None:
+                alpha = 0
+            if beta is None:
+                beta = 1
+
             self.center = CenterArray(spin=spin, gyro=gyro, position=position, D=D, E=E,
                                       alpha=alpha, beta=beta)
-
         self._magnetic_field = None
         self.magnetic_field = magnetic_field
 
@@ -454,7 +502,7 @@ class Simulator:
         self.j = None
 
     def __repr__(self):
-        bm = (f"Simulator for center:\n{self.center}\n"
+        bm = (f"Simulator for center array of size {len(self.center)}.\n"
               f"magnetic field:\n{self.magnetic_field.__repr__()}\n\n"
               f"Parameters of cluster expansion:\n"
               f"r_bath: {self.r_bath}\n"
@@ -476,8 +524,8 @@ class Simulator:
     @property
     def alpha(self):
         r"""
-        ndarray or int: :math:`\ket{0}` qubit state of the central spin in Sz basis
-            **OR** index of the energy state to be considered as one.
+        ndarray or int: Returns .center.alpha property: :math:`\ket{0}` qubit state of the central spin in Sz basis
+        **OR** index of the energy state to be considered as one.
         """
         return self.center.alpha
 
@@ -488,8 +536,8 @@ class Simulator:
     @property
     def beta(self):
         r"""
-        ndarray or int: :math:`\ket{1}` qubit state of the central spin in Sz basis
-            **OR** index of the energy state to be considered as one.
+        ndarray or int: Returns .center.beta property: :math:`\ket{1}` qubit state of the central spin in Sz basis
+        **OR** index of the energy state to be considered as one.
         """
         return self.center.beta
 
@@ -500,7 +548,9 @@ class Simulator:
     @property
     def magnetic_field(self):
         """
-        ndarray: Array containing external magnetic field as (Bx, By, Bz). Default (0, 0, 0).
+        ndarray: Array containing external magnetic field as (Bx, By, Bz)
+        or callable with signature ``magnetic_field(pos)``, where ``pos`` is an array with shape (3,) with the
+        position of either bath or central spin. Default is (0, 0, 0).
         """
         return self._magnetic_field
 
@@ -528,13 +578,14 @@ class Simulator:
         ``number`` is the maximum number of clusters with this size.
 
         If provided, sorts the clusters by the strength of cluster interaction,
-        equal to the lowest pairwise interaction in the cluster. Then the strongest ``number`` of clusters is
-        taken.
+        equal to the sum of inverse pairwise interaction in the minimal cluster.
+        Then the strongest ``number`` of clusters is taken.
         """
         return self._n_clusters
 
     @n_clusters.setter
     def n_clusters(self, n_clusters):
+
         self._n_clusters = n_clusters
         self.generate_clusters(n_clusters=n_clusters)
 
@@ -577,8 +628,9 @@ class Simulator:
           of rotations of the bath spins.
 
         If delay is not provided in **all** pulses, assumes even delay of CPMG sequence.
-
         If only **some** delays are provided, assumes 0 delay in the pulses without delay provided.
+
+        For the full list of properties, see ``Pulse`` and ``Sequence`` documentations.
         """
         return self._pulses
 
@@ -596,7 +648,9 @@ class Simulator:
     @property
     def r_bath(self):
         """
-        float: Cutoff size of the spin bath.
+        float or array-like: Cutoff size of the spin bath. If ``len(r_bath) > 1``, uses different cutoff
+        sizes for each of the central spins. The total bath then is the sum of all bath spins, that are
+        close to at least one of the central spins.
         """
         return self._r_bath
 
@@ -647,10 +701,9 @@ class Simulator:
             use point dipole approximation. Otherwise can be an instance of ``Cube`` object,
             or callable with signature:
 
-                ``func(coord, gyro, central_gyro)``
+                ``func(array)``
 
-            where coord is array of the bath spin coordinate, gyro is the gyromagnetic ratio of bath spin,
-            central_gyro is the gyromagnetic ratio of the central bath spin.
+            where array is the ``BathArray`` object.
         """
         return self._hyperfine
 
@@ -802,7 +855,7 @@ class Simulator:
                   error_range=None,
                   ext_r_bath=None,
                   imap=None,
-                  func_kw={}):
+                  func_kw=None):
         r"""
         Read spin bath from the file or from the ``BathArray``.
 
@@ -814,7 +867,9 @@ class Simulator:
                   of bath spins (same ones as stored in self.ntype) and positions of the spins in angstroms;
                 * the name of the xyz text file containing 4 cols: name of the bath spin and xyz coordinates in A.
 
-            r_bath (float): Cutoff size of the spin bath.
+            r_bath (float or array-like): Cutoff size of the spin bath. If ``len(r_bath) > 1``, uses different cutoff
+                sizes for each of the central spins. The total bath then is the sum of all bath spins, that are
+                close to at least one of the central spins.
 
             skiprows (int, optional): If ``bath`` is name of the file, this argument
                 gives number of rows to skip while reading the .xyz file (default 1).
@@ -829,10 +884,13 @@ class Simulator:
                 use point dipole approximation.
 
                 Otherwise can be an instance of ``Cube`` object,
-                or callable with signature:
-                ``func(coord, gyro, central_gyro)``, where coord is array of the bath spin coordinate,
-                gyro is the gyromagnetic ratio of bath spin,
-                central_gyro is the gyromagnetic ratio of the central bath spin.
+                or callable with signature::
+
+                    func(array, *args, **kwargs)
+
+                where ``array`` is array of the bath spins,
+
+            func_kw (dict): Additional keywords if for generating hyperfine couplings if ``hyperfine`` is callable.
 
             types (SpinDict): SpinDict or input to create one.
                 Contains either SpinTypes of the bath spins or tuples which will initialize those.
@@ -870,6 +928,9 @@ class Simulator:
         Returns:
             BathArray: The view of ``Simulator.bath`` attribute, generated by the method.
         """
+
+        if func_kw is None:
+            func_kw = {}
 
         self._bath = None
 
