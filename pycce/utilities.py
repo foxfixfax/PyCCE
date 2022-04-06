@@ -595,3 +595,14 @@ def normalize(vec):
     """
     vec = np.asarray(vec, dtype=np.complex128)
     return vec / np.linalg.norm(vec)
+
+
+def _add_args(after):
+    def prepare_with_args(func):
+        if func.__doc__ is None:
+            func.__doc__ = after
+        else:
+            func.__doc__ = func.__doc__ + after
+        return func
+
+    return prepare_with_args

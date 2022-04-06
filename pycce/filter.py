@@ -47,7 +47,7 @@ def filterfunc(ts, tau, npulses):
         npulses (int): Number of pulses in CPMG sequence.
 
     Returns:
-        ndarray with shape (n,): Filter function for the given CPMG sequence
+        ndarray with shape (n,): Filter function for the given CPMG sequence.
     """
     fs = np.empty(ts.shape)
     ks = np.r_[np.arange(npulses), np.arange(npulses)]

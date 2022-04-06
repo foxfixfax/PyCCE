@@ -8,11 +8,39 @@ from numpy.lib.recfunctions import repack_fields
 from pycce.bath.map import InteractionMap
 from pycce.bath.state import BathState
 from pycce.constants import HBAR_MU0_O4PI, ELECTRON_GYRO, HBAR_SI, NUCLEAR_MAGNETON, PI2
-from pycce.utilities import gen_state_list, vector_from_s, rotate_coordinates, rotate_tensor
+from pycce.utilities import gen_state_list, vector_from_s, rotate_coordinates, rotate_tensor, _add_args
 
 HANDLED_FUNCTIONS = {}
 
 _set_str_kinds = {'U', 'S'}
+
+_stevens_str_doc = r"""
+            dict: Dictionary with additional spin Hamiltonian parameters.
+            Key denotes the product of spin operators as:
+            
+            Either a string containing ``x, y, z, +, -``  where each symbol is a corresponding spin operator:
+            
+                - ``x`` == :math:`S_x`
+                - ``y`` == :math:`S_y`
+                - ``z`` == :math:`S_z`
+                - ``p`` == :math:`S_+`
+                - ``m`` == :math:`S_-`
+            
+            Several symbols is a product of those spin operators.
+            
+            Or a tuple with indexes (k, q) for Stevens operators
+            (see https://www.easyspin.org/documentation/stevensoperators.html).
+            
+            The item is the coupling parameter in float.
+            
+            Examples:
+            
+                - ``d['pm'] = 2000`` corresponds to the Hamiltonian term
+                  :math:`\hat H_{add} = A \hat S_+ \hat S_-` with :math:`A = 2` MHz.
+            
+                - ``d[2, 0] = 1.5e6`` corresponds to Stevens operator
+                  :math:`B^q_k \hat O^q_k = 3 \hat S_z - s(s+1) \hat I`
+                  with :math:`k = 2`, :math:`q = 0`, and :math:`B^q_k = 1.5` GHz. """
 
 
 class BathArray(np.ndarray):
@@ -265,6 +293,11 @@ class BathArray(np.ndarray):
             super().sort(axis=axis, kind=kind, order=order)
         else:
             raise NotImplementedError('Inplace sort is implemented only when .imap is None')
+
+    @_add_args(_stevens_str_doc)
+    @property
+    def h(self):
+        return _get_sd_attribute(self, 'h')
 
     @property
     def name(self):
@@ -1308,6 +1341,17 @@ def _get_sd_attribute(array, attribute_name):
     if not array.shape:
         return getattr(array.types[array], attribute_name)
 
+    if attribute_name == 'h':
+        if array.size == 1:
+            return getattr(array.types[array[0]], attribute_name)
+
+        unique_names = np.unique(array.N)
+
+        if unique_names.size == 1:
+            return getattr(array.types[array[0]], attribute_name)
+
+        raise RuntimeError('Hamiltonian terms can be modified only for single spin type at a time')
+
     if array.size == 1:
         newarr = np.array([getattr(array.types[array.N[0]], attribute_name)])
 
@@ -1432,6 +1476,7 @@ class SpinType:
         self.gyro = gyro
         self.q = q
         self.detuning = detuning
+        self._h = None
 
     def __eq__(self, obj):
         if not isinstance(obj, SpinType):
@@ -1441,6 +1486,13 @@ class SpinType:
                 self.gyro == obj.gyro) & (self.q == obj.q) & (self.detuning == obj.detuning)
 
         return checks
+
+    @_add_args(_stevens_str_doc)
+    @property
+    def h(self):
+        if self._h is None:
+            self._h = {}
+        return self._h
 
     @property
     def name(self):

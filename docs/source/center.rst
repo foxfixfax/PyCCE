@@ -10,7 +10,7 @@ Documentation for the ``pycce.CenterArray`` - class which stores the properties 
 
 Center
 --------------------------------------
-Documentation for the ``pycce.Center`` class - inner class, containing properties of a single
+Documentation for the ``pycce.Center`` class - inner class, containing properties of a single central spin.
 
 .. autoclass:: pycce.center.Center
    :members:

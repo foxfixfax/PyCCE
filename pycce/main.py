@@ -24,15 +24,7 @@ from .run.cce import CCE
 from .run.corr import CCENoise, gCCENoise
 from .run.gcce import gCCE
 from .run.pulses import Sequence
-
-
-def _add_args(after):
-    def prepare_with_args(func):
-        func.__doc__ = func.__doc__ + after
-        return func
-
-    return prepare_with_args
-
+from .utilities import _add_args
 
 _returns = r"""
 
@@ -46,20 +38,6 @@ _args = r"""
                 position of the spin. 
                 
                 Default is **None**. Overrides ``Simulator.magnetic_field`` if provided.
-
-            D (float or ndarray with shape (3,3)):
-                D (longitudinal splitting) parameter of central spin in ZFS tensor of central spin in kHz.
-    
-                **OR**
-    
-                Total ZFS tensor.
-                
-                Default is **None**. Overrides``Simulator.zfs`` if provided.
-    
-            E (float): E (transverse splitting) parameter of central spin in ZFS tensor of central spin in kHz.
-                Ignored if ``D`` is None or tensor.
-                
-                Default is 0.
 
             pulses (list or int or Sequence): Number of pulses in CPMG sequence.
 
@@ -128,16 +106,6 @@ _args = r"""
                 Can be set as a vector in :math:`S_z` basis, the index of the central spin Hamiltonian
                 eigenstate, or as a callable with call signature ``j(dm)``, where ``dm`` is a density matrix of the 
                 central spin. If callable, ``i`` parameter is ignored.
-            
-            alpha (int or ndarray with shape (2s+1, )): :math:`\ket{0}` state of the qubit in :math:`S_z`
-                basis or the index of eigenstate to be used as one.
-
-                Default is **None**. Overrides``Simulator.alpha`` if provided.
-
-            beta (int or ndarray with shape (2s+1, )): :math:`\ket{1}` state of the qubit in :math:`S_z` basis
-                or the index of the eigenstate to be used as one.
-
-                Default is **None**. Overrides``Simulator.beta`` if provided.
     
             as_delay (bool): True if time points are delay between pulses (for equispaced pulses),
                 False if time points are total time. Ignored in gCCE if ``pulses`` contains the time fractions.
@@ -195,12 +163,6 @@ _args = r"""
                 number of bath states is divisible by the number of processes, ``nbstates % size == 0``.
     
                 Default is **False**.
-
-            fixstates (dict): If not None, shows which bath states to fix in random bath states.
-                Each key is the index of bath spin,
-                value - fixed :math:`\hat S_z` projection of the mixed state of nuclear spin.
-
-                Default is **None**.
 
             second_order (bool):
                 True if add second order perturbation theory correction
@@ -1156,12 +1118,9 @@ class Simulator:
                  pulses=None,
                  i=None,
                  j=None,
-                 D=None, E=0,
                  normalized=True,
                  magnetic_field=None,
                  as_delay=False,
-                 alpha=None,
-                 beta=None,
                  nbstates=None,
                  seed=None,
                  masked=True,
@@ -1181,15 +1140,6 @@ class Simulator:
         self.i = i
         self.j = j
 
-        if D is not None:
-            self.set_zfs(D, E)
-
-        if alpha is not None:
-            self.alpha = alpha
-
-        if beta is not None:
-            self.beta = beta
-
         if pulses is not None:
             self.pulses = pulses
         if magnetic_field is not None:
@@ -1200,10 +1150,6 @@ class Simulator:
         self.as_delay = as_delay
         self.direct = direct
         self.normalized = normalized
-        # if bath_state is not None:
-        #     self.bath_state = np.asarray(bath_state)
-        # else:
-        #     self.bath_state = None
 
         self.second_order = second_order
         self.level_confidence = level_confidence

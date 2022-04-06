@@ -1,6 +1,6 @@
 import collections.abc
 import numpy as np
-from pycce.bath.array import check_gyro, point_dipole, BathArray
+from pycce.bath.array import check_gyro, point_dipole, BathArray, _add_args, _stevens_str_doc
 from pycce.bath.map import InteractionMap
 from pycce.constants import ELECTRON_GYRO
 from pycce.h.total import central_hamiltonian
@@ -22,12 +22,12 @@ class Center:
     ``CenterArray`` instead.
 
     Args:
-        position (ndarray with shape (3,)):
+        position (ndarray with shape (3, )):
             Cartesian coordinates in Angstrom of the central spin. Default (0., 0., 0.).
 
         spin (float): Total spin of the central spin.
 
-        D (float or ndarray with shape (3,)): D (longitudinal splitting) parameter of central spin
+        D (float or ndarray with shape (3, )): D (longitudinal splitting) parameter of central spin
             in ZFS tensor of central spin in kHz.
 
             *OR*
@@ -74,6 +74,8 @@ class Center:
 
         self._xyz = None
         self._s = None
+        self._h = {}
+
         self._detuning = None
 
         self.xyz = position
@@ -194,6 +196,11 @@ class Center:
         """ndarray with shape (3, ): Position of the central spin in Cartesian coordinates."""
         return self._detuning[()]
 
+    @_add_args(_stevens_str_doc)
+    @property
+    def h(self):
+        return self._h
+
     @detuning.setter
     def detuning(self, detune):
         _attr_arr_setter(self, '_detuning', detune)
@@ -242,12 +249,11 @@ class Center:
     @property
     def alpha(self):
         r"""
-        ndarray or int: :math:`\ket{0}` qubit state of the central spin in Sz basis
-            **OR** index of the energy state to be considered as one.
+        ndarray or int: :math:`\ket{0}` qubit state of the central spin in :math:`S_z` basis
 
-        If not provided in the ``CentralArray`` instance, returns the tensor product of all ``alpha`` states of
-        each element of the array.
+        **OR** index of the energy state to be considered as one.
         """
+
         return self._get_state('alpha')
 
     @alpha.setter
@@ -257,11 +263,9 @@ class Center:
     @property
     def beta(self):
         r"""
-        ndarray or int: :math:`\ket{1}` qubit state of the central spin in Sz basis
-            **OR** index of the energy state to be considered as one.
+        ndarray or int: :math:`\ket{1}` qubit state of the central spin in :math:`S_z` basis
 
-        If not provided in the ``CentralArray`` instance, returns the tensor product of all ``beta`` states of
-        each element of the array.
+        **OR** index of the energy state to be considered as one.
         """
         return self._get_state('beta')
 
@@ -334,10 +338,10 @@ class Center:
 
         Args:
             magnetic_field (ndarray with shape (3,)): Array containing external magnetic field as (Bx, By, Bz).
-            bath (BathArray with shape (m,) or ndarray with shape (m,3,3):
+            bath (BathArray with shape (m,) or ndarray with shape (m, 3, 3):
                 Array of all bath spins or array of hyperfine tensors.
             projected_bath_state (ndarray with shape (m,) or (m, 3)):
-                Array of Iz projections for each bath spin.
+                Array of :math:`I_z` projections for each bath spin.
         """
 
         self.generate_hamiltonian(magnetic_field=magnetic_field, bath=bath, projected_bath_state=projected_bath_state)
@@ -349,10 +353,10 @@ class Center:
             self._beta = np.ascontiguousarray(self.eigenvectors[:, self.beta_index])
 
     def __repr__(self):
-        message = f"{self.__class__.__name__}" + ("(s: " + self.s.__str__() +
-                                                  ",\nxyz: " + self.xyz.__str__() +
-                                                  ",\nzfs: " + self.zfs.__str__() +
-                                                  ",\ngyro: " + self.gyro.__str__())
+        message = f"{self.__class__.__name__}" + ("\n(s: " + self.s.__str__() +
+                                                  ",\nxyz:\n" + self.xyz.__str__() +
+                                                  ",\nzfs:\n" + self.zfs.__str__() +
+                                                  ",\ngyro:\n" + self.gyro.__str__())
         if self._detuning.any():
             message += "\ndetuning: " + self.gyro.__str__()
         message += ")"
@@ -409,9 +413,57 @@ class Center:
 
 
 class CenterArray(Center, collections.abc.Sequence):
-    """
+    r"""
     Class, containing properties of all central spins. The properties of the each separate spin can be accessed
-    as elements of the object directly.
+    as elements of the object directly. Each element of the array is an instance of the ``Center`` class.
+
+    Examples:
+
+        Generate array of 2 electron central spins:
+
+        >>> import numpy as np
+        >>> ca = CenterArray(2, spin=0.5) # Array of size 2 with spins-1/2
+        >>> print(ca)
+        CenterArray
+        (s: [0.5 0.5],
+        xyz:
+        [[0. 0. 0.]
+         [0. 0. 0.]],
+        zfs:
+        [[[0. 0. 0.]
+          [0. 0. 0.]
+          [0. 0. 0.]]
+         [[0. 0. 0.]
+          [0. 0. 0.]
+          [0. 0. 0.]]],
+        gyro:
+        [[[-17608.59705     -0.          -0.     ]
+          [    -0.      -17608.59705     -0.     ]
+          [    -0.          -0.      -17608.59705]]
+         [[-17608.59705     -0.          -0.     ]
+          [    -0.      -17608.59705     -0.     ]
+          [    -0.          -0.      -17608.59705]]])
+
+        Set first two eigenstates of the combined central spin Hamiltonian as a singlie qubit state:
+
+        >>> ca.alpha = 0
+        >>> ca.beta = 1
+
+        Change gyromagnetic ratio of the first spin:
+
+        >>> ca[0].gyro = np.eye(3) * 1000
+        >>> print(ca[0])
+        Center
+        (s: 0.5,
+        xyz:
+        [0. 0. 0.],
+        zfs:
+        [[0. 0. 0.]
+         [0. 0. 0.]
+         [0. 0. 0.]],
+        gyro:
+        1000.0)
+
 
     Args:
         size (int): Number of central spins.
@@ -419,7 +471,7 @@ class CenterArray(Center, collections.abc.Sequence):
         spin (ndarray with shape (size,)):
             Total spins of the central spins.
 
-            ..note::
+            .. note::
 
                 All center spin properties are broadcasted to the total size of the center array,
                 provided by ``size`` argument, or inferred from ``spin``, ``position`` arguments.
@@ -525,6 +577,8 @@ class CenterArray(Center, collections.abc.Sequence):
                                 zip(self.xyz, self.s[:, np.newaxis], self.zfs, self.gyro, self.detuning)],
                                dtype=object)
 
+        self._h = np.asarray([x.h for x in self._array], dtype=object)
+
         if isinstance(imap, dict):
             imap = InteractionMap.from_dict(imap)
 
@@ -539,12 +593,12 @@ class CenterArray(Center, collections.abc.Sequence):
         self._imap = imap
 
         self.energy_alpha = None
-        """float: Energy of the alpha state."""
+        """float: Energy of the alpha state. Generated by ``.generate_projections`` call if ``second_order=True``."""
         self.energy_beta = None
-        """float: Energy of the beta state."""
+        """float: Energy of the beta state. Generated by ``.generate_projections`` call if ``second_order=True``."""
 
         self.energies = None
-        """ndarray with shape (n,): Energy of each eingenstate of the central spin Hamiltonian."""
+        """ndarray with shape (n, ): Energy of each eingenstate of the central spin Hamiltonian."""
 
     @property
     def imap(self):
@@ -557,10 +611,42 @@ class CenterArray(Center, collections.abc.Sequence):
         return self._imap
 
     @property
+    def alpha(self):
+        r"""
+        ndarray or int: :math:`\ket{0}` qubit state of the central spin in :math:`S_z` basis
+
+        **OR** index of the energy state to be considered as one.
+
+        If not provided in the ``CentralArray`` instance, returns the tensor product of all ``alpha`` states of
+        each element of the array. If there are undefined ``alpha`` states of the elements of the array,
+        raises an error.
+
+        Examples:
+
+            >>> ca = CenterArray(2, spin=0.5) # Array of size 2 with spins-1/2
+            >>> ca[0].alpha = [0,1]
+            >>> ca[1].alpha = [1,0]
+            >>> print(ca.alpha)
+            [0.+0.j 0.+0.j 1.+0.j 0.+0.j]
+
+        """
+
+        return self._get_state('alpha')
+
+    @property
+    def beta(self):
+        r"""
+        ndarray or int: :math:`\ket{1}` qubit state of the central spin in :math:`S_z` basis
+
+        **OR** index of the energy state to be considered as one.
+        """
+        return self._get_state('beta')
+
+    @property
     def state(self):
         r"""
-        ndarray: Innitial state of the qubit in gCCE simulations.
-            Assumed to be :math:`\frac{1}{\sqrt{2}}(\ket{0} + \ket{1})` unless provided."""
+        ndarray: Initial state of the qubit in gCCE simulations.
+        Assumed to be :math:`\frac{1}{\sqrt{2}}(\ket{0} + \ket{1})` unless provided."""
         state = super(CenterArray, self)._get_state('state')
         if state is not None:
             return state
@@ -592,8 +678,13 @@ class CenterArray(Center, collections.abc.Sequence):
             zfs = self.zfs[item]
             ca = CenterArray(len(newarray), position=xyz, gyro=gyro, spin=s, D=zfs)
             ca._array = newarray
+
             if self._imap is not None:
                 ca._imap = self.imap.subspace(np.arange(self.size)[item])
+
+            if self.h.any():
+                ca._h = self.h[item]
+
             return ca
 
     def __setitem__(self, key, val):
@@ -609,6 +700,7 @@ class CenterArray(Center, collections.abc.Sequence):
 
         center.alpha = val.alpha
         center.beta = val.beta
+        center.h.update(val.h)
 
     def __len__(self):
         return self.size
@@ -687,6 +779,7 @@ class CenterArray(Center, collections.abc.Sequence):
                 [\bra{a}\hat{S}_x\ket{a}, \bra{a}\hat{S}_y\ket{a}, \bra{a}\hat{S}_z\ket{a}],
 
         where :math:`\ket{a}` and  is alpha or beta qubit state.
+        They are stored in the ``.projections_alpha`` and ``.projections_beta`` respectively.
 
         If ``second_order`` is set to ``True``, also generates matrix elements of qubit states and all
         other eigenstates of the central spin Hamiltonian, used in computing second order couplings between bath spins:
@@ -710,7 +803,7 @@ class CenterArray(Center, collections.abc.Sequence):
             second_order (bool): True if generate properties, necessary for second order corrections.
             level_confidence (float):
                 Minimum fidelity between an eigenstate and provided qubit level for them to be
-                considered the same. Used only if ``second_order == True``
+                considered the same. Used only if ``second_order == True``.
 
         """
         self._check_states()

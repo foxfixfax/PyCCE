@@ -2,7 +2,7 @@ import operator
 
 import numpy as np
 from pycce.h import total_hamiltonian, bath_interactions, expanded_single, conditional_hyperfine, \
-    dimensions_spinvectors, overhauser_bath, Hamiltonian, bath_hamiltonian, projected_addition
+    dimensions_spinvectors, overhauser_bath, Hamiltonian, bath_hamiltonian
 from pycce.run.base import RunObject, simple_propagator
 from pycce.utilities import generate_initial_state
 

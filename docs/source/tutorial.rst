@@ -11,6 +11,7 @@ The examples below are available as Jupyter notebooks in the Github repository.
    tutorials/sic_vv
    tutorials/si_shallow
    tutorials/classical_noise
+   tutorials/second_spin
 
 
 The recommended order of the tutorials is from the top to bottom:
@@ -23,5 +24,6 @@ The recommended order of the tutorials is from the top to bottom:
   delocalized defects in semiconductors.
 * :doc:`tutorials/classical_noise` example explains the way to use autocorrelation function of the noise
   to predict the decay of the coherence of the NV center in diamond.
+* :doc:`tutorials/second_spin` example goes over the systems with two central spins.
 
 

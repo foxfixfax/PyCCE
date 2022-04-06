@@ -2,7 +2,7 @@ import operator
 
 import numpy as np
 from pycce.constants import PI2
-from pycce.h import external_spins_field
+from pycce.h.functions import external_spins_field
 from pycce.run.clusters import cluster_expansion_decorator, interlaced_decorator
 from pycce.run.mc import monte_carlo_method_decorator
 from pycce.run.pulses import Sequence

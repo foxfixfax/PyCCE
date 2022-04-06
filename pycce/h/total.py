@@ -1,6 +1,6 @@
 from .base import Hamiltonian
 from .functions import *
-
+from pycce.sm import _smc
 
 def bath_hamiltonian(bath, mfield):
     r"""
@@ -20,6 +20,7 @@ def bath_hamiltonian(bath, mfield):
     """
     dims, vectors = dimensions_spinvectors(bath, central_spin=None)
     clusterint = bath_interactions(bath, vectors)
+    clusterint += custom_hamiltonian(bath, dims)
 
     for ivec, n in zip(vectors, bath):
         if callable(mfield):
@@ -32,7 +33,7 @@ def bath_hamiltonian(bath, mfield):
 
 def total_hamiltonian(bath, center, mfield):
     """
-    Compute total Hamiltonian for the given cluster.
+    Compute total Hamiltonian of the given cluster.
 
     Args:
         bath (BathArray): Array of bath spins.
@@ -41,7 +42,7 @@ def total_hamiltonian(bath, center, mfield):
 
         mfield (ndarray with shape (3,) or func):
             Magnetic field of type ``mfield = np.array([Bx, By, Bz])``
-            or callable with signature ``mfield(pos)``, where ``pos`` is ndarray with shape (3,) with the
+            or callable with signature ``mfield(pos)``, where ``pos`` is ndarray with shape (3, ) with the
             position of the spin.
 
     Returns:
@@ -52,6 +53,7 @@ def total_hamiltonian(bath, center, mfield):
     dims, vectors = dimensions_spinvectors(bath, central_spin=center)
 
     totalh = bath_interactions(bath, vectors)
+
     ncenters = len(center)
 
     for i, c in enumerate(center):
@@ -61,6 +63,8 @@ def total_hamiltonian(bath, center, mfield):
             totalh += self_central(vectors[bath.size + i], mfield, c.zfs, c.gyro, c.detuning)
 
     totalh += center_interactions(center, vectors[bath.size:])
+    totalh += custom_hamiltonian(center, dims, offset=bath.size)
+    totalh += custom_hamiltonian(bath, dims)
 
     for ivec, n in zip(vectors, bath):
         if callable(mfield):
@@ -139,172 +143,56 @@ def central_hamiltonian(center, magnetic_field, hyperfine=None, bath_state=None)
             totalh += overhauser_central(vectors[i], hf, bath_state)
 
     totalh += center_interactions(center, vectors)
+    totalh += custom_hamiltonian(center, dims)
 
     return Hamiltonian(dims, vectors, data=totalh)
 
 
-def projected_addition(vectors, bath, center, state):
-    r"""
-    Compute the first order addition of the interactions with the cental spin to the cluster Hamiltonian.
+def custom_hamiltonian(spins, dims=None, offset=0):
+    """
+    Custom addition to the Hamiltonian from the spins in the given array.
 
     Args:
-        vectors (array-like): Array of expanded spin vectors, each with shape (3, n, n).
-        bath (BathArray): Array of bath spins.
-        center (CenterArray): Array of central spins.
-        state (str, bool, or array-like): Identificator of the qubit spin. ``'alpha'`` or ``True``
-            for :math:`\ket{0}` state, ``'beta'`` of ``False`` for :math:`\ket{1}` state.
+        spins (BathArray or CenterArray): Array of the spins.
+        dims (ndarray with shape (n, )): Dimensions of all spins in the cluster.
+        offset (int): Index of the dimensions of the first spin from array in ``dims``. Default 0.
 
     Returns:
-        ndarray with shape (n, n): Addition to the Hamiltonian.
+        ndarray with shape (N, N): Addition to the Hamiltonian.
     """
-    ncenters = len(center)
-    addition = 0
+    if dims is None:
+        dims = spins.dim
+    add = 0
+    for index, b in enumerate(spins):
+        if b.h:
+            add += custom_single(b.h, index + offset, dims)
 
-    for ivec, n in zip(vectors, bath):
-        try:
+    return add
 
-            iterator = iter(state)  # iterable
-            state = state[0]
 
-        except TypeError:
-            for i, c in enumerate(center):
-                if ncenters > 1:
-                    hf = n.A[i]
-                else:
-                    hf = n.A
-                projections = c.get_projections(state)
-                addition += conditional_hyperfine(hf, ivec, projections)
+def custom_single(h, index, dims):
+    """
+    Custom addition to the Hamiltonian from the dictionary with the parameters.
+
+    Args:
+        h (dict): Dictionary with coupling parameters.
+        index (int): Index of the spin in ``dims``.
+        dims (ndarray with shape (n, )): Dimensions of all spins in the cluster.
+
+    Returns:
+        ndarray with shape (N, N): Addition to the Hamiltonian.
+
+    """
+    sm = _smc[(dims[index] - 1) / 2]
+    ham = 0
+    for key in h:
+        if isinstance(key, str):
+            add = None
+            for sym in key:
+                add = h[key] * getattr(sm, sym) if add is None else np.matmul(add, getattr(sm, sym))
         else:
+            add = h[key] * sm.stev(*key)
 
-            for i, (c, s) in enumerate(zip(center, iterator)):
-                if ncenters > 1:
-                    hf = n.A[i]
-                else:
-                    hf = n.A
+        ham += add
+    return expand(ham, index, dims)
 
-                projections = c.get_projections(s)
-                addition += conditional_hyperfine(hf, ivec, projections)
-
-    energy = center.get_energy(state)
-
-    if energy is not None:
-        for i, c in enumerate(center):
-            if ncenters > 1:
-                hf = bath.A[:, i]
-            else:
-                hf = bath.A
-
-            projections_state_all = c.get_projections_all(state)
-
-            addition += bath_mediated(hf, vectors, energy,
-                                      center.energies, projections_state_all)
-
-    return addition
-
-
-def center_external_addition(vectors, cluster, outer_spin, outer_state):
-    """
-    Compute the first order addition of the interactions between central spin and external bath spins
-    to the cluster Hamiltonian.
-
-    Args:
-        vectors (array-like): Array of expanded spin vectors, each with shape (3, n, n).
-        cluster (BathArray): Array of cluster spins.
-        outer_spin (BathArray with shape (o, )): Array of the spins outside the cluster.
-        outer_state (ndarray with shape (o, )): Array of the :math:`S_z` projections of the external bath spins.
-
-    Returns:
-        ndarray with shape (n, n): Addition to the Hamiltonian.
-    """
-    addition = 0
-    ncenters = vectors.shape[0] - cluster.size
-
-    for i, v in enumerate(vectors[cluster.size:]):
-        if ncenters == 1:
-            hf = outer_spin.A
-        else:
-            hf = outer_spin.A[:, i]
-
-        addition += overhauser_central(v, hf, outer_state)
-
-    return addition
-
-
-def bath_external_point_dipole(vectors, cluster, outer_spin, outer_state):
-    """
-    Compute the first order addition of the point-dipole interactions between cluster spins and external bath spins
-    to the cluster Hamiltonian.
-
-    Args:
-        vectors (array-like): Array of expanded spin vectors, each with shape (3, n, n).
-        cluster (BathArray): Array of cluster spins.
-        outer_spin (BathArray with shape (o, )): Array of the spins outside the cluster.
-        outer_state (ndarray with shape (o, )): Array of the :math:`S_z` projections of the external bath spins.
-
-    Returns:
-        ndarray with shape (n, n): Addition to the Hamiltonian.
-    """
-    addition = 0
-    for ivec, n in zip(vectors, cluster):
-        addition += overhauser_bath(ivec, n.xyz, n.gyro, outer_spin.gyro,
-                                    outer_spin.xyz, outer_state)
-    return addition
-
-
-def external_spins_field(vectors, indexes, bath, projected_state):
-    """
-    Compute the first order addition of the point-dipole interactions between cluster spins and external bath spins
-    to the cluster Hamiltonian.
-
-    Args:
-        vectors (array-like): Array of expanded spin vectors, each with shape (3, n, n).
-        indexes (ndarray with shape (n,)): Array of indexes of bath spins inside the given cluster.
-        bath (BathArray with shape (N,)): Array of all bath spins.
-        projected_state (ndarray with shape (N, ):  Array of the :math:`S_z` projections of all bath spins.
-
-    Returns:
-        ndarray with shape (n, n): Addition to the Hamiltonian.
-    """
-    outer_mask = np.ones(bath.size, dtype=bool)
-    outer_mask[indexes] = False
-
-    outer_spin = bath[outer_mask]
-    outer_state = projected_state[outer_mask]
-    cluster = bath[indexes]
-
-    addition = center_external_addition(vectors, cluster, outer_spin, outer_state)
-
-    if bath.imap is None:
-        addition += bath_external_point_dipole(vectors, cluster, outer_spin, outer_state)
-
-        return addition
-
-    imap_indexes = bath.imap.indexes
-    remove_j = np.ones(indexes.shape, dtype=bool)
-
-    for j, (ind, ivec) in enumerate(zip(indexes, vectors)):
-
-        outer_mask[:] = True
-        outer_mask[indexes] = False
-
-        where_index = (imap_indexes == ind)
-
-        if where_index.any():
-            remove_j[j] = False
-            which_pairs = where_index.any(axis=1) & (~np.isin(imap_indexes, indexes[remove_j]).any(axis=1))
-            remove_j[j] = True
-
-            other_indexes = imap_indexes[which_pairs][~(where_index[which_pairs])]
-
-            addition += overhauser_from_tensors(ivec, bath.imap.data[which_pairs], projected_state[other_indexes])
-
-            outer_mask[other_indexes] = False
-
-        if outer_mask.any():
-            outer_spin = bath[outer_mask]
-            outer_state = projected_state[outer_mask]
-            n = bath[ind]
-            addition += overhauser_bath(ivec, n.xyz, n.gyro, outer_spin.gyro,
-                                        outer_spin.xyz, outer_state)
-
-    return addition

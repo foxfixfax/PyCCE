@@ -46,7 +46,20 @@ Updates
 ------------
 The **PyCCE** 1.0 has been released!
 
-Main highlights from the different
+Main highlights include:
+
+* Support of several central spins with the new class `CenterArray`!
+* Direct definition of the bath spin states with `BathArray.state` attribute.
+* Expanded the control over pulse sequences. See `Pulse` class for details.
+* Added ability to define your own single particle Hamiltonian.
+  See `BathArray.h` and `CenterArray.h` for details.
+* Significant overhaul of computational expensive parts of the code with Numba.
+* Various bug fixes and QoL changes.
+
+This is a significant update, so if you find any issues, please let us know as soon as possible!
+
+**Known issues**:
+- Numba raises a warning about non-contiguous arrays. This is a lie.
 
 Installation
 ----------------

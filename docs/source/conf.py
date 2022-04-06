@@ -24,7 +24,7 @@ copyright = '2021, Mykyta Onizhuk'
 author = 'Mykyta Onizhuk'
 
 # The full version, including alpha/beta/rc tags
-release = '0.6.8'
+release = '1.0.0'
 
 
 # -- General configuration ---------------------------------------------------

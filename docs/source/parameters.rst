@@ -1,7 +1,7 @@
 Hamiltonian Parameters Input
 ==================================
 
-The total Hamiltonian of the system is set as:
+The default total Hamiltonian of the system is set as:
 
 .. math::
     \hat H = \hat H_S + \hat H_{SB} + \hat H_{B}
@@ -10,11 +10,12 @@ with
 
 .. math::
 
-        &\hat H_S = \mathbf{SDS} + \mathbf{B\gamma}_{S}\mathbf{S} \\
-        &\hat H_{SB} = \sum_i \mathbf{S}\mathbf{A}_i\mathbf{I}_i \\
-        &\hat H_{B} = \sum_i{\mathbf{I}_i\mathbf{P}_i \mathbf{I}_i +
-                      \mathbf{B}\mathbf{\gamma}_i\mathbf{I}_i} +
-                      \sum_{i>j} \mathbf{I}_i\mathbf{J}_{ij}\mathbf{I}_j
+        &\hat H_S = \sum_i (\mathbf{S}_i \mathbf{D}_i \mathbf{S}_i +
+                    \mathbf{B\gamma}_{S_i}\mathbf{S}_i + \sum_{i<j}\mathbf{S}_i \mathbf{K}_{ij} \mathbf{S}_j}) \\
+        &\hat \hat H_{SB} = \sum_{i,k} \mathbf{S}_i \mathbf{A}_{ik} \mathbf{I}_k
+        &\hat H_{B} = \sum_k{\mathbf{I}_k\mathbf{P}_k \mathbf{I}_k +
+                      \mathbf{B}\mathbf{\gamma}_k\mathbf{I}_k} +
+                      \sum_{k<l} \mathbf{I}_k\mathbf{J}_{kl}\mathbf{I}_l
 
 Where :math:`\hat H_S` is the Hamiltonian of the free central spin,
 :math:`\hat H_{SB}` denotes interactions between central spin and bath spin,
@@ -29,33 +30,33 @@ nd :math:`\hat H_B` are intrinsic bath spin interactions:
   In the case of nuclear spin bath, corresponds to the hyperfine couplings.
 - :math:`\mathbf{J}` is the interaction tensor between bath spins.
 
-Each of this terms can be defined within **PyCCE** framework as following.
+Each of this terms and additional terms of the Hamiltonian can be defined within **PyCCE** framework as following.
 
-In general, central spin properties are stored in the ``Simulator`` instance, bath properties are stored in the
+In general, central spin properties are stored in the ``CenterArray`` instance, bath properties are stored in the
 ``BathArray`` instance.
 
 Central Spin Hamiltonian
 ..................................
 
-The central spin Hamiltonian is provided as attributes of the ``Simulator`` object:
+The central spin Hamiltonian is provided as attributes of the ``CenterArray`` object:
 
-- :math:`\mathbf{D}` is set with ``Simulator.set_zfs`` method or during the initialization of the
+- :math:`\mathbf{D}` is set with ``CenterArray.set_zfs`` method or during the initialization of the
   ``Simulator`` object either from observables *D* and *E* of the zero field
   splitting **OR** directly as tensor for the interaction :math:`\mathbf{SDS}` in  :math:`\mathrm{kHz}`.
   By default is zero.
 
   Examples::
 
-    >>> c = Simulator(1)
-    >>> print(c.zfs)
-    [[ 0.  0.  0.]
-     [ 0. -0.  0.]
-     [ 0.  0.  0.]]
-    >>> c.set_zfs(D=1e6)
-    >>> print(c.zfs)
-    [[-333333.333       0.          0.   ]
-     [      0.    -333333.333       0.   ]
-     [      0.          0.     666666.667]]
+    >>> c = CenterArray(spin=1)
+    >>> print(c[0].zfs)
+    [[0. 0. 0.]
+     [0. 0. 0.]
+     [0. 0. 0.]]
+    >>> c[0].set_zfs(D=1e6)
+    >>> print(c[0].zfs)
+    [[-333333.33333       0.            0.     ]
+     [      0.      -333333.33333       0.     ]
+     [      0.            0.       666666.66667]]
 
 - :math:`\mathbf{\gamma}_S`, the tensor describing
   the interaction of the spin and the external magnetic field in units of gyromagnetic ratio
@@ -77,8 +78,8 @@ The central spin Hamiltonian is provided as attributes of the ``Simulator`` obje
 
   Examples::
 
-    >>> c = Simulator(1)
-    >>> print(c.gyro)
+    >>> c = CenterArray(spin=1)
+    >>> print(c[0].gyro)
     -17608.59705
 
 .. note::
@@ -88,17 +89,31 @@ The central spin Hamiltonian is provided as attributes of the ``Simulator`` obje
     are conventionally given in the units of **angular** frequency and differ by :math:`2\pi`.
 
 The magnetic field is set with  with ``Simulator.set_magnetic_field`` method or during the initialization of the
-``Simulator`` object in :math:`\mathrm{G}`.
+``Simulator`` object in Gauss (:math:`\mathrm{G}`).
+
+User-defined terms of the single-particle central spin Hamiltonian
+can be added by adding entries to the ``Center.h`` attribute
+(Separate for each ``Center`` object in ``CenterArray``).
+
+For example, to add Stevens operator :math:`B^q_k \hat O^q_k = 3 \hat S_z - s(s+1) \hat I`
+with :math:`q=0`, :math:`k=2`, and :math:`B^q_k = 1 \mathrm{GHz}`
+to the central spin Hamiltonian, one needs to add::
+
+    >>> c = CenterArray(spin=1)
+    >>> k, q = 2, 0
+    >>> c.h[k, q] = 1e6 # in KHz
+
+For details see ``Center`` documentation.
 
 Spin-Bath Hamiltonian
 ........................................
 
 The interactions between central spin and bath spins and are provided
-in the ``['A']`` namefield of the ``BathArray`` object in :math:`\mathrm{kHz}`.
+in the ``.A`` attribute of the ``BathArray`` object in :math:`\mathrm{kHz}`.
 
 Interaction tensors can be either:
 
-- Directly provided by setting the values of ``bath['A']`` in :math:`\mathrm{kHz}`
+- Directly provided by setting the values of ``bath.A`` in :math:`\mathrm{kHz}`
   for each bath spin.
 - Approximated from magnetic point dipole–dipole interactions by calling ``BathArray.from_point_dipole`` method.
   Then the tensors are computed as:
@@ -122,7 +137,7 @@ Interaction tensors can be either:
      ('13C', [ 32.77 ,  -9.08 ,   4.959], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]])
      ('13C', [-47.244,  25.351,   3.814], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]])
      ('13C', [-17.027,  28.843, -19.681], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]])]
-    >>> bath['A'] = 1
+    >>> bath.A = 1
     >>> print(bath)
     [('13C', [  1.182,  45.046, -35.584], [[1., 1., 1.], [1., 1., 1.], [1., 1., 1.]], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]])
      ('13C', [ 44.865, -18.817,  -7.667], [[1., 1., 1.], [1., 1., 1.], [1., 1., 1.]], [[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]])
@@ -139,10 +154,10 @@ Interaction tensors can be either:
 
 Bath Hamiltonian
 ..................................
-The self interaction tensors of the bath spins ae stored in the ``['Q']`` namefield of the ``BathArray`` object.
+The self interaction tensors of the bath spins ae stored in the ``.Q`` attribute of the ``BathArray`` object.
 By default they are set to 0. They can be either:
 
-- Directly provided by setting the values of ``bath['Q']`` in :math:`\mathrm{kHz}`
+- Directly provided by setting the values of ``bath.Q`` in :math:`\mathrm{kHz}`
   for each bath spin.
 - Computed from the electric field gradient (EFG) tensors at each bath spin position,
   using ``BathArray.from_efg`` method.
@@ -182,3 +197,14 @@ Examples::
      [0.53  0.821 0.366]
      [0.404 0.366 0.655]]
 
+User-defined terms of the single-particle bath spin Hamiltonian
+can be added by adding entries to the ``BathArray.h`` attribute
+(Separate for each type of bath spin).
+
+For example, to add non-linear term :math:`A I_x^4`
+with :math:`A = 1 \mathrm{MHz}` to the :math:`^{13}C` bath spins (which for spin-1/2 is just proportional to identity,
+but for higher spins can be relevant) to the bath spin Hamiltonian, one needs to add::
+
+    >>> bath['13C'].h['xxxx'] = 1e3 # in kHz
+
+For details see ``BathArray`` documentation.
