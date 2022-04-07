@@ -86,7 +86,7 @@ _args = r"""
                 Default is **None**. Overrides``Simulator.pulses`` if provided.
             
             i (int or ndarray with shape (2s+1, ) or callable): Used in gCCE calculations.
-                Along with ``j`` parameter indicates which density matrix element is to compute with gCCE as:
+                Along with ``j`` parameter indicates which density matrix element to compute with gCCE as:
                 
                 ..math::
                 
@@ -99,7 +99,7 @@ _args = r"""
                 central spin. If callable, ``j`` parameter is ignored.
 
             j (int or ndarray with shape (2s+1, ) or callable): Used in gCCE calculations.
-                Along with ``i`` parameter indicates which density matrix element is to compute.
+                Along with ``i`` parameter indicates which density matrix element to compute.
                 
                 By default is equal to :math:`R\ket{1}` state of the ``.center``
                 where :math:`R` is a product of all rotations applied in the pulse sequence.
@@ -338,9 +338,23 @@ class Simulator:
             Has the form ``n_clusters = {order: number}``, where ``order`` is the size of the cluster,
             ``number`` is the maximum number of clusters with this size.
 
-            If provided, sort the clusters by the strength of cluster interaction,
-            equal to the lowest pairwise interaction in the cluster.
+            If provided, sort the clusters by the "strength" of cluster.
             Then the strongest ``number`` of clusters is taken.
+
+            We define the strength of the cluster :math:`s` as an inverse of the sum
+            over inverse pairwise interaction strengths of the minimal cluster:
+
+            ..math::
+
+                s = (\sum_{i<j\in C} \frac{r^3}{\gamma_i\gamma_j})^{-1}
+
+            Where :math:`\gamma_i` is the gyromagnetic ration of a spin :math:`i`, :math:`r` is the distance between
+            two spins, and the summation of :math:`i, j` goes only over the edges of the minimally connected cluster.
+
+            We define minimally connected cluster as a cluster with lowest possible number of edges that still forms
+            a connected graph. If multiple choices of the minimally connected cluster
+            for the same cluster are possible, the one with the larger strength :math:`s` is chosen.
+
 
         pulses (list or int or Sequence): Number of pulses in CPMG sequence or list with pulses.
 
@@ -540,7 +554,7 @@ class Simulator:
         ``number`` is the maximum number of clusters with this size.
 
         If provided, sorts the clusters by the strength of cluster interaction,
-        equal to the sum of inverse pairwise interaction in the minimal cluster.
+        equal to the inverse of a sum of inverse pairwise interaction in the minimally connected cluster.
         Then the strongest ``number`` of clusters is taken.
         """
         return self._n_clusters
@@ -570,24 +584,39 @@ class Simulator:
 
         Each item is ``Pulse`` object, containing the following attributes:
 
-        * **axis** (*str*): Axis of rotation of the central spin. Can be 'x', 'y', or 'z'.
+        * **which** (*array-like*): Indexes of the central spins to be rotated by the pulse. Default is all.
 
-        * **angle** (*float or str*): Angle of rotation of central spin.
-          Can be provided in rad, or as a string, containing
-          fraction of pi: ``'pi'``, ``'pi/2'``, ``'2*pi'`` etc. Default is None.
+        * **x** (*float*): Rotation angle of the central spin about x-axis in radians.
+
+        * **y** (*float*): Rotation angle of the central spin about y-axis in radians.
+
+        * **z** (*float*): Rotation angle of the central spin about z-axis in radians.
 
         * **delay** (*float or ndarray*): Delay before the pulse or array of delays
           with the same shape as time points.
 
-        * **bath_names** (*str or array-like of str*): Name or array of names of bath spin types,
-          impacted by the bath pulse.
+        Additionally, act as a container object for the pulses, applied to the bath.
 
-        * **bath_axes** (*str or array-like of str*): Axis of rotation or array of axes of the bath spins.
-          If ``bath_names`` is provided, but ``bath_axes`` and ``bath_angles`` are not,
-          assumes the same axis and angle as the one of the central spin.
+        The bath pulses can be accessed as items of the ``Pulse`` object, with name of the item corresponding
+        to the name of the bath spin impacted, and the item corresponding to the ``BasePulse`` object with attributes:
 
-        * **bath_angles** (*float or str or array-like*): Angle of rotation or array of axes
-          of rotations of the bath spins.
+            * **x** (*float*): Rotation angle of the central spin about x-axis in radians.
+
+            * **y** (*float*): Rotation angle of the central spin about y-axis in radians.
+
+            * **z** (*float*): Rotation angle of the central spin about z-axis in radians.
+
+        Examples:
+
+            >>> p = Pulse('x', 'pi')
+            >>> print(p)
+            Pulse((x: 3.14, y: 0.00, z: 0.00))
+            >>> pb = Pulse('x', 'pi', bath_names=['13C', '14C'])
+            >>> print(pb)
+            Pulse((x: 3.14, y: 0.00, z: 0.00), {13C: (x: 3.14, y: 0.00, z: 0.00),
+                                                14C: (x: 3.14, y: 0.00, z: 0.00)})
+            >>> print(pb['13C'])
+            (x: 3.14, y: 0.00, z: 0.00)
 
         If delay is not provided in **all** pulses, assumes even delay of CPMG sequence.
         If only **some** delays are provided, assumes 0 delay in the pulses without delay provided.
@@ -778,8 +807,13 @@ class Simulator:
                 ``number`` is the maximum number of clusters with this size.
 
                 If provided, sort the clusters by the strength of cluster interaction,
-                equal to the lowest pairwise interaction in the cluster.
                 Then the strongest ``number`` of clusters is taken.
+
+                Strength of the cluster :math:`s` is defined as
+                an sum of inverse pairwise interactions of the minimal cluster:
+
+                ..math::
+                    s = \sum_{i<j} (\gamma_i \gamma_j
 
         Returns:
 

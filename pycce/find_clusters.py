@@ -361,8 +361,7 @@ def expand_clusters(sc):
     return newsc
 
 
-def find_valid_subclusters(graph, maximum_order, nclusters=None, bath=None, strong=False,
-                           ):
+def find_valid_subclusters(graph, maximum_order, nclusters=None, bath=None, strong=False, ):
     """
     Find subclusters from connectivity matrix.
 
@@ -401,7 +400,14 @@ def find_valid_subclusters(graph, maximum_order, nclusters=None, bath=None, stro
             r = bath[col_ind].dist(bath[row_ind])
             # cos_theta = (bath[col_ind].z - bath[row_ind].z) / r
             # strength[2] = np.abs(bath[col_ind].gyro * bath[row_ind].gyro / r ** 3)  # * (1 - 2 * cos_theta ** 2))
-            strength[2] = 1 / np.abs(bath[col_ind].gyro * bath[row_ind].gyro / r ** 3)  # * (1 - 2 * cos_theta ** 2))
+            gyros_1 = bath[col_ind].gyro
+            gyros_2 = bath[row_ind].gyro
+            if len(gyros_1.shape) > 1:
+                gyros_1 = np.abs(gyros_1.reshape(gyros_1.shape[0], -1)).max(axis=1)
+            if len(gyros_2.shape) > 1:
+                gyros_2 = np.abs(gyros_2.reshape(gyros_2.shape[0], -1)).max(axis=1)
+
+            strength[2] = 1 / np.abs(gyros_1 * gyros_2 / r ** 3)  # * (1 - 2 * cos_theta ** 2))
             ordered = strength[2].argsort()  # [::-1] return if strength = np.abs
             bonds = bonds[ordered]
             strength[2] = strength[2][ordered]

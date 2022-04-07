@@ -153,7 +153,7 @@ class Pulse(BasePulse, UserDict):
         delay (float or ndarray): Delay before the pulse or array of delays with the same shape as time points.
             Default is None.
 
-        which (iterable): Indexes of the central spins to be rotated by the pulse. Default is all.
+        which (array-like): Indexes of the central spins to be rotated by the pulse. Default is all.
             Separated indexes are supported only if qubit states are provided separately for all
             center spins.
 

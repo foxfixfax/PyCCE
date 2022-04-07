@@ -633,6 +633,10 @@ class CenterArray(Center, collections.abc.Sequence):
 
         return self._get_state('alpha')
 
+    @alpha.setter
+    def alpha(self, state):
+        self._set_state('alpha', state)
+
     @property
     def beta(self):
         r"""
@@ -641,6 +645,10 @@ class CenterArray(Center, collections.abc.Sequence):
         **OR** index of the energy state to be considered as one.
         """
         return self._get_state('beta')
+
+    @beta.setter
+    def beta(self, state):
+        self._set_state('beta', state)
 
     @property
     def state(self):

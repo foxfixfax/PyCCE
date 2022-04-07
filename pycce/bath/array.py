@@ -1806,24 +1806,29 @@ class SpinDict(UserDict):
         """
         keys = []
         try:
-            for nuc in args:
-                if isinstance(nuc, SpinType):
-                    key = nuc.name
-                    self[key] = nuc
-                    keys.append(key)
-                elif isinstance(nuc, Mapping):
-                    self.update(nuc)
-                    keys += list(nuc.keys())
-                else:
-                    key = nuc[0]
-                    self[key] = SpinType(*nuc)
-                    keys.append(key)
+            st = SpinType(*args, **kwargs)
+            self[st.name] = st
+            return
         except TypeError:
-            for k in keys:
-                self.pop(k)
-            self[args[0]] = SpinType(*args)
-        for nuc in kwargs:
-            self[nuc] = kwargs[nuc]
+            try:
+                for nuc in args:
+                    if isinstance(nuc, SpinType):
+                        key = nuc.name
+                        self[key] = nuc
+                        keys.append(key)
+                    elif isinstance(nuc, Mapping):
+                        self.update(nuc)
+                        keys += list(nuc.keys())
+                    else:
+                        key = nuc[0]
+                        self[key] = SpinType(*nuc)
+                        keys.append(key)
+            except TypeError:
+                for k in keys:
+                    self.pop(k)
+                self[args[0]] = SpinType(*args)
+            for nuc in kwargs:
+                self[nuc] = kwargs[nuc]
 
 
 def _check_key_spintype(k, v):
