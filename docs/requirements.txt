@@ -1,6 +1,6 @@
 sphinx==4.0.3
 sphinx_rtd_theme
-IPython==7.25.0
+IPython==7.31.1
 nbsphinx==0.8.6
 sphinx-mathjax-offline
 numba==0.53.1
