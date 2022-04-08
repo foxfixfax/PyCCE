@@ -11,8 +11,9 @@ with
 .. math::
 
         &\hat H_S = \sum_i (\mathbf{S}_i \mathbf{D}_i \mathbf{S}_i +
-                    \mathbf{B\gamma}_{S_i}\mathbf{S}_i + \sum_{i<j}\mathbf{S}_i \mathbf{K}_{ij} \mathbf{S}_j}) \\
-        &\hat \hat H_{SB} = \sum_{i,k} \mathbf{S}_i \mathbf{A}_{ik} \mathbf{I}_k
+                    \mathbf{B\gamma}_{S_i}\mathbf{S}_i +
+                    \sum_{i<j}\mathbf{S}_i \mathbf{K}_{ij} \mathbf{S}_j) \\
+        &\hat H_{SB} = \sum_{i,k} \mathbf{S}_i \mathbf{A}_{ik} \mathbf{I}_k \\
         &\hat H_{B} = \sum_k{\mathbf{I}_k\mathbf{P}_k \mathbf{I}_k +
                       \mathbf{B}\mathbf{\gamma}_k\mathbf{I}_k} +
                       \sum_{k<l} \mathbf{I}_k\mathbf{J}_{kl}\mathbf{I}_l
@@ -28,7 +29,7 @@ nd :math:`\hat H_B` are intrinsic bath spin interactions:
   of the :math:`i`-spin describing the interaction of the spin and the external magnetic field.
 - :math:`\mathbf{A}` is the interaction tensor between central and bath spins.
   In the case of nuclear spin bath, corresponds to the hyperfine couplings.
-- :math:`\mathbf{J}` is the interaction tensor between bath spins.
+- :math:`\mathbf{J}` (:math:`\mathbf{K}`) is the interaction tensor between bath (center) spins.
 
 Each of this terms and additional terms of the Hamiltonian can be defined within **PyCCE** framework as following.
 
@@ -82,11 +83,15 @@ The central spin Hamiltonian is provided as attributes of the ``CenterArray`` ob
     >>> print(c[0].gyro)
     -17608.59705
 
-.. note::
+  .. note::
 
-    While all other coupling parameters are given in the units of frequency, the gyromagnetic ratio
-    (and therefore tensors coupling magnetic field with the spin)
-    are conventionally given in the units of **angular** frequency and differ by :math:`2\pi`.
+      While all other coupling parameters are given in the units of frequency, the gyromagnetic ratio
+      (and therefore tensors coupling magnetic field with the spin)
+      are conventionally given in the units of **angular** frequency and differ by :math:`2\pi`.
+
+- :math:`\mathbf{K}` is set with ``CenterArray.add_interaction`` method
+  or by calling ``CenterArray.point_dipole`` method, assuming the interactions
+  as the ones between magnetic point dipoles.
 
 The magnetic field is set with  with ``Simulator.set_magnetic_field`` method or during the initialization of the
 ``Simulator`` object in Gauss (:math:`\mathrm{G}`).
@@ -154,7 +159,8 @@ Interaction tensors can be either:
 
 Bath Hamiltonian
 ..................................
-The self interaction tensors of the bath spins ae stored in the ``.Q`` attribute of the ``BathArray`` object.
+
+The self interaction tensors of the bath spins is stored in the ``.Q`` attribute of the ``BathArray`` object.
 By default they are set to 0. They can be either:
 
 - Directly provided by setting the values of ``bath.Q`` in :math:`\mathrm{kHz}`
