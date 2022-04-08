@@ -43,12 +43,13 @@ The simplest example includes the following steps:
    hyperfine couplings see :doc:`parameters`.
 
 3. Setup the ``Simulator`` using the generated spin bath.
-   The first required argument is the total spin of the central spin,
+   The first required argument ``spin`` is the total spin of the central spin or the ``CenterArray`` instance,
+   containing properties of the central spins.
    ``r_bath``, ``r_dipole`` and ``order`` are convergence parameters
    (see the :doc:`tutorial` for examples of convergence),
    ``magnetic_field`` is the external applied magnetic field along the z-axis,
    and ``pulses`` is the number of decoupling :math:`\pi` pulses in Carr-Purcell-Meiboom-Gill (CPMG) sequence
-   (0 - FID, 1 - Hahn-echo, 2 - Carr Purcell etc.).
+   or a more complicated sequence, set with ``Pulse`` objects.
 
    .. literalinclude:: tutorials/nv_simple.py
       :language: python
