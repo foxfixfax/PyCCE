@@ -35,9 +35,10 @@ PyCCE: A Python Package for CCE Simulations
    dftbase
 
 .. figure:: logo.png
-  :scale: 32%
+  :scale: 30%
   :align: left
   :target: index.html
+
 
 **PyCCE** is an open source Python library to simulate the dynamics of
 a spin qubit interacting with a spin bath using the cluster-correlation expansion (CCE) method.
@@ -46,31 +47,32 @@ a spin qubit interacting with a spin bath using the cluster-correlation expansio
 Updates
 ------------
 The **PyCCE** 1.0 has been released!
-
 Main changes from the previous version include:
 
 * Support for several central spins with the new class ``CenterArray``!
-    Check out a tutorial :doc:`tutorials/second_spin` on how to use it.
+    Check out a tutorial :doc:`tutorials/second_spin` on how to use the new class to study the decoherence
+    of the hybrid qubit or entanglement of dipolarly coupled qubits.
 
 * Direct definition of the bath spin states with ``BathArray.state`` attribute.
-    Check out the updated tutorial :doc:`tutorials/diamond_nv` for usage examples.
+    Check out the updated tutorial :doc:`tutorials/diamond_nv` to see how one can use this functionality
+    to study the effect of spin polarization on Hahn-echo signal.
 
 * Expanded the control over pulse sequences.
     See documentation for ``Pulse`` class in :doc:`simulator` for details.
 
-* **EXPERIMENTAL FEATURE**. Added ability to define your own single particle Hamiltonian.
-    See ``BathArray.h`` and ``Center.h`` in :doc:`bath` and :doc:`center` for details.
+* *EXPERIMENTAL FEATURE*. Added ability to define your own single particle Hamiltonian.
+    See ``BathArray.h`` and ``Center.h`` in :doc:`bath` and :doc:`center` respectively for further details.
 
 * Significant overhaul of computational expensive parts of the code with Numba. This makes the first run of
   **PyCCE** quite slow, but after compilation it should run observably faster.
 
 * Various bug fixes and QoL changes.
 
-This is a major update, so if you find any issues, please let us know as soon as possible!
+This is a major update. If you find any issues ot bugs, please let us know as soon as possible!
 
 Known issues
 ....................
-- Numba raises a warning about non-contiguous arrays. This is a lie.
+- Numba sometimes raises a warning about non-contiguous arrays. This is a lie.
 
 Installation
 ----------------

@@ -456,11 +456,12 @@ class BathArray(np.ndarray):
     def state(self):
         """
         BathState: Array of the bath spin states.
+
         Can have three types of entries:
 
-            - *None*. If entry is *None*, assumes fully random density matrix. Default value.
-            - ndarray with shape (s,). If entry is vector, corresponds to the pure state of the spin.
-            - ndarray with shape (s, s). If entry is a matrix, corresponds to the density matrix of the spin.
+            - **None**. If entry is **None**, assumes fully random density matrix. Default value.
+            - **ndarray with shape (s,)**. If entry is vector, corresponds to the pure state of the spin.
+            - **ndarray with shape (s, s)**. If entry is a matrix, corresponds to the density matrix of the spin.
 
         Examples:
 
@@ -1691,49 +1692,6 @@ class SpinDict(UserDict):
                 else:
                     raise TypeError('Unsupported key.')
 
-                # unique_names = np.unique(key)
-                #
-                # if unique_names.size == 1:
-                #     n = unique_names[0]
-                #     ones = np.ones(key.shape, dtype=np.float64)
-                #
-                #     spins = self._super_get_item(n).s * ones
-                #     gyros = self._super_get_item(n).gyro * ones
-                #     quads = self._super_get_item(n).q * ones
-                #     detus = self._super_get_item(n).detuning * ones
-                #
-                # else:
-                #     spins = np.empty(key.shape, dtype=np.float64)
-                #     gyros = np.empty(key.shape, dtype=np.float64)
-                #     quads = np.empty(key.shape, dtype=np.float64)
-                #     detus = np.empty(key.shape, dtype=np.float64)
-                #
-                #     for n in unique_names:
-                #         spins[key == n] = self._super_get_item(n).s
-                #         gyros[key == n] = self._super_get_item(n).gyro
-                #         quads[key == n] = self._super_get_item(n).q
-                #         detus[key == n] = self._super_get_item(n).detuning
-                #
-                # return SpinType(key, s=spins, gyro=gyros, q=quads, detuning=detus)
-
-                # params = {}
-                # unique_names = np.unique(key)
-                # first_name = unique_names[0]
-                # first_dict = vars(self._super_get_item(first_name))
-                #
-                # if unique_names.size == 1:
-                #     for k in first_dict:
-                #         params[k] = np.array([first_dict[k]]*key.size).reshape(key.shape)
-                #     return SpinType(**params)
-                #
-                # for k in first_dict:
-                #     params[k] = np.empty(key.shape, dtype=type(first_dict[k]))
-                #     params[k][key == first_name] = getattr(self._super_get_item(first_name), k)
-                #
-                # for n in unique_names[1:]:
-                #     for k in params:
-                #         params[k][key == n] = getattr(self._super_get_item(n), k)
-                # return SpinType(**params)
 
     # adding two objects
     def __add__(self, obj):

@@ -190,7 +190,7 @@ In this case we write the cluster Hamiltonian as:
                      \sum_{i\in C} \mathbf{I}_i\mathbf{P}_i \mathbf{I}_i +
                      \mathbf{B}\mathbf{\gamma}_i\mathbf{I}_i +  \\
              & \sum_{i<j \in C} \mathbf{I}_i \mathbf{J}_{ij} \mathbf{I}_j +
-               \sum_{a \notin C} \mathbf{S} \mathbf{A}_a \langle\mathbf{I}_a\rangle +
+               \sum_{k, a \notin C} \mathbf{S}_k \mathbf{A}_{ka} \langle\mathbf{I}_a\rangle +
                \sum_{i\in C,\ a\notin C} {\mathbf{I}_i\mathbf{J}_{ia}\langle\mathbf{I}_a\rangle}
 
 
