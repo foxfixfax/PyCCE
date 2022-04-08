@@ -17,7 +17,7 @@ def generate_bath_state(bath, nbstates, seed=None, parallel=False):
         parallel (bool): True if run in parallel mode. Default False.
 
     Yields:
-        ndarray: Array of ``shape = len(bath)`` containing z-projections of the bath spins states.
+        List: list of the pure bath spin state vectors.
     """
     rgen = np.random.default_rng(seed)
     rank = 0

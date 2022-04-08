@@ -88,7 +88,7 @@ _args = r"""
             i (int or ndarray with shape (2s+1, ) or callable): Used in gCCE calculations.
                 Along with ``j`` parameter indicates which density matrix element to compute with gCCE as:
                 
-                ..math::
+                .. math::
                 
                     L=\bra{i}\hat \rho \ket{j}
                 
@@ -344,7 +344,7 @@ class Simulator:
             We define the strength of the cluster :math:`s` as an inverse of the sum
             over inverse pairwise interaction strengths of the minimal cluster:
 
-            ..math::
+            .. math::
 
                 s = (\sum_{i<j\in C} \frac{r^3}{\gamma_i\gamma_j})^{-1}
 
@@ -810,10 +810,11 @@ class Simulator:
                 Then the strongest ``number`` of clusters is taken.
 
                 Strength of the cluster :math:`s` is defined as
-                an sum of inverse pairwise interactions of the minimal cluster:
+                an inverse of a sum of inverse pairwise interactions of the minimal cluster:
 
-                ..math::
-                    s = \sum_{i<j} (\gamma_i \gamma_j
+                .. math::
+
+                    s = (\sum_{i<j\in C} \frac{r^3}{\gamma_i\gamma_j})^{-1}
 
         Returns:
 

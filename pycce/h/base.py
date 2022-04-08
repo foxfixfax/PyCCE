@@ -1,4 +1,5 @@
-from pycce.utilities import *
+import numpy as np
+from pycce.sm import dimensions_spinvectors, vecs_from_dims
 
 
 class Hamiltonian:
@@ -121,62 +122,3 @@ class Hamiltonian:
     def __ipow__(self, other):
         self.data.__ipow__(other)
         return self
-
-
-
-class HamiltonianNew:
-    r"""
-    Class containing properties of the Hamiltonian.
-
-    Essentially wrapper for ndarray with additional attributes of ``dimensions`` and ``spins``.
-
-    Usual methods (e.g. ``__setitem__`` or ``__getitem__``) access the ``data`` attribute.
-
-    .. note::
-
-        Algebraic operations with Hamiltonian will return ndarray instance.
-
-    Args:
-        dimensions (array-like): array of the dimensions for each spin in the Hilbert space of the Hamiltonian.
-
-    Attributes:
-        dimensions (ndarray): array of the dimensions for each spin in the Hilbert space of the Hamiltonian.
-        spins (ndarray): array of the spins, spanning the Hilbert space of the Hamiltonian.
-        vectors (list): list with spin vectors of form ``[[Ix, Iy, Iz], [Ix, Iy, Iz], ...]``.
-        data (ndarray): matrix representation of the Hamiltonian.
-
-    """
-
-    def __init__(self, dimensions, vectors=None, data=None):
-        self.dimensions = np.asarray(dimensions)
-        self.spins = (dimensions - 1) / 2
-        if vectors is None:
-            vectors = vecs_from_dims(dimensions)
-        self.vectors = vectors
-
-        self.tdim = self.dimensions.prod()
-
-        self.data = []
-
-        if data is not None:
-            self.data.append(data)
-
-    def __getitem__(self, item):
-        return self.data.__getitem__(item)
-
-    def __setitem__(self, key, value):
-        self.data.__setitem__(key, value)
-
-    def __delitem__(self, key):
-        self.data.__delitem__(key)
-
-    def __getattr__(self, item):
-        if item in dir(self):
-            return getattr(self, item)
-        else:
-            return getattr(self.data, item)
-
-    @classmethod
-    def from_bath(cls, bath, center=None):
-        dim, vectors = dimensions_spinvectors(bath, central_spin=center)
-        return cls(dim, vectors=vectors)

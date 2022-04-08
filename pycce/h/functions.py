@@ -1,11 +1,8 @@
-import numpy
-import \
-    numpy as np
-
-from pycce.bath.array import check_gyro
-from pycce.constants import HBAR_MU0_O4PI, PI2, ELECTRON_GYRO
-from pycce.utilities import dimensions_spinvectors, expand, tensor_vdot, vvdot
+import numpy as np
 from numba import jit, generated_jit, types
+
+from pycce.constants import HBAR_MU0_O4PI, PI2, ELECTRON_GYRO
+from pycce.utilities import tensor_vdot, vec_tensor_vec
 
 
 @jit(cache=True, nopython=True)
@@ -16,7 +13,7 @@ def expanded_single(ivec, gyro, mfield, self_tensor, detuning=.0):
     Args:
         ivec (ndarray with shape (3, n, n)): Spin vector of the bath spin in the full Hilbert space of the cluster.
         gyro (float or ndarray with shape (3, 3)):
-        mfield (ndarray wtih shape (3,): Magnetic field of type ``mfield = np.array([Bx, By, Bz])``.
+        mfield (ndarray wtih shape (3, ): Magnetic field of type ``mfield = np.array([Bx, By, Bz])``.
         self_tensor (ndarray with shape (3, 3)): tensor of self-interaction of type IPI where I is bath spin.
         detuning (float): Additional term of d*Iz allowing to simulate different energy splittings of bath spins.
 
@@ -144,23 +141,6 @@ def gen_pos_tensor(coord_1, coord_2):
     return -(3 * np.outer(pos, pos) - np.eye(3, dtype=np.complex128) * r ** 2) / (r ** 5)
 
 
-@jit(cache=True, nopython=True)
-def vec_tensor_vec(v1, tensor, v2):
-    """
-    Compute product V @ T @ V.
-    Args:
-        v1 (ndarray with shape (3, n, n)): Leftmost expanded spin vector.
-        tensor (ndarray with shape (3, 3)): 3x3 interaction tensor in real space.
-        v2 (ndarray with shape (3, n, n)): Rightmost expanded spin vector.
-
-    Returns:
-        ndarray with shape (n, n): Product vTv.
-
-    """
-    t_vec = tensor_vdot(tensor, v2)
-    return vvdot(v1, t_vec)
-
-
 def bath_interactions(nspin, ivectors):
     """
     Compute interactions between bath spins.
@@ -233,8 +213,8 @@ def bath_mediated(hyperfines, ivectors, energy_state, energies, projections):
     projections = projections[others_mask]
 
     for energy_j, s_ij in zip(energies, projections):
-        element_ij = np.zeros(ivectors[0,0].shape, dtype=np.complex128)
-        element_ji = np.zeros(ivectors[0,0].shape, dtype=np.complex128)
+        element_ij = np.zeros(ivectors[0, 0].shape, dtype=np.complex128)
+        element_ji = np.zeros(ivectors[0, 0].shape, dtype=np.complex128)
 
         for hf, ivec in zip(hyperfines, ivectors):
             element_ij += conditional_hyperfine(hf, ivec, s_ij)

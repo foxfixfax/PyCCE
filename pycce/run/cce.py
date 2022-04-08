@@ -1,9 +1,8 @@
 import numpy as np
 from pycce.constants import PI2
-from pycce.h import bath_hamiltonian
-from pycce.h.functions import external_spins_field, projected_addition
-from pycce.run.base import RunObject, simple_propagator
-from pycce.utilities import generate_initial_state
+from pycce.h.functions import projected_addition
+from pycce.h.total import bath_hamiltonian
+from pycce.run.base import RunObject, simple_propagator, generate_initial_state
 
 
 def _rotmul(rotation, u, **kwargs):

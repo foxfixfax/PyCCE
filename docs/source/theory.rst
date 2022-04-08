@@ -53,7 +53,6 @@ by the package itself (see :doc:`parameters` for details):
   For nuclear spins corresponds to the quadrupole interactions tensor.
 - :math:`\mathbf{\gamma}_i`$`is the magnetic field interaction tensor of the
   :math:`i`-spin describing the interaction of the spin and the external magnetic field :math:`B`.
-  We assume that for the bath spins, it is isotropic.
 - :math:`\mathbf{A}` is the interaction tensor between central and bath spins.
   In the case of the nuclear spin bath, it corresponds to the hyperfine couplings.
 - :math:`\mathbf{J}` is the interaction tensor between bath spins.

@@ -1,12 +1,11 @@
 import warnings
 
 import numpy as np
-from pycce.io.base import DFTCoordinates, fortran_value, find_first_index, set_isotopes
 from pycce.bath.array import BathArray, transform
 from pycce.constants import MHZ_TO_KHZ, BOHR_TO_ANGSTROM, EFG_CONVERSION
+from pycce.io.base import DFTCoordinates, fortran_value, find_first_index, set_isotopes
 
 qe_coord_types = ['crystal', 'bohr', 'angstrom', 'alat']
-
 
 
 def read_qe(pwfile, hyperfine=None, efg=None, s=1, pwtype=None, types=None, isotopes=None,
@@ -244,7 +243,6 @@ class PWCoordinates(DFTCoordinates):
         coords = []
 
         for i in range(index + 1, index + 1 + namelists['system']['nat']):
-
             row_split = lines[i].split()
             names.append(row_split[0])
             coords.append([float(x) for x in row_split[1:]])
@@ -444,6 +442,7 @@ def celldms_from_abc(ibrav, abc_list):
         celldm[5] = 0.0
 
     return celldm
+
 
 def read_gipaw_tensors(lines, keyword=None, start=None, conversion=1):
     """

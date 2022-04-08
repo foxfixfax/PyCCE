@@ -1,18 +1,19 @@
 import numpy as np
+from numpy import ma as ma
+from pycce.bath.array import BathArray
 from pycce.constants import PI2
 from pycce.h import total_hamiltonian
 from pycce.run import simple_propagator
-from pycce.run.base import RunObject
-from pycce.utilities import shorten_dimensions, generate_initial_state, outer
-from pycce.bath.array import BathArray
-from numpy import ma as ma
+from pycce.run.base import RunObject, generate_initial_state
+from pycce.utilities import shorten_dimensions, outer
 
 
 def rotation_propagator(u, rotations):
     """
     Generate the propagator from the simple propagator and set of :math:`2\tau` equispaced rotation operators.
 
-    ..note::
+    .. note::
+
         While the spacing between rotation operators is assumed to be :math:`2\tau`, the spacing before and after
         the first and the last rotation respectively is assumed to be :math:`\tau`.
 
@@ -348,7 +349,6 @@ class gCCE(RunObject):
                              f"{self.timespace[(self.timespace - times) < 0]} ms are longer than total time.")
 
         return full_u
-
 
 # def propagator(timespace, hamiltonian,
 #                pulses=None, as_delay=False):

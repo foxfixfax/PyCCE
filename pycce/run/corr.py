@@ -1,10 +1,11 @@
 import operator
 
 import numpy as np
-from pycce.h import total_hamiltonian, bath_interactions, expanded_single, conditional_hyperfine, \
-    dimensions_spinvectors, overhauser_bath, Hamiltonian, bath_hamiltonian
-from pycce.run.base import RunObject, simple_propagator
-from pycce.utilities import generate_initial_state
+import pycce.center
+from pycce import dimensions_spinvectors
+from pycce.h import total_hamiltonian, conditional_hyperfine, \
+    Hamiltonian, bath_hamiltonian
+from pycce.run.base import RunObject, simple_propagator, generate_initial_state
 
 _rows = None
 _cols = None
@@ -228,7 +229,7 @@ class CCENoise(RunObject):
 
     def preprocess(self):
         super().preprocess()
-        self.center.generate_projections()
+        pycce.center.generate_projections()
         if self.center.size > 1:
             raise ValueError('Correlation calculations are supported only for single central spin')
 
@@ -288,4 +289,3 @@ class CCENoise(RunObject):
         time_propagator = simple_propagator(self.timespace, self.hamiltonian)
 
         return compute_correlations(self.cluster, dm0_expanded, time_propagator)
-

@@ -4,10 +4,12 @@ Module with helper functions to obtain CPMG coherence from the noise autocorrela
 import numba
 import numpy as np
 import scipy.integrate
-from numba import cfunc, carray, jit
-from numba.types import intc, CPointer, float64, int32
+from numba import cfunc, carray
+from numba.types import intc, CPointer, float64
 from scipy import LowLevelCallable
+
 from .constants import PI2
+
 
 def _jit_integrand_function(integrand_function):
     jitted_function = numba.jit(integrand_function, nopython=True)
@@ -86,7 +88,7 @@ def gaussian_phase(timespace, corr, npulses, units='khz'):
         ndarray with shape (n,): Random phase accumulated by the qubit.
     """
     if 'rad' not in units:
-        corr *= PI2**2
+        corr *= PI2 ** 2
     timespace = np.asarray(timespace)
     chis = np.zeros(timespace.shape, dtype=np.complex128)
     for i, tau in enumerate(timespace):

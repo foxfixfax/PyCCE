@@ -35,30 +35,41 @@ PyCCE: A Python Package for CCE Simulations
    dftbase
 
 .. figure:: logo.png
-  :scale: 40%
+  :scale: 32%
   :align: left
   :target: index.html
 
 **PyCCE** is an open source Python library to simulate the dynamics of
 a spin qubit interacting with a spin bath using the cluster-correlation expansion (CCE) method.
 
+
 Updates
 ------------
 The **PyCCE** 1.0 has been released!
 
-Main highlights include:
+Main changes from the previous version include:
 
-* Support of several central spins with the new class `CenterArray`!
-* Direct definition of the bath spin states with `BathArray.state` attribute.
-* Expanded the control over pulse sequences. See `Pulse` class for details.
-* Added ability to define your own single particle Hamiltonian.
-  See `BathArray.h` and `CenterArray.h` for details.
-* Significant overhaul of computational expensive parts of the code with Numba.
+* Support for several central spins with the new class ``CenterArray``!
+    Check out a tutorial :doc:`tutorials/second_spin` on how to use it.
+
+* Direct definition of the bath spin states with ``BathArray.state`` attribute.
+    Check out the updated tutorial :doc:`tutorials/diamond_nv` for usage examples.
+
+* Expanded the control over pulse sequences.
+    See documentation for ``Pulse`` class in :doc:`simulator` for details.
+
+* **EXPERIMENTAL FEATURE**. Added ability to define your own single particle Hamiltonian.
+    See ``BathArray.h`` and ``Center.h`` in :doc:`bath` and :doc:`center` for details.
+
+* Significant overhaul of computational expensive parts of the code with Numba. This makes the first run of
+  **PyCCE** quite slow, but after compilation it should run observably faster.
+
 * Various bug fixes and QoL changes.
 
-This is a significant update, so if you find any issues, please let us know as soon as possible!
+This is a major update, so if you find any issues, please let us know as soon as possible!
 
-**Known issues**:
+Known issues
+....................
 - Numba raises a warning about non-contiguous arrays. This is a lie.
 
 Installation

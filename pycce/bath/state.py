@@ -1,10 +1,8 @@
-import warnings
-
 import numpy as np
 from numba import jit
+from numba.typed import List
 from pycce.sm import _smc
 from pycce.utilities import gen_state_list, vector_from_s
-from numba.typed import List
 
 
 class BathState:
@@ -166,14 +164,14 @@ class BathState:
 
     def gen_pure(self, rho, dim):
         """
-        Generate pure states from the :math:`S_z` projections to be stored in the given `BathState` object.
+        Generate pure states from the :math:`S_z` projections to be stored in the given ``BathState`` object.
 
         Args:
-            rho (ndarray with shape (n,)): Array of the desired projections.
-            dim (ndarray with shape (n,)): Array of the dimensions of the spins.
+            rho (ndarray with shape (n, )): Array of the desired projections.
+            dim (ndarray with shape (n,) ): Array of the dimensions of the spins.
 
         Returns:
-            BathState: A given instance of the BathState object.
+            BathState: View of the ``BathState`` object.
         """
         rho = np.asarray(rho)
 
@@ -193,6 +191,7 @@ class BathState:
         self[...] = rho
 
         return self
+
     @property
     def state(self):
         """
@@ -252,6 +251,7 @@ class BathState:
     def project(self, rotation=None):
         """
         Generate projections of bath states on :math:`S_z`.
+
         Args:
             rotation (optional, ndarray with shape (3, 3)):
                 Matrix used to transform :math:`S_z` matrix as :math:`S_z' = R^{\dagger} S_z R`.
@@ -293,14 +293,14 @@ class BathState:
     @property
     def shape(self):
         """
-        Shape of the BathState underlying array.
+        tuple: Shape of the BathState underlying array.
         """
         return self._data.shape
 
     @property
     def size(self):
         """
-        Size of the BathState underlying array.
+        int: Size of the BathState underlying array.
         """
         return self._data.size
 
@@ -326,6 +326,7 @@ class BathState:
 def objarr(array):
     """
     Make an array with object entries from iterable.
+
     Args:
         array (iterable): Iterable containing elements of the future array.
 
@@ -399,6 +400,7 @@ def project_bath_states(states, single=False, rotation=None):
     #     projected_bath_state = projected_bath_state[:, 2]
 
     return projected_bath_state
+
 
 @jit(cache=True, nopython=True)
 def _loop_trace(states):

@@ -288,7 +288,8 @@ def _cube_integrate(data, grid, voxel, spin, position, gyro_n, gyro_e=ELECTRON_G
             else:
                 integrand = - data * (3 * pos[:, :, :, i] * pos[:, :, :, j]) / dist ** 5
 
-            hyperfine[i, j] = np.trapz(np.trapz(np.trapz(integrand))) * HBAR_MU0_O4PI / (2 * spin * PI2) * np.linalg.det(voxel)
+            hyperfine[i, j] = np.trapz(np.trapz(np.trapz(integrand))) * HBAR_MU0_O4PI / (
+                    2 * spin * PI2) * np.linalg.det(voxel)
 
     if gyro_e.ndim < 2:
         hyperfine = hyperfine * gyro_e

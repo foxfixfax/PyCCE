@@ -1,9 +1,9 @@
-from pycce.utilities import *
-from collections import UserList, defaultdict
+from collections import defaultdict
 
 import numpy as np
 import scipy.linalg
 from pycce.utilities import expand, shorten_dimensions
+
 
 class Propagator:
     r"""
@@ -35,7 +35,7 @@ class Propagator:
         return 1
 
     def generate_rotations(self, pulses, dimensions=None,
-                        bath=None, vectors=None, central_spin=None):
+                           bath=None, vectors=None, central_spin=None):
         """
         Generate list of matrix representations of the rotations, induced by the sequence of the pulses.
 
@@ -120,7 +120,6 @@ class Propagator:
 
 
 _rot = {'x': 0, 'y': 1, 'z': 2}
-
 
 
 def bath_rotation(vectors, axis, angle):

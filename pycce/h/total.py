@@ -1,6 +1,10 @@
+from pycce.sm import _smc
+from pycce.sm import dimensions_spinvectors
+from pycce.utilities import expand
+
 from .base import Hamiltonian
 from .functions import *
-from pycce.sm import _smc
+
 
 def bath_hamiltonian(bath, mfield):
     r"""
@@ -19,8 +23,7 @@ def bath_hamiltonian(bath, mfield):
         Hamiltonian: Hamiltonian of the given cluster without qubit.
     """
     dims, vectors = dimensions_spinvectors(bath, central_spin=None)
-    clusterint = bath_interactions(bath, vectors)
-    clusterint += custom_hamiltonian(bath, dims)
+    clusterint = bath_interactions(bath, vectors) + custom_hamiltonian(bath, dims)
 
     for ivec, n in zip(vectors, bath):
         if callable(mfield):
@@ -60,6 +63,8 @@ def total_hamiltonian(bath, center, mfield):
         if callable(mfield):
             totalh += self_central(vectors[bath.size + i], mfield(c.xyz), c.zfs, c.gyro, c.detuning)
         else:
+            # print('svec', vectors[bath.size + i].flags['C_CONTIGUOUS'])
+            # print('tensor', c.zfs.flags['C_CONTIGUOUS'])
             totalh += self_central(vectors[bath.size + i], mfield, c.zfs, c.gyro, c.detuning)
 
     totalh += center_interactions(center, vectors[bath.size:])
@@ -120,6 +125,8 @@ def central_hamiltonian(center, magnetic_field, hyperfine=None, bath_state=None)
             totalh = self_central(vectors[0], magnetic_field(center.xyz),
                                   center.zfs, center.gyro, center.detuning)
         else:
+            # print('svec', vectors[0].flags['C_CONTIGUOUS'])
+            # print('tensor', center.zfs.flags['C_CONTIGUOUS'])
             totalh = self_central(vectors[0], magnetic_field,
                                   center.zfs, center.gyro, center.detuning)
         if hyperfine is not None and bath_state is not None:
@@ -132,6 +139,8 @@ def central_hamiltonian(center, magnetic_field, hyperfine=None, bath_state=None)
         if callable(magnetic_field):
             totalh += self_central(vectors[i], magnetic_field(c.xyz), c.zfs, c.gyro)
         else:
+            # print('svec', vectors[i].flags['C_CONTIGUOUS'])
+            # print('tensor', c.zfs.flags['C_CONTIGUOUS'])
             totalh += self_central(vectors[i], magnetic_field, c.zfs, c.gyro)
 
         if hyperfine is not None and bath_state is not None:
@@ -195,4 +204,3 @@ def custom_single(h, index, dims):
 
         ham += add
     return expand(ham, index, dims)
-

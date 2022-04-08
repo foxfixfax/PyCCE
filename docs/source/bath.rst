@@ -13,17 +13,20 @@ Documentation for the ``pycce.BathArray`` - central class, containing properties
 .. automethod:: pycce.utilities.rotmatrix
    :noindex:
 
-InteractionMap
+BathState
 ..............................................................
 
-.. automodule:: pycce.bath.map
+.. automodule:: pycce.bath.state
    :members:
+   :exclude-members: objarr, project_bath_states
+
 
 Cube
 ..............................................................
 
 .. automodule:: pycce.bath.cube
    :members:
+
 
 SpinDict and SpinType
 ..............................................................
@@ -41,13 +44,6 @@ the properties of the different types of the spins in the bath.
 
 .. autodata:: pycce.bath.array.common_concentrations
    :annotation: = {element ('H', 'He',...) : { isotope ('1H', '2H', ..) : concentration}}
-
-BathState
-..............................................................
-
-.. automodule:: pycce.bath.state
-   :members:
-
 
 Random bath
 ---------------------------------------------------------------------

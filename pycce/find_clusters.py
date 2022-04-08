@@ -408,7 +408,7 @@ def find_valid_subclusters(graph, maximum_order, nclusters=None, bath=None, stro
                 gyros_2 = np.abs(gyros_2.reshape(gyros_2.shape[0], -1)).max(axis=1)
 
             strength[2] = 1 / np.abs(gyros_1 * gyros_2 / r ** 3)  # * (1 - 2 * cos_theta ** 2))
-            ordered = strength[2].argsort()  # [::-1] return if strength = np.abs
+            ordered = strength[2].argsort()  # smallest strength - largest coupling # [::-1] if strength = np.abs
             bonds = bonds[ordered]
             strength[2] = strength[2][ordered]
 

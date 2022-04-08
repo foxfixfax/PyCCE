@@ -1,10 +1,12 @@
 import collections.abc
+
 import numpy as np
 from pycce.bath.array import check_gyro, point_dipole, BathArray, _add_args, _stevens_str_doc
 from pycce.bath.map import InteractionMap
 from pycce.constants import ELECTRON_GYRO
 from pycce.h.total import central_hamiltonian
-from pycce.utilities import zfs_tensor, generate_projections, expand, rotate_coordinates, rotate_tensor, outer, \
+from pycce.sm import _smc
+from pycce.utilities import expand, rotate_coordinates, rotate_tensor, outer, \
     normalize
 
 
@@ -162,7 +164,7 @@ class Center:
     @property
     def gyro(self):
         """
-        ndarray with shape (3,3) or (n,3,3): Tensor describing central spin interactions
+        ndarray with shape (3,3 ) or (n, 3, 3): Tensor describing central spin interactions
             with the magnetic field or array of spins.
 
             Default -17608.597050 rad / ms / G - gyromagnetic ratio of the free electron spin."""
@@ -175,7 +177,7 @@ class Center:
 
     @property
     def zfs(self):
-        """ndarray with shape (3,3) or (n,3,3): Zero field splitting tensor of the central spin or array of spins."""
+        """ndarray with shape (3, 3) or (n, 3, 3): Zero field splitting tensor of the central spin or array of spins."""
         return self._zfs
 
     @zfs.setter
@@ -184,7 +186,7 @@ class Center:
 
     @property
     def s(self):
-        """float or ndarray with shape (n,): Total spin of the central spin or array of spins."""
+        """float or ndarray with shape (n, ): Total spin of the central spin or array of spins."""
         return self._s[()]
 
     @s.setter
@@ -228,7 +230,7 @@ class Center:
         Set gyromagnetic ratio of the central spin.
 
         Args:
-            gyro (float or ndarray with shape (3,3)): Gyromagnetic ratio of central spin in rad / ms / G.
+            gyro (float or ndarray with shape (3, 3)): Gyromagnetic ratio of central spin in rad / ms / G.
 
                 **OR**
 
@@ -251,7 +253,9 @@ class Center:
         r"""
         ndarray or int: :math:`\ket{0}` qubit state of the central spin in :math:`S_z` basis
 
-        **OR** index of the energy state to be considered as one.
+        **OR**
+
+        index of the energy state to be considered as one.
         """
 
         return self._get_state('alpha')
@@ -265,7 +269,9 @@ class Center:
         r"""
         ndarray or int: :math:`\ket{1}` qubit state of the central spin in :math:`S_z` basis
 
-        **OR** index of the energy state to be considered as one.
+        **OR**
+
+        index of the energy state to be considered as one.
         """
         return self._get_state('beta')
 
@@ -275,7 +281,7 @@ class Center:
 
     @property
     def dim(self):
-        """int or ndarray with shape (n,): Dimensions of the central spin or array of spins."""
+        """int or ndarray with shape (n, ): Dimensions of the central spin or array of spins."""
 
         return (self._s * 2 + 1 + 1e-8).astype(int)[()]
 
@@ -527,6 +533,7 @@ class CenterArray(Center, collections.abc.Sequence):
 
             Default is 0.
     """
+
     def __init__(self, size=None, position=None,
                  spin=None, D=0, E=0,
                  gyro=ELECTRON_GYRO, imap=None,
@@ -916,6 +923,7 @@ class CenterArray(Center, collections.abc.Sequence):
 
         self.imap[i, j] = tensor
 
+
 def _close_state_index(state, eiv, level_confidence=0.95):
     r"""
     Get index of the eigenstate stored in eiv,
@@ -940,40 +948,77 @@ def _close_state_index(state, eiv, level_confidence=0.95):
                          f"Eigenstates (rows):\n{repr(eiv.T)}")
     return indexes[0]
 
-# class CenterArray:
-#     _dtype_center = np.dtype([('N', np.unicode_, 16),
-#                               ('s', np.float64),
-#                               ('xyz', np.float64, (3,)),
-#                               ('D', np.float64, (3, 3)),
-#                               ('gyro', np.float64, (3, 3))])
-#
-#     def __init__(self, shape=None, position=None,
-#                  spin=None, D=None, E=0,
-#                  gyro=ELECTRON_GYRO, imap=None):
-#
-#         if shape is None:
-#             raise ValueError('No shape provided')
-#
-#         self.shape = shape
-#         self.size = shape
-#
-#         self.indexes = np.arange(shape)
-#         self.xyz = np.zeros((self.size, 3))
-#         self.s = np.zeros(self.size)
-#         self.gyro = np.zeros((self.size, 3, 3))
-#         self.zfs = np.zeros((self.size, 3, 3))
-#
-#         self.xyz = position
-#         self.spin = spin
-#         self.set_gyro(gyro)
-#         self.set_zfs(D, E)
-#
-#         self.imap = imap
-#
-#         self._state = None
-#         self._alpha = None
-#         self._beta = None
-#
-#         self._alpha_list = None
-#         self._beta_list = None
-#
+
+def generate_projections(state_a, state_b=None, spins=None):
+    r"""
+    Generate vector or list of vectors (if ``spins`` is not None) with the spin projections of the given spin states:
+
+    .. math::
+
+        [\bra{a}\hat{S}_x\ket{b}, \bra{a}\hat{S}_y\ket{b}, \bra{a}\hat{S}_z\ket{b}],
+
+    where :math:`\ket{a}` and :math:`\ket{b}` are the given spin states.
+
+    Args:
+        state_a (ndarray): State :math:`\ket{a}` of the central spin or spins in :math:`\hat{S}_z` basis.
+        state_b (ndarray): State :math:`\ket{b}` of the central spin or spins in :math:`\hat{S}_z` basis.
+        spins (ndarray, optional): Array of spins, comprising the given state vectors.
+            If provided, assumes that states correspond to a Hilbert space of several spins, and projections
+            of states are computed for each spin separately.
+    Returns:
+        ndarray with shape (3,) or list:
+            :math:`[\braket{\hat{S}_x}, \braket{\hat{S}_y}, \braket{\hat{S}_z}]` projections or list of projections.
+    """
+    if state_b is None:
+        state_b = state_a
+    if spins is None:
+        spin = (state_a.size - 1) / 2
+        sm = _smc[spin]
+
+        projections = np.array([state_a.conj() @ sm.x @ state_b,
+                                state_a.conj() @ sm.y @ state_b,
+                                state_a.conj() @ sm.z @ state_b],
+                               dtype=np.complex128)
+    else:
+        projections = []
+        dim = (np.asarray(spins) * 2 + 1 + 1e-8).astype(int)
+
+        for i, s in enumerate(spins):
+            sm = _smc[s]
+            smx = expand(sm.x, i, dim)
+            smy = expand(sm.y, i, dim)
+            smz = expand(sm.z, i, dim)
+
+            p = np.array([state_a.conj() @ smx @ state_b,
+                          state_a.conj() @ smy @ state_b,
+                          state_a.conj() @ smz @ state_b],
+                         dtype=np.complex128)
+            projections.append(p)
+
+    return projections
+
+
+def zfs_tensor(D, E=0):
+    """
+    Generate (3, 3) ZFS tensor from observable parameters D and E.
+
+    Args:
+        D (float or ndarray with shape (3, 3)): Longitudinal splitting (D) in ZFS **OR** total ZFS tensor.
+        E (float): Transverse splitting (E) in ZFS.
+
+    Returns:
+        ndarray with shape (3, 3): Total ZFS tensor.
+    """
+    D = np.asarray(D)
+
+    if D.size == 1:
+
+        tensor = np.zeros((3, 3), dtype=np.float64)
+        tensor[2, 2] = 2 / 3 * D
+        tensor[1, 1] = -D / 3 - E
+        tensor[0, 0] = -D / 3 + E
+
+    else:
+        tensor = D
+
+    return tensor

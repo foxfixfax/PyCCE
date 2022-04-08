@@ -19,7 +19,6 @@ thz_to_khz = 1.00000E+09
 phz_to_khz = 1.00000E+12
 wavenumber_to_khz = 2.99792E+07
 
-
 _CONVERSION_TO_RADKHZ = {
     'ghz': ghz_to_khz * PI2,
     'radghz': ghz_to_khz,
@@ -42,7 +41,6 @@ _CONVERSION_TO_A = {
     'nm': m_to_angstrom * 1e-9,
     'a': a_to_angstrom
 }
-
 
 BOHR_TO_ANGSTROM = 5.29177E-01
 

@@ -1,12 +1,14 @@
 import operator
 
 import numpy as np
+from numba import jit
 from pycce.constants import PI2
 from pycce.h.functions import external_spins_field
 from pycce.run.clusters import cluster_expansion_decorator, interlaced_decorator
 from pycce.run.mc import monte_carlo_method_decorator
 from pycce.run.pulses import Sequence
-from pycce.utilities import expand, shorten_dimensions, gen_state_list, numba_gen_sm
+from pycce.sm import numba_gen_sm
+from pycce.utilities import expand, outer, shorten_dimensions, gen_state_list
 
 
 class RunObject:
@@ -723,3 +725,150 @@ def simple_propagator(timespace, hamiltonian):
 
     return np.matmul(np.einsum('...ij,...j->...ij', evec, eigexp, dtype=np.complex128),
                      evec.conj().T)
+
+
+@jit(cache=True, nopython=True)
+def from_central_state(dimensions, central_state):
+    """
+    Generate density matrix of the system if all spins apart from central spin are in completely mixed state.
+
+    Args:
+        dimensions (ndarray with shape (n,)): Array of the dimensions of the spins in the cluster.
+        central_state (ndarray with shape (x,)): Density matrix of central spins.
+
+    Returns:
+        ndarray with shape (N, N): Density matrix for the whole cluster.
+    """
+
+    return expand(central_state, len(dimensions) - 1, dimensions) / dimensions[:-1].prod()
+
+
+@jit(cache=True, nopython=True)
+def from_none(dimensions):
+    """
+    Generate density matrix of the systems if all spins are in completely mixed state.
+    Args:
+        dimensions (ndarray with shape (n,)): Array of the dimensions of the spins in the cluster.
+
+    Returns:
+        ndarray with shape (N, N): Density matrix for the whole cluster.
+
+    """
+    tdim = np.prod(dimensions)
+    return np.eye(tdim) / tdim
+
+
+def from_states(states):
+    """
+    Generate density matrix of the systems if all spins are in pure states.
+    Args:
+        states (array-like): Array of the pure spin states.
+
+    Returns:
+        ndarray with shape (N, N): Spin vector for the whole cluster.
+
+    """
+    cluster_state = states[0]
+    for s in states[1:]:
+        cluster_state = np.kron(cluster_state, s)
+
+    return cluster_state
+
+
+def combine_cluster_central(cluster_state, central_state):
+    """
+    Combine bath spin states and the state of central spin.
+    Args:
+        cluster_state (ndarray with shape (n,) or (n, n)): State vector or density matrix of the bath spins.
+        central_state (ndarray with shape (m,) or (m, m)): State vector or density matrix of the central spins.
+
+    Returns:
+        ndarray with shape (mn, ) or (mn, mn): State vector or density matrix of the full system.
+    """
+    lcs = len(cluster_state.shape)
+    ls = len(central_state.shape)
+
+    if lcs != ls:
+        return _noneq_cc(cluster_state, central_state)
+    else:
+        return _eq_cc(cluster_state, central_state)
+
+
+@jit(cache=True, nopython=True)
+def _noneq_cc(cluster_state, central_state):
+    if len(cluster_state.shape) == 1:
+        matrix = outer(cluster_state, cluster_state)
+        return np.kron(matrix, central_state)
+
+    else:
+        matrix = outer(central_state, central_state)
+        return np.kron(cluster_state, matrix)
+
+
+@jit(cache=True, nopython=True)
+def _eq_cc(cluster_state, central_state):
+    return np.kron(cluster_state, central_state)
+
+
+@jit(cache=True, nopython=True)
+def rand_state(d):
+    """
+    Generate random state of the spin.
+
+    Args:
+        d (int): Dimensions of the spin.
+
+    Returns:
+        ndarray with shape (d, d): Density matrix of the random state.
+    """
+    return np.eye(d, dtype=np.complex128) / d
+
+
+def generate_initial_state(dimensions, states=None, central_state=None):
+    """
+    Generate initial state of the cluster.
+
+    Args:
+        dimensions (ndarray with shape (n, )): Dimensions of all spins in the cluster.
+        states (BathState, optional): States of the bath spins. If None, assumes completely random state.
+        central_state (ndarray): State of the central spin. If None, assumes that no central spin is present
+            in the Hilbert space of the cluster.
+
+    Returns:
+        ndarray with shape (N,) or (N, N): State vector or density matrix of the cluster.
+
+    """
+    if states is None:
+        if central_state is None:
+            return from_none(dimensions)
+        else:
+            if len(central_state.shape) == 1:
+                central_state = outer(central_state, central_state)
+            return from_central_state(dimensions, central_state)
+
+    has_none = not states.has_state.all()
+    all_pure = False
+    all_mixed = False
+
+    if not has_none:
+        all_pure = states.pure.all()
+        if not all_pure:
+            all_mixed = (~states.pure).all()
+
+    if has_none:
+        for i in range(states.size):
+            if states[i] is None:
+                states[i] = rand_state(dimensions[i])
+
+    if not (all_pure or all_mixed):
+        for i in range(states.size):
+
+            if len(states[i].shape) < 2:
+                states[i] = outer(states[i], states[i])
+
+    cluster_state = from_states(states)
+
+    if central_state is not None:
+        cluster_state = combine_cluster_central(cluster_state, central_state)
+
+    return cluster_state

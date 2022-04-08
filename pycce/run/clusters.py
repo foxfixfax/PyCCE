@@ -4,8 +4,8 @@ This module contains information about the way the cluster expansion is implemen
 import functools
 import operator
 import warnings
-import numpy as np
 
+import numpy as np
 from pycce.sm import _smc
 
 try:
