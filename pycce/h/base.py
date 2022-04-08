@@ -1,4 +1,5 @@
-from pycce.utilities import *
+import numpy as np
+from pycce.sm import dimensions_spinvectors, vecs_from_dims
 
 
 class Hamiltonian:
@@ -24,18 +25,19 @@ class Hamiltonian:
 
     """
 
-    def __init__(self, dimensions, vectors=None):
+    def __init__(self, dimensions, vectors=None, data=None):
         self.dimensions = np.asarray(dimensions)
         self.spins = (dimensions - 1) / 2
         if vectors is None:
-            vectors = []
-            for j, s in enumerate(self.spins):
-                vectors.append(spinvec(s, j, dimensions))
-            vectors = np.asarray(vectors)
+            vectors = vecs_from_dims(dimensions)
         self.vectors = vectors
 
-        tdim = np.prod(dimensions)
-        self.data = np.zeros((tdim, tdim), dtype=np.complex128)
+        tdim = self.dimensions.prod()
+        if data is None:
+            self.data = np.zeros((tdim, tdim), dtype=np.complex128)
+        else:
+            assert data.shape == (tdim, tdim), "Wrong data shape"
+            self.data = data.astype(np.complex128)
 
     def __getitem__(self, item):
         return self.data.__getitem__(item)
@@ -52,41 +54,71 @@ class Hamiltonian:
         else:
             return getattr(self.data, item)
 
-    # def __add__(self, other):
-    #     self.data.__add__(other)
-    #
-    # def __sub__(self, other):
-    #     self.data.__sub__(other)
-    #
-    # def __mul__(self, other):
-    #     self.data.__mul__(other)
-    #
-    # def __matmul__(self, other):
-    #     self.data.__matmul__(other)
-    #
-    # def __truediv__(self, other):
-    #     self.data.__truediv__(other)
-    #
-    # def __floordiv__(self, other):
-    #     self.data.__floordiv__(other)
-    #
-    # def __mod__(self, other):
-    #     self.data.__mod__(other)
-    #
-    # def __pow__(self, other):
-    #     self.data.__pow__(other)
+    @classmethod
+    def from_bath(cls, bath, center=None):
+        dim, vectors = dimensions_spinvectors(bath, central_spin=center)
+        return cls(dim, vectors=vectors)
 
-    # def __ilshift__(self, other):
-    #     self.data.__ilshift__(self, other)
-    #
-    # def __irshift__(self, other):
-    #     self.data.__irshift__(self, other)
-    #
-    # def __iand__(self, other):
-    #     self.data.__iand__(self, other)
-    #
-    # def __ixor__(self, other):
-    #     self.data.__ixor__(self, other)
-    #
-    # def __ior__(self, other):
-    #     self.data.__ior__(self, other)
+    def __add__(self, other):
+        res = self.data.__add__(other)
+        return Hamiltonian(self.dimensions, self.vectors, res)
+
+    def __iadd__(self, other):
+        self.data.__iadd__(other)
+        return self
+
+    def __sub__(self, other):
+        res = self.data.__sub__(other)
+        return Hamiltonian(self.dimensions, self.vectors, res)
+
+    def __isub__(self, other):
+        self.data.__isub__(other)
+        return self
+
+    def __mul__(self, other):
+        res = self.data.__mul__(other)
+        return Hamiltonian(self.dimensions, self.vectors, res)
+
+    def __imul__(self, other):
+        self.data.__imul__(other)
+        return self
+
+    def __matmul__(self, other):
+        res = self.data.__matmul__(other)
+        return Hamiltonian(self.dimensions, self.vectors, res)
+
+    def __imatmul__(self, other):
+        self.data.__imatmul__(other)
+        return self
+
+    def __truediv__(self, other):
+        res = self.data.__truediv__(other)
+        return Hamiltonian(self.dimensions, self.vectors, res)
+
+    def __itruediv__(self, other):
+        self.data.__itruediv__(other)
+        return self
+
+    def __floordiv__(self, other):
+        res = self.data.__floordiv__(other)
+        return Hamiltonian(self.dimensions, self.vectors, res)
+
+    def __ifloordiv__(self, other):
+        self.data.__ifloordiv__(other)
+        return self
+
+    def __mod__(self, other):
+        res = self.data.__mod__(other)
+        return Hamiltonian(self.dimensions, self.vectors, res)
+
+    def __imod__(self, other):
+        self.data.__imod__(other)
+        return self
+
+    def __pow__(self, other):
+        res = self.data.__pow__(other)
+        return Hamiltonian(self.dimensions, self.vectors, res)
+
+    def __ipow__(self, other):
+        self.data.__ipow__(other)
+        return self

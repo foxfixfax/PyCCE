@@ -1,187 +1,206 @@
-import functools
+from pycce.sm import _smc
+from pycce.sm import dimensions_spinvectors
+from pycce.utilities import expand
 
-from pycce.utilities import *
 from .base import Hamiltonian
 from .functions import *
 
 
-def hamiltonian_wrapper(_func=None, *, projected=False):
-    """
-    Wrapper with the general structure for the cluster Hamiltonian.
-    Adds several additional arguments to the wrapped function.
-
-    **Additional parameters**:
-
-        * **central_spin** (*float*) -- value of the central spin.
-
-    Args:
-        _func (func): Function to be wrapped.
-        projected (bool): True if return two projected Hamiltonians, False if remove single not projected one.
-
-    Returns:
-        func: Wrapped function.
-    """
-
-    def inner_hamiltonian_wrapper(function):
-
-        @functools.wraps(function)
-        def base_hamiltonian(bath, *arg,
-                             central_spin=None,
-                             **kwargs):
-
-            dim, spinvectors = dimensions_spinvectors(bath, central_spin=central_spin)
-
-            clusterint = bath_interactions(bath, spinvectors)
-
-            if projected:
-                halpha, hbeta = Hamiltonian(dim, vectors=spinvectors), Hamiltonian(dim, vectors=spinvectors)
-
-                data1, data2 = function(bath, spinvectors, *arg, **kwargs)
-
-                halpha.data += data1 + clusterint
-                hbeta.data += data2 + clusterint
-
-                return halpha, hbeta
-
-            totalh = Hamiltonian(dim)
-            data = function(bath, spinvectors, *arg, **kwargs)
-            totalh.data += data + clusterint
-
-            return totalh
-
-        return base_hamiltonian
-
-    if _func is None:
-        return inner_hamiltonian_wrapper
-    else:
-        return inner_hamiltonian_wrapper(_func)
-
-
-@hamiltonian_wrapper(projected=True)
-def projected_hamiltonian(bath, vectors, projections_alpha, projections_beta, mfield,
-                          others=None, other_states=None,
-                          energy_alpha=None, energy_beta=None,
-                          energies=None, projections_alpha_all=None, projections_beta_all=None):
+def bath_hamiltonian(bath, mfield):
     r"""
-    Compute projected hamiltonian on state and beta qubit states. Wrapped function so the actual call does not
-    follow the one above!
+    Compute hamiltonian containing only the bath spins.
 
     Args:
         bath (BathArray):
             array of all bath spins in the cluster.
-        projections_alpha (ndarray with shape (3,)): Projections of the central spin level alpha
-            :math:`[\braket{\hat{S}_x}, \braket{\hat{S}_y}, \braket{\hat{S}_z}]`.
 
-        projections_beta (ndarray with shape (3,)): Projections of the central spin level beta.
-            :math:`[\braket{\hat{S}_x}, \braket{\hat{S}_y}, \braket{\hat{S}_z}]`
-
-        mfield (ndarray with shape (3,)):
-            Magnetic field of type ``mfield = np.array([Bx, By, Bz])``.
-
-        others (BathArray with shape (m,)):
-            array of all bath spins outside the cluster
-
-        other_states (ndarray with shape (m,) or (m, 3)):
-            Array of Iz projections for each bath spin outside of the given cluster.
-
-        energy_alpha (float): Energy of the alpha state
-
-        energy_beta (float): Energy of the beta state
-
-        energies (ndarray with shape (2s-1,)): Array of energies of all states of the central spin.
-
-        projections_alpha_all (ndarray with shape (2s-1, 3)):
-            Array of vectors of the central spin matrix elements of form:
-
-            .. math::
-
-                [\bra{\alpha}\hat{S}_x\ket{j}, \bra{\alpha}\hat{S}_y\ket{j}, \bra{\alpha}\hat{S}_z\ket{j}],
-
-            where :math:`\ket{\alpha}` is the alpha qubit state, and :math:`\ket{\j}` are all states.
-
-        projections_beta_all (ndarray with shape (2s-1, 3)):
-            Array of vectors of the central spin matrix elements of form:
-
-            .. math::
-
-                [\bra{\beta}\hat{S}_x\ket{j}, \bra{\beta}\hat{S}_y\ket{j}, \bra{\beta}\hat{S}_z\ket{j}],
-
-            where :math:`\ket{\beta}` is the beta qubit state, and :math:`\ket{\j}` are all states.
+        mfield (ndarray with shape (3,) or func):
+            Magnetic field of type ``mfield = np.array([Bx, By, Bz])``
+            or callable with signature ``mfield(pos)``, where ``pos`` is ndarray with shape (3,) with the
+            position of the spin.
 
     Returns:
-        tuple: *tuple* containing:
-
-            * **Hamiltonian**: Hamiltonian of the given cluster, conditioned on the alpha qubit state.
-            * **Hamiltonian**: Hamiltonian of the given cluster, conditioned on the beta qubit state.
+        Hamiltonian: Hamiltonian of the given cluster without qubit.
     """
-    halpha = 0
-    hbeta = 0
+    dims, vectors = dimensions_spinvectors(bath, central_spin=None)
+    clusterint = bath_interactions(bath, vectors) + custom_hamiltonian(bath, dims)
 
     for ivec, n in zip(vectors, bath):
-        hsingle = expanded_single(ivec, n.gyro, mfield, n['Q'], n.detuning)
+        if callable(mfield):
+            clusterint += expanded_single(ivec, n.gyro, mfield(n.xyz), n.Q, n.detuning)
+        else:
+            clusterint += expanded_single(ivec, n.gyro, mfield, n.Q, n.detuning)
 
-        if others is not None and other_states is not None:
-            hsingle += overhauser_bath(ivec, n['xyz'], n.gyro, others.gyro,
-                                       others['xyz'], other_states)
-
-        hf_alpha = conditional_hyperfine(n['A'], ivec, projections_alpha)
-        hf_beta = conditional_hyperfine(n['A'], ivec, projections_beta)
-
-        halpha += hsingle + hf_alpha
-        hbeta += hsingle + hf_beta
-
-    if energies is not None:
-        halpha += bath_mediated(bath, vectors, energy_alpha,
-                                energies, projections_alpha_all)
-
-        hbeta += bath_mediated(bath, vectors, energy_beta,
-                               energies, projections_beta_all)
-
-    return halpha, hbeta
+    return Hamiltonian(dims, vectors, data=clusterint)
 
 
-@hamiltonian_wrapper
-def total_hamiltonian(bath, vectors, mfield, zfs=None, others=None, other_states=None, central_gyro=ELECTRON_GYRO):
+def total_hamiltonian(bath, center, mfield):
     """
-    Compute total Hamiltonian for the given cluster including mean field effect of all bath spins.
-    Wrapped function so the actual call does not follow the one above!
+    Compute total Hamiltonian of the given cluster.
 
     Args:
-        bath (BathArray):
-            array of all bath spins.
-        mfield (ndarray with shape (3,)):
-            Magnetic field of type ``mfield = np.array([Bx, By, Bz])``.
-        others (BathArray with shape (m,)):
-            array of all bath spins outside the cluster
-        other_states (ndarray with shape (m,) or (m, 3)):
-            Array of Iz projections for each bath spin outside of the given cluster.
-        zfs (ndarray with shape (3,3)):
-            Zero Field Splitting tensor of the central spin.
-        central_gyro(float or ndarray with shape (3,3)):
-            gyromagnetic ratio of the central spin OR tensor corresponding to interaction between magnetic field and
-            central spin.
-        central_spin (float): value of the central spin.
+        bath (BathArray): Array of bath spins.
+
+        center(CenterArray): Array of central spins.
+
+        mfield (ndarray with shape (3,) or func):
+            Magnetic field of type ``mfield = np.array([Bx, By, Bz])``
+            or callable with signature ``mfield(pos)``, where ``pos`` is ndarray with shape (3, ) with the
+            position of the spin.
 
     Returns:
         Hamiltonian: hamiltonian of the given cluster, including central spin.
 
     """
 
-    totalh = self_central(vectors[-1], mfield, zfs, central_gyro)
+    dims, vectors = dimensions_spinvectors(bath, central_spin=center)
 
-    if others is not None and other_states is not None:
-        totalh += overhauser_central(vectors[-1], others['A'], other_states)
+    totalh = bath_interactions(bath, vectors)
 
-    for j, n in enumerate(bath):
-        ivec = vectors[j]
+    ncenters = len(center)
 
-        hsingle = expanded_single(ivec, n.gyro, mfield, n['Q'], n.detuning)
+    for i, c in enumerate(center):
+        if callable(mfield):
+            totalh += self_central(vectors[bath.size + i], mfield(c.xyz), c.zfs, c.gyro, c.detuning)
+        else:
+            # print('svec', vectors[bath.size + i].flags['C_CONTIGUOUS'])
+            # print('tensor', c.zfs.flags['C_CONTIGUOUS'])
+            totalh += self_central(vectors[bath.size + i], mfield, c.zfs, c.gyro, c.detuning)
 
-        if others is not None and other_states is not None:
-            hsingle += overhauser_bath(ivec, n['xyz'], n.gyro, others.gyro, others['xyz'], other_states)
+    totalh += center_interactions(center, vectors[bath.size:])
+    totalh += custom_hamiltonian(center, dims, offset=bath.size)
+    totalh += custom_hamiltonian(bath, dims)
 
-        hhyperfine = hyperfine(n['A'], vectors[-1], ivec)
+    for ivec, n in zip(vectors, bath):
+        if callable(mfield):
+            hsingle = expanded_single(ivec, n.gyro, mfield(n.xyz), n.Q, n.detuning)
+        else:
+            hsingle = expanded_single(ivec, n.gyro, mfield, n.Q, n.detuning)
+
+        hhyperfine = 0
+
+        for i in range(ncenters):
+            if ncenters == 1:
+                hf = n.A
+            else:
+                hf = n.A[i]
+
+            hhyperfine += hyperfine(hf, vectors[bath.size + i], ivec)
 
         totalh += hsingle + hhyperfine
 
-    return totalh
+    return Hamiltonian(dims, vectors, data=totalh)
+
+
+def central_hamiltonian(center, magnetic_field, hyperfine=None, bath_state=None):
+    r"""
+    Compute Hamiltonian, containing only central spin.
+
+    Args:
+        center (CenterArray or Center): Center spin.
+
+        magnetic_field (ndarray with shape (3,) or func):
+            Magnetic field of type ``magnetic_field = np.array([Bx, By, Bz])``
+            or callable with signature ``magnetic_field(pos)``, where ``pos`` is ndarray with shape (3,) with the
+            position of the spin.
+
+        hyperfine (ndarray with shape (..., n, 3, 3)): Array of hyperfine tensors of bath spins.
+
+        bath_state (ndarray with shape (n, )): Array of :math:`S_z` projections of bath spins.
+
+    Returns:
+        Hamiltonian: Central spin Hamiltonian.
+
+    """
+    dims, vectors = dimensions_spinvectors(central_spin=center)
+    try:
+        ncenters = len(center)
+        single_center = False
+    except TypeError:
+        single_center = True
+        ncenters = None
+
+    if single_center:
+        if callable(magnetic_field):
+            totalh = self_central(vectors[0], magnetic_field(center.xyz),
+                                  center.zfs, center.gyro, center.detuning)
+        else:
+            # print('svec', vectors[0].flags['C_CONTIGUOUS'])
+            # print('tensor', center.zfs.flags['C_CONTIGUOUS'])
+            totalh = self_central(vectors[0], magnetic_field,
+                                  center.zfs, center.gyro, center.detuning)
+        if hyperfine is not None and bath_state is not None:
+            totalh += overhauser_central(vectors[0], hyperfine, bath_state)
+        return totalh
+
+    totalh = 0
+
+    for i, c in enumerate(center):
+        if callable(magnetic_field):
+            totalh += self_central(vectors[i], magnetic_field(c.xyz), c.zfs, c.gyro)
+        else:
+            # print('svec', vectors[i].flags['C_CONTIGUOUS'])
+            # print('tensor', c.zfs.flags['C_CONTIGUOUS'])
+            totalh += self_central(vectors[i], magnetic_field, c.zfs, c.gyro)
+
+        if hyperfine is not None and bath_state is not None:
+            if ncenters == 1:
+                hf = hyperfine
+            else:
+                hf = hyperfine[..., i, :, :]
+
+            totalh += overhauser_central(vectors[i], hf, bath_state)
+
+    totalh += center_interactions(center, vectors)
+    totalh += custom_hamiltonian(center, dims)
+
+    return Hamiltonian(dims, vectors, data=totalh)
+
+
+def custom_hamiltonian(spins, dims=None, offset=0):
+    """
+    Custom addition to the Hamiltonian from the spins in the given array.
+
+    Args:
+        spins (BathArray or CenterArray): Array of the spins.
+        dims (ndarray with shape (n, )): Dimensions of all spins in the cluster.
+        offset (int): Index of the dimensions of the first spin from array in ``dims``. Default 0.
+
+    Returns:
+        ndarray with shape (N, N): Addition to the Hamiltonian.
+    """
+    if dims is None:
+        dims = spins.dim
+    add = 0
+    for index, b in enumerate(spins):
+        if b.h:
+            add += custom_single(b.h, index + offset, dims)
+
+    return add
+
+
+def custom_single(h, index, dims):
+    """
+    Custom addition to the Hamiltonian from the dictionary with the parameters.
+
+    Args:
+        h (dict): Dictionary with coupling parameters.
+        index (int): Index of the spin in ``dims``.
+        dims (ndarray with shape (n, )): Dimensions of all spins in the cluster.
+
+    Returns:
+        ndarray with shape (N, N): Addition to the Hamiltonian.
+
+    """
+    sm = _smc[(dims[index] - 1) / 2]
+    ham = 0
+    for key in h:
+        if isinstance(key, str):
+            add = None
+            for sym in key:
+                add = h[key] * getattr(sm, sym) if add is None else np.matmul(add, getattr(sm, sym))
+        else:
+            add = h[key] * sm.stev(*key)
+
+        ham += add
+    return expand(ham, index, dims)

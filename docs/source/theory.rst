@@ -9,15 +9,16 @@ You can find more details in the following references [#code]_ [#yang2008]_ [#on
 Hamiltonian
 ----------------------------
 
-The **PyCCE** package allows one to simulate the dynamics of a central spin interacting with a spin bath through
+The **PyCCE** package allows one to simulate the dynamics of a central spin or multiple central spins interacting with a spin bath through
 the following Hamiltonian:
 
 .. math::
     \hat H = \hat H_S + \hat H_{SB} + \hat H_{B}
 
-Where :math:`\hat H_S` is the Hamiltonian of the free central spin,
+Where :math:`\hat H_S` is the Hamiltonian of the free central spin or several spins,
 :math:`\hat H_{SB}` denotes interactions between central spin and a spin belonging to the bath,
-and :math:`\hat H_B` are intrinsic bath spin interactions:
+and :math:`\hat H_B` are intrinsic bath spin interactions. For a single central spin, this corresponds to the following
+Hamiltonian:
 
 .. math::
 
@@ -25,11 +26,23 @@ and :math:`\hat H_B` are intrinsic bath spin interactions:
         &\hat H_{SB} = \sum_i \mathbf{S}\mathbf{A}_i\mathbf{I}_i \\
         &\hat H_{B} = \sum_i{\mathbf{I}_i\mathbf{P}_i \mathbf{I}_i +
                       \mathbf{B}\mathbf{\gamma}_i\mathbf{I}_i} +
-                      \sum_{i>j} \mathbf{I}_i\mathbf{J}_{ij}\mathbf{I}_j
+                      \sum_{i<j} \mathbf{I}_i\mathbf{J}_{ij}\mathbf{I}_j
 
 Where :math:`\mathbf{S}=(\hat{S}_x, \hat{S}_y, \hat{S}_z)` are the components of spin operators of the central spin,
 :math:`\mathbf{I}=(\hat{I}_x, \hat{I}_y, \hat{I}_z)`  are the components of the bath spin operators,
 and :math:`\mathbf{B}=(B_x,B_y,B_z)` is an external applied magnetic field.
+
+If several central spins are considered, the central spin Hamiltonian is modified as following:
+
+.. math::
+
+    \hat H_S = \sum_i (\mathbf{S_i D_i S_i} + \mathbf{B\gamma}_{S_i}\mathbf{S_i} + \sum_{i<j}\mathbf{S_i K_{ij} S_j})
+
+And the spin-bath Hamiltonian is equal to the following:
+
+.. math::
+
+    \hat H_{SB} = \sum_{i,j} \mathbf{S}_i \mathbf{A}_{ij} \mathbf{I}_j
 
 The interactions are described by the following tensors
 that are either required to be input by user or can be generated
@@ -40,10 +53,10 @@ by the package itself (see :doc:`parameters` for details):
   For nuclear spins corresponds to the quadrupole interactions tensor.
 - :math:`\mathbf{\gamma}_i`$`is the magnetic field interaction tensor of the
   :math:`i`-spin describing the interaction of the spin and the external magnetic field :math:`B`.
-  We assume that for the bath spins, it is isotropic.
 - :math:`\mathbf{A}` is the interaction tensor between central and bath spins.
   In the case of the nuclear spin bath, it corresponds to the hyperfine couplings.
 - :math:`\mathbf{J}` is the interaction tensor between bath spins.
+- :math:`\mathbf{K}` is the interaction tensor between central spins.
 
 
 Qubit dephasing
@@ -108,6 +121,9 @@ in CCE3 - up to triplets of bath spins are included, etc.
 The way the coherence function for each cluster
 is computed slightly varies between depending on whether the conventional or generalized CCE method is used.
 
+In the case of the several central spins, one can apply CCE formalism to compute any off-diagonal element of the
+combined density matrix.
+
 Conventional CCE
 ..................................
 In the original formulation of the CCE method, the total Hamiltonian of the system
@@ -118,7 +134,7 @@ is reduced to the sum of two effective Hamiltonians, conditioned on the qubit le
     \hat H = \ket{0}\bra{0}\otimes\hat H^{(0)} + \ket{1}\bra{1}\otimes\hat H^{(1)}
 
 Where :math:`\hat H^{(\alpha)}` is an effective Hamiltonian acting on the bath
-when the central qubit is in the :math:`\ket{\alpha}` state
+when the central spins are in the :math:`\ket{\alpha}` state
 (:math:`\ket{\alpha}=\ket{0},\ket{1}` is one of the two eigenstates of the :math:`\hat H_S` chosen as qubit levels).
 
 
@@ -169,8 +185,8 @@ In this case we write the cluster Hamiltonian as:
 
 .. math::
 
-    \hat H_C & {} =  \mathbf{SDS} + \mathbf{B\gamma}_{S}\mathbf{S} +
-                     \sum_{i\in C} \mathbf{S} \mathbf{A}_i \mathbf{I}_i +
+    \hat H_C & {} = \hat H_S +
+                     \sum_{k, i\in C} \mathbf{S}_k \mathbf{A}_{ki} \mathbf{I}_i +
                      \sum_{i\in C} \mathbf{I}_i\mathbf{P}_i \mathbf{I}_i +
                      \mathbf{B}\mathbf{\gamma}_i\mathbf{I}_i +  \\
              & \sum_{i<j \in C} \mathbf{I}_i \mathbf{J}_{ij} \mathbf{I}_j +
@@ -185,7 +201,7 @@ And the coherence function of the cluster :math:`L_C(t)` is computed as:
     L_{C}(t) = \bra{0}\hat U_C(t)\hat \rho_{C+S} \hat U_C^{\dagger}(t)\ket{1}
 
 Where :math:`\hat \rho_{C+S} = \hat \rho_{C} \otimes \hat \rho_S` is the combined initial density matrix
-of the bath spins' cluster and central spin.
+of the bath spins' cluster and central spins.
 
 Further details on the theoretical background are available in the references below.
 

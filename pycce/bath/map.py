@@ -1,23 +1,23 @@
 import copy
-
-import numpy as np
 from collections import defaultdict
 from collections.abc import MutableMapping
+
+import numpy as np
 from scipy.sparse.sputils import isintlike
 
-TwoLayerDict = lambda: defaultdict(dict)
+two_layer_dict = lambda: defaultdict(dict)
 
 
 class InteractionMap(MutableMapping):
     """
     Dict-like object containing information about tensor interactions between two spins.
 
-    Each key is a tuple of two bath spin indexes.
+    Each key is a tuple of two spin indexes.
 
     Args:
-        rows (array-like with shape (n,)):
+        rows (array-like with shape (n, )):
             Indexes of the bath spins, appearing on the left in the pairwise interaction.
-        columns (array-like with shape (n,)):
+        columns (array-like with shape (n, )):
             Indexes of the bath spins, appearing on the right in the pairwise interaction.
         tensors (array-like with shape (n, 3, 3)):
             Tensors of pairwise interactions between two spins with the indexes in ``rows`` and ``columns``.
@@ -28,7 +28,7 @@ class InteractionMap(MutableMapping):
     def __init__(self, rows=None, columns=None, tensors=None):
         self.mapping = dict()
         self._indexes = None
-
+        self._data = None
         if (rows is not None) & (columns is not None) & (tensors is not None):
             self[rows, columns] = tensors
             self.__gen_indexes()
@@ -36,7 +36,7 @@ class InteractionMap(MutableMapping):
     @property
     def indexes(self):
         """
-        ndarray with shape (n, 2): Array with the indexes of pairs of bath spins, for which the tensors are stored.
+        ndarray with shape (n, 2): Array with the indexes of pairs of spins, for which the tensors are stored.
         """
         if self._indexes is None:
             self.__gen_indexes()
@@ -45,6 +45,12 @@ class InteractionMap(MutableMapping):
     @indexes.setter
     def indexes(self, newindexes):
         self._indexes = newindexes
+
+    @property
+    def data(self):
+        if self._data is None:
+            self.__gen_data()
+        return self._data
 
     def __getitem__(self, key):
         a, b = _index(key)
@@ -80,13 +86,14 @@ class InteractionMap(MutableMapping):
                     del self.mapping[k, j]
 
         self.indexes = None
+        self._data = None
 
     def __setitem__(self, key, value):
         value = np.asarray(value, dtype=np.float64)
 
         if value.size == 9:
             value = value.reshape(3, 3)
-        else:
+        elif value.size // 9 > 0:
             value = value.reshape(-1, 3, 3)
         a, b = _index(key)
 
@@ -114,7 +121,7 @@ class InteractionMap(MutableMapping):
 
             except TypeError as e:
                 raise TypeError('invalid index format') from e
-
+        self._data = None
         self.indexes = None
 
     def shift(self, start, inplace=True):
@@ -138,7 +145,7 @@ class InteractionMap(MutableMapping):
             imap.mapping[i + start, j + start] = imap.mapping.pop((i, j))
 
         imap.indexes = None
-
+        imap._data = None
         return imap
 
     def __iter__(self):
@@ -164,6 +171,14 @@ class InteractionMap(MutableMapping):
     def __gen_indexes(self):
         self.indexes = np.fromiter((ind for pair in self.mapping.keys() for ind in pair),
                                    dtype=np.int32).reshape(-1, 2)
+
+    def __gen_data(self):
+        length = self.indexes.shape[0]
+
+        self._data = np.zeros((length, 3, 3), dtype=np.float64)
+
+        for j, pair in enumerate(self.indexes):
+            self._data[j] = self[pair]
 
     def subspace(self, array):
         r"""
@@ -237,11 +252,15 @@ class InteractionMap(MutableMapping):
     def from_dict(cls, dictionary, presorted=False):
         """
         Generate InteractionMap from the dictionary.
+
         Args:
+
             dictionary (dict): Dictionary with tensors.
+
             presorted (bool): If true, assumes that the keys in the dictionary were already presorted.
 
         Returns:
+
             InteractionMap: New instance generated from the dictionary.
         """
         obj = cls()
@@ -317,9 +336,6 @@ class _CompressedIMap:
         return _CompressedIMap(newpairs, newtensors)
 
     def __getitem__(self, key):
-        a, b = _index(key)
-
-        which = (self.indexes[0] == a) & (self.indexes[b] == a)
 
         if not key.shape[-1] == 2:
             raise KeyError

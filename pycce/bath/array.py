@@ -1,17 +1,46 @@
 import copy
 import warnings
-from collections.abc import Mapping
 from collections import UserDict
+from collections.abc import Mapping
 
 import numpy as np
 from numpy.lib.recfunctions import repack_fields
-
-from .map import InteractionMap
-from ..constants import HBAR, ELECTRON_GYRO, HBAR_SI, NUCLEAR_MAGNETON, PI2
+from pycce.bath.map import InteractionMap
+from pycce.bath.state import BathState
+from pycce.constants import HBAR_MU0_O4PI, ELECTRON_GYRO, HBAR_SI, NUCLEAR_MAGNETON, PI2
+from pycce.utilities import gen_state_list, vector_from_s, rotate_coordinates, rotate_tensor, _add_args
 
 HANDLED_FUNCTIONS = {}
 
 _set_str_kinds = {'U', 'S'}
+
+_stevens_str_doc = r"""
+            dict: Dictionary with additional spin Hamiltonian parameters.
+            Key denotes the product of spin operators as:
+            
+            Either a string containing ``x, y, z, +, -``  where each symbol is a corresponding spin operator:
+            
+                - ``x`` == :math:`S_x`
+                - ``y`` == :math:`S_y`
+                - ``z`` == :math:`S_z`
+                - ``p`` == :math:`S_+`
+                - ``m`` == :math:`S_-`
+            
+            Several symbols is a product of those spin operators.
+            
+            Or a tuple with indexes (k, q) for Stevens operators
+            (see https://www.easyspin.org/documentation/stevensoperators.html).
+            
+            The item is the coupling parameter in float.
+            
+            Examples:
+            
+                - ``d['pm'] = 2000`` corresponds to the Hamiltonian term
+                  :math:`\hat H_{add} = A \hat S_+ \hat S_-` with :math:`A = 2` MHz.
+            
+                - ``d[2, 0] = 1.5e6`` corresponds to Stevens operator
+                  :math:`B^q_k \hat O^q_k = 3 \hat S_z - s(s+1) \hat I`
+                  with :math:`k = 2`, :math:`q = 0`, and :math:`B^q_k = 1.5` GHz. """
 
 
 class BathArray(np.ndarray):
@@ -43,12 +72,12 @@ class BathArray(np.ndarray):
         Generate BathArray from the set of arrays:
 
         >>> import numpy as np
-        >>> ca = np.random.random((3, 3))
-        >>> sn = ['1H', '2H', '3H']
-        >>> hf = np.random.random((3, 3, 3))
+        >>> ca = np.random.random((2, 3))
+        >>> sn = ['1H', '2H']
+        >>> hf = np.random.random((2, 3, 3))
         >>> ba = BathArray(ca=ca, hf=hf, sn=sn)
         >>> print(ba.N, ba.types)
-        ['1H' '2H' '3H'] SpinDict(1H: (1H, 0.5, 26.7519), 2H: (2H, 1, 4.1066, 0.00286), 3H: (3H, 0.5, 28.535))
+        ['1H' '2H'] SpinDict(1H: (1H, 0.5, 26.7519), 2H: (2H, 1, 4.1066, 0.00286))
 
     .. warning::
         Due to how structured arrays work, if one uses a boolean array to access an subarray,
@@ -56,19 +85,22 @@ class BathArray(np.ndarray):
 
         Example:
 
-            >>> ba = BathArray((10,), sn='1H')
-            >>> print(ba.N)
+            >>> ha = BathArray((10,), sn='1H')
+            >>> print(ha.N)
             ['1H' '1H' '1H' '1H' '1H' '1H' '1H' '1H' '1H' '1H']
             >>> bool_mask = np.arange(10) % 2 == 0
-            >>> ba[bool_mask]['N'] = 'e'
-            >>> print(ba.N)
+            >>> ha[bool_mask]['N'] = 'e'
+            >>> print(ha.N)
             ['1H' '1H' '1H' '1H' '1H' '1H' '1H' '1H' '1H' '1H']
 
             To achieve the desired result, one should first access the name field and only then apply the boolean mask:
 
-            >>> ba['N'][bool_mask] = 'e'
-            >>> print(ba.N)
+            >>> ha['N'][bool_mask] = 'e'
+            >>> print(ha.N)
             ['e' '1H' 'e' '1H' 'e' '1H' 'e' '1H' 'e' '1H']
+
+    Each bath spin can initiallized in some specific state accessing the ``.state`` attribute. It takes
+    both state vectors and density matrices as values. See ``.state`` attribute documentation for details.
 
     Args:
         shape (tuple): Shape of the array.
@@ -113,20 +145,30 @@ class BathArray(np.ndarray):
             Shorthand notation for ``quadrupoles`` argument.
 
     """
-    _dtype_bath = np.dtype([('N', np.unicode_, 16),
-                            ('xyz', np.float64, (3,)),
-                            ('A', np.float64, (3, 3)),
-                            ('Q', np.float64, (3, 3))])
+
+    _dtype_names = ('N', 'xyz', 'A', 'Q')
 
     def __new__(subtype, shape=None, array=None,
                 names=None, hyperfines=None, quadrupoles=None,
                 types=None, imap=None,
-                ca=None, sn=None, hf=None, q=None, efg=None):
-
+                ca=None, sn=None, hf=None, q=None, efg=None, state=None,
+                center=1):
         # Create the ndarray instance of our type, given the usual
         # ndarray input arguments. This will call the standard
         # ndarray constructor, but return an object of our type.
-        # It also triggers a call to InfoArray.__array_finalize__
+        # It also triggers a call to BathArray.__array_finalize__
+        if center == 1:
+            atupl = (3, 3)
+        else:
+            atupl = (center, 3, 3)
+
+        _dtype_bath = np.dtype([('N', np.unicode_, 16),
+                                ('xyz', np.float64, (3,)),
+                                ('A', np.float64, atupl),
+                                ('Q', np.float64, (3, 3)),
+                                # ('state', object),
+                                # ('proj', np.float64),
+                                ])
 
         if array is None and ca is not None:
             array = ca
@@ -142,18 +184,30 @@ class BathArray(np.ndarray):
 
         if shape is not None:
             # set the new 'info' attribute to the value passed
-            obj = super(BathArray, subtype).__new__(subtype, shape, dtype=subtype._dtype_bath)
+            obj = super(BathArray, subtype).__new__(subtype, shape, dtype=_dtype_bath)
         else:
+
             for a in (array, hyperfines, quadrupoles):
                 if a is not None:
-                    obj = super(BathArray, subtype).__new__(subtype, (np.asarray(a).shape[0],),
-                                                            dtype=subtype._dtype_bath)
+                    try:
+                        obj = super(BathArray, subtype).__new__(subtype, (np.asarray(a).shape[0],),
+                                                                dtype=_dtype_bath)
+                    except IndexError:  # Empty tuple
+                        obj = super(BathArray, subtype).__new__(subtype, np.asarray(a).shape,
+                                                                dtype=_dtype_bath)
                     break
             else:
                 raise ValueError('No shape provided')
 
         obj.types = SpinDict()
         obj.imap = imap
+
+        obj._state = BathState(obj.size)
+
+        if state is not None:
+            obj.state = state
+
+        # obj.__projected_state = np.zeros(obj.shape, dtype=np.float64)
 
         if types is not None:
             try:
@@ -172,7 +226,7 @@ class BathArray(np.ndarray):
         if names is not None:
             obj['N'] = np.asarray(names).reshape(-1)
         if hyperfines is not None:
-            obj['A'] = np.asarray(hyperfines).reshape(-1, 3, 3)
+            obj['A'] = np.asarray(hyperfines).reshape(-1, *atupl)
         if quadrupoles is not None:
             obj['Q'] = np.asarray(quadrupoles).reshape(-1, 3, 3)
         elif efg is not None:
@@ -205,17 +259,18 @@ class BathArray(np.ndarray):
         # method sees all creation of default objects - with the
         # BathArray.__new__ constructor, but also with
         # arr.view(BathArray).
-        if obj.dtype != self._dtype_bath:
-            warnings.warn('Trying to view array with unknown dtype as BathArray. '
-                          'This can lead to unexpected results.',
-                          RuntimeWarning, stacklevel=2)
+        # if obj.dtype.names != self._dtype_names:
+        #     warnings.warn('Trying to view array with unknown dtype as BathArray. '
+        #                   'This can lead to unexpected results.',
+        #                   RuntimeWarning, stacklevel=2)
 
         self.types = getattr(obj, 'types', None)
         self.imap = getattr(obj, 'imap', None)
-
+        self._state = getattr(obj, '_state', None)
         # We do not need to return anything
 
     def __array_function__(self, func, types, args, kwargs):
+
         if func not in HANDLED_FUNCTIONS:
             if not all(issubclass(t, np.ndarray) for t in types):
                 # Defer to any non-subclasses that implement __array_function__
@@ -225,7 +280,7 @@ class BathArray(np.ndarray):
             return func._implementation(*args, **kwargs)
         # Note: this allows subclasses that don't override
         # __array_function__ to handle MyArray objects
-        if not all(issubclass(t, BathArray) for t in types):
+        if not any(issubclass(t, BathArray) for t in types):
             return NotImplemented
 
         return HANDLED_FUNCTIONS[func](*args, **kwargs)
@@ -239,6 +294,11 @@ class BathArray(np.ndarray):
         else:
             raise NotImplementedError('Inplace sort is implemented only when .imap is None')
 
+    @_add_args(_stevens_str_doc)
+    @property
+    def h(self):
+        return _get_sd_attribute(self, 'h')
+
     @property
     def name(self):
         """
@@ -248,7 +308,7 @@ class BathArray(np.ndarray):
             While the value of this attribute should be the same as the ``N`` field of the BathArray instance,
             ``.name`` *should not* be used for production as it creates a *new* array from ``types`` dictionary.
         """
-        return self.types[self].name
+        return _get_sd_attribute(self, 'name')
 
     @name.setter
     def name(self, initial_value):
@@ -259,7 +319,7 @@ class BathArray(np.ndarray):
         """
         ndarray: Array of the ``spin`` (spin value) attribute for each spin in the array from ``types`` dictionary.
         """
-        return self.types[self].s
+        return _get_sd_attribute(self, 's')
 
     @s.setter
     def s(self, initial_value):
@@ -271,7 +331,7 @@ class BathArray(np.ndarray):
         ndarray: Array of the ``dim`` (dimensions of the spin) attribute
             for each spin in the array from ``types`` dictionary.
         """
-        return self.types[self].dim
+        return _get_sd_attribute(self, 'dim')
 
     @property
     def gyro(self):
@@ -279,7 +339,7 @@ class BathArray(np.ndarray):
         ndarray: Array of the ``gyro`` (gyromagnetic ratio)
             attribute for each spin in the array from ``types`` dictionary.
         """
-        return self.types[self].gyro
+        return _get_sd_attribute(self, 'gyro')
 
     @gyro.setter
     def gyro(self, initial_value):
@@ -291,7 +351,7 @@ class BathArray(np.ndarray):
         ndarray: Array of the ``q`` (quadrupole moment)
             attribute for each spin in the array from ``types`` dictionary.
         """
-        return self.types[self].q
+        return _get_sd_attribute(self, 'q')
 
     @q.setter
     def q(self, initial_value):
@@ -303,7 +363,7 @@ class BathArray(np.ndarray):
         ndarray: Array of the ``detuning``
             attribute for each spin in the array from ``types`` dictionary.
         """
-        return self.types[self].detuning
+        return _get_sd_attribute(self, 'detuning')
 
     @detuning.setter
     def detuning(self, initial_value):
@@ -386,32 +446,123 @@ class BathArray(np.ndarray):
     def Q(self, val):
         self['Q'] = val
 
+    @property
+    def nc(self):
+        """int: Number of central spins."""
+        selfdim = len(self.shape)
+        return self.A.shape[selfdim] if len(self.A.shape) == selfdim + 3 else 1
+
+    @property
+    def state(self):
+        """
+        BathState: Array of the bath spin states.
+        Can have three types of entries:
+
+            - *None*. If entry is *None*, assumes fully random density matrix. Default value.
+            - ndarray with shape (s,). If entry is vector, corresponds to the pure state of the spin.
+            - ndarray with shape (s, s). If entry is a matrix, corresponds to the density matrix of the spin.
+
+        Examples:
+
+            >>> print(ba.state)
+            [None None]
+            >>> ba[0].state = np.array([0, 1])
+            >>> print(ba.state)
+            [array([0, 1]) None]
+        """
+        return self._state
+
+    @state.setter
+    def state(self, rho):
+        self._state[...] = rho
+
+    @property
+    def proj(self):
+        """
+        ndarray: Array of :math:`S_z` projections of the bath spin states.
+        """
+        return self.state.proj
+
+    @proj.setter
+    def proj(self, rho):
+        # rho can be either (on the example of s = 1)
+        # projection of pure state:  rho = 1 for ms = 1
+        # pure state: rho = [0,0,1] for ms = - 1
+        # density matrix rho: = [[0,0,0],[0,1,0],[0,0,0]] for ms = 0
+        rho = np.asarray(rho)
+
+        if not rho.shape:
+            # assume s is int or float showing the spin projection in the pure state
+
+            d = self.dim
+            if not self.shape:
+                rho = vector_from_s(rho, d)
+            else:
+                if (d == d[0]).all():
+                    d = d[0]
+                    rho = np.broadcast_to(vector_from_s(rho, d), self.shape + (d,))
+                else:
+                    rho = [vector_from_s(rho, d_i) for d_i in d]
+        else:
+            rho = gen_state_list(rho, np.broadcast_to(self.dim, self.shape))
+        self._state[...] = rho
+
+    @property
+    def has_state(self):
+        """
+        ndarray: Bool array. True if given spin was initialized with a state, False otherwise.
+        """
+        return self.state.has_state
+
     def __getitem__(self, item):
-        # if string then return ndarray view of the field
         if isinstance(item, (int, np.int32, np.int64)):
-            return super().__getitem__((Ellipsis, item))
+            item = (Ellipsis, item)
+            obj = np.ndarray.__getitem__(self, item)
+            # obj._state = self._state[item]
+            obj._state = self._state._get_state(item)
+
+            return obj
 
         elif isinstance(item, tuple) and not item:
-            return super().__getitem__(item)
+            return np.ndarray.__getitem__(self, item)
+        #     else:
+        #         item = (Ellipsis,) + item
+        #         obj = np.ndarray.__getitem__(self, item)
+        #         # obj._state = self._state[item]
+        #         return obj
 
+        # if string then return ndarray view of the field
         elif isinstance(item, (str, np.str_)):
             try:
-                return self.view(np.ndarray).__getitem__(item)
+                value = self.view(np.ndarray).__getitem__(item)
+
+                if not value.shape:
+                    return value[()]
+
+                return value
+
             except ValueError:
                 return self[self['N'] == item]
+
         else:
 
-            obj = super().__getitem__(item)
-            if self.imap is not None:
-                if not isinstance(item, tuple):
+            obj = np.ndarray.__getitem__(self, item)
 
-                    if isinstance(item, slice):
-                        item = np.arange(self.size)[item]
-                    smap = self.imap.subspace(item)
-                    if smap:
-                        obj.imap = smap
-                    else:
-                        obj.imap = None
+            try:
+                obj._state = self._state._get_state(item)
+
+                if self.imap is not None:
+                    if not isinstance(item, tuple):
+
+                        if isinstance(item, slice):
+                            item = np.arange(self.size)[item]
+                        smap = self.imap.subspace(item)
+                        if smap:
+                            obj.imap = smap
+
+            except AttributeError:
+                pass
+
             return obj
 
     def __setitem__(self, key, val):
@@ -455,8 +606,8 @@ class BathArray(np.ndarray):
         try:
 
             xyzs = (self['xyz'] == other['xyz']).all(axis=-1)
-            hfs = (self['A'] == other['A']).all(axis=(-2, -1))
-            qds = (self['Q'] == other['Q']).all(axis=(-2, -1))
+            hfs = (self['A'] == other['A']).reshape(*self.shape, -1).all(axis=-1)
+            qds = (self['Q'] == other['Q']).reshape(*self.shape, -1).all(axis=-1)
 
             return xyzs & hfs & qds
 
@@ -566,7 +717,58 @@ class BathArray(np.ndarray):
                          style=style, inplace=inplace)
         return bath
 
-    def from_point_dipole(self, position, gyro_e=ELECTRON_GYRO, inplace=True):
+    def from_center(self, center, inplace=True, cube=None, which=0, **kwarg):
+        """
+        Generate hyperfine couplings using either the point dipole approximation or spin density in the .cube format,
+        with the information from the CenterArray instance.
+
+        Args:
+            center (CenterArray): Array, containing properties of the central spin
+
+            inplace (bool): True if changes parameters of the array in place. If False, returns copy of the array.
+
+            cube (Cube or iterable of Cubes): An instance of ``Cube`` object,
+                which contains spatial distribution of spin density of central spins.
+                For details see documentation of ``Cube`` class.
+
+            which (int): If ``cube`` is a single Cube instance,
+                this is an index of the central spin it corresponds to.
+
+            **kwarg: Additional arguments for .from_cube method.
+
+        Returns:
+            BathArray: Updated BathArray instance.
+
+        """
+        if inplace:
+            array = self
+        else:
+            array = self.copy()
+
+        if array.nc != center.size:
+            array = array.expand(center.size)
+            if inplace:
+                warnings.warn("Cannot change array inplace, using a copy instead.")
+
+        if center.size == 1:
+            if cube is None:
+                array.from_point_dipole(center[0].xyz, center[0].gyro, inplace=True)
+            else:
+                array.from_cube(cube, center[0].gyro, inplace=True, **kwarg)
+        else:
+            if cube is None:
+                array.from_point_dipole(center.xyz, center.gyro, inplace=True)
+            else:
+                try:
+                    for index, (cen, cub) in enumerate(zip(center, cube)):
+                        array.from_cube(cub, cen.gyro, inplace=True, which=index, **kwarg)
+                except TypeError:
+                    array.from_point_dipole(center.xyz, center.gyro, inplace=True)
+                    array.from_cube(cube, center[which].gyro, inplace=True, which=which, **kwarg)
+
+        return array
+
+    def from_point_dipole(self, position, gyro_center=ELECTRON_GYRO, inplace=True):
         """
         Generate hyperfine couplings, assuming that bath spins interaction with central spin is the same as the
         one between two magnetic point dipoles.
@@ -574,7 +776,7 @@ class BathArray(np.ndarray):
         Args:
             position (ndarray with shape (3,)): position of the central spin
 
-            gyro_e (float or ndarray with shape (3,3)):
+            gyro_center (float or ndarray with shape (3,3)):
                 gyromagnetic ratio of the central spin
 
                 **OR**
@@ -584,36 +786,32 @@ class BathArray(np.ndarray):
             inplace (bool): True if changes parameters of the array in place. If False, returns copy of the array.
 
         Returns:
-            BathArray: updated BathArray instance with changed hyperfine couplings.
+            BathArray: Updated BathArray instance with changed hyperfine couplings.
         """
-
         if inplace:
             array = self
         else:
             array = self.copy()
 
-        identity = np.eye(3, dtype=np.float64)
-        pos = array['xyz'] - position
-        try:
-            posxpos = np.einsum('ki,kj->kij', pos, pos)
-        except ValueError:
-            posxpos = np.tensordot(pos, pos, axes=0)
+        position = np.asarray(position)
 
-        r = np.linalg.norm(pos, axis=-1)[..., np.newaxis, np.newaxis]
+        if array.nc > 1:
+            position = np.broadcast_to(position, (array.nc, 3))
+            gyro_center = np.asarray(gyro_center)
+            gyro_center = np.broadcast_to(gyro_center, (array.nc, *gyro_center.shape[1:]))
 
-        if isinstance(gyro_e, (np.floating, float, int)):
-            pref = np.asarray(gyro_e * array.gyro * HBAR / PI2)[..., np.newaxis, np.newaxis]
+            for i in range(array.nc):
+                pos = array.xyz - position[i]
+                array.A[:, i] = point_dipole(pos, array.gyro, gyro_center[i])
 
-            array['A'] = -(3 * posxpos[np.newaxis, ...] - identity[np.newaxis, ...] * r ** 2) / (r ** 5) * pref
+            return array
 
-        else:
-            pref = (gyro_e[np.newaxis, :, :] * np.asarray(array.gyro)[..., np.newaxis, np.newaxis] * HBAR / PI2)
-            postf = -(3 * posxpos[np.newaxis, :] - identity[np.newaxis, :] * r ** 2) / (r ** 5)
-            np.matmul(pref, postf, out=array['A'])
+        pos = array.xyz - position
+        array.A = point_dipole(pos, array.gyro, gyro_center)
 
         return array
 
-    def from_cube(self, cube, gyro_e=ELECTRON_GYRO, inplace=True):
+    def from_cube(self, cube, gyro_center=ELECTRON_GYRO, inplace=True, which=0, **kwargs):
         """
         Generate hyperfine couplings, assuming that bath spins interaction with central spin can be approximated as
         a point dipole, interacting with given spin density distribution.
@@ -622,7 +820,7 @@ class BathArray(np.ndarray):
             cube (Cube): An instance of `Cube` object, which contains spatial distribution of spin density.
                 For details see documentation of `Cube` class.
 
-            gyro_e (float): Gyromagnetic ratio of the central spin.
+            gyro_center (float): Gyromagnetic ratio of the central spin.
 
             inplace (bool): True if changes parameters of the array in place. If False, returns copy of the array.
 
@@ -635,10 +833,17 @@ class BathArray(np.ndarray):
             array = self.copy()
 
         gyros = array.types[array].gyro
-        array['A'] = cube.integrate(array['xyz'], gyros, gyro_e)
+
+        if array.nc > 1:
+            array.A[:, which] = cube.integrate(array.xyz, gyros, gyro_center, **kwargs)
+
+            return array
+
+        array.A = cube.integrate(array.xyz, gyros, gyro_center, **kwargs)
+
         return array
 
-    def from_func(self, func, gyro_e=ELECTRON_GYRO, vectorized=False, inplace=True):
+    def from_func(self, func, *args, inplace=True, **kwargs):
         """
         Generate hyperfine couplings from user-defined function.
 
@@ -647,17 +852,11 @@ class BathArray(np.ndarray):
             func (func):
                 Callable with signature::
 
-                    func(coord, gyro, central_gyro)
+                    func(array, *args, **kwargs)
 
-                where ``coord`` is array of the bath spin coordinate,
-                ``gyro`` is the gyromagnetic ratio of bath spin,
-                ``central_gyro`` is the gyromagnetic ratio of the central bath spin.
-
-            gyro_e (float): gyromagnetic ratio of the central spin to be used in the function.
-
-            vectorized (bool): If True, assume that func takes arrays of all bath spin coordinates and array of
-                gyromagnetic ratios as arguments.
-
+                where ``array`` is array of the bath spins,
+            *args: Positional arguments of the ``func``.
+            **kwargs: Keyword arguments of the ``func``.
             inplace (bool): True if changes parameters of the array in place. If False, returns copy of the array.
 
         Returns:
@@ -669,11 +868,8 @@ class BathArray(np.ndarray):
         else:
             array = self.copy()
 
-        if vectorized:
-            array['A'] = func(array['xyz'], array.gyro, gyro_e)
-        else:
-            for a in array:
-                a['A'] = func(a['xyz'], array.types[a].gyro, gyro_e)
+        func(array, *args, **kwargs)
+
         return array
 
     def from_efg(self, efg, inplace=True):
@@ -712,7 +908,7 @@ class BathArray(np.ndarray):
             pref[where] = qmoments[where] / (2 * spins[where] * (2 * spins[where] - 1))
             pref = pref[..., np.newaxis, np.newaxis]
 
-        array['Q'] = pref * efg
+        array.Q = pref * efg
         return array
 
     def dist(self, position=None):
@@ -734,7 +930,7 @@ class BathArray(np.ndarray):
         else:
             position = np.asarray(position)
 
-        return np.linalg.norm(self['xyz'] - position, axis=-1)
+        return np.linalg.norm(self.xyz - position, axis=-1)
 
     def savetxt(self, filename, fmt='%18.8f', strip_isotopes=False, **kwargs):
         r"""
@@ -747,7 +943,7 @@ class BathArray(np.ndarray):
             **kwargs: Additional keywords of the ``numpy.savetxt`` function.
         """
         kwargs.setdefault('comments', '')
-        ar = repack_fields(self[['N', 'xyz']]).view(np.ndarray).view(
+        ar = repack_fields(self.view(np.ndarray)[['N', 'xyz']]).view(
             np.dtype([('N', 'U16'), ('x', 'f8'), ('y', 'f8'), ('z', 'f8')]))
 
         if strip_isotopes:
@@ -759,6 +955,29 @@ class BathArray(np.ndarray):
 
         kwargs.setdefault('header', header)
         np.savetxt(filename, ar, fmt=('%s', fmt, fmt, fmt), **kwargs)
+
+    def expand(self, ncenters):
+
+        array = BathArray(array=self.xyz, quadrupoles=self.Q, names=self.N, center=ncenters, imap=self.imap,
+                          types=self.types, state=self.state)
+
+        hyperfine = self.A
+        if hyperfine.any():
+            ocs = self.nc  # old central spin
+            if ocs == ncenters:
+                array.A = hyperfine
+
+            elif ocs == 1 and ncenters > 1:
+                array.A[..., 0, :, :] = hyperfine
+
+            elif ocs > 1 and ncenters == 1:
+                array.A[..., :, :] = hyperfine[..., 0, :, :]
+
+            else:
+                limit = ocs if ocs < ncenters else ncenters
+                array.A[..., :limit + 1, :, :] = hyperfine[..., :limit + 1, :, :]
+
+        return array
 
 
 def implements(numpy_function):
@@ -782,11 +1001,24 @@ def sort(a, axis=-1, kind=None, order=None):
 
 
 @implements(np.argsort)
-def sort(a, *args, **kwargs):
+def argsort(a, *args, **kwargs):
     """
     Return a indexes of an sorted array. Overrides ``numpy.argsort`` function.
     """
     return np.argsort(a, *args, **kwargs).view(np.ndarray)
+
+
+@implements(np.delete)
+def delete(arr, obj, axis=None):
+    newarr = np.delete(arr.view(np.ndarray), obj, axis=axis).view(BathArray)
+    newarr._state = BathState(newarr.size)
+    newarr.types = arr.types
+
+    if arr.imap:
+        newarr.imap = arr.imap.subspace(obj)
+
+    newarr.state = np.delete(arr.state[...], obj, axis=axis)
+    return newarr
 
 
 @implements(np.concatenate)
@@ -810,14 +1042,19 @@ def concatenate(arrays, axis=0, out=None):
     imap = InteractionMap()
 
     offset = 0
+    state = BathState(new_array.size)
+
     for x in arrays:
         types += x.types
+
         if x.imap:
             imap += x.imap.shift(offset, inplace=False)
 
+        state[offset:offset + x.size] = x.state
         offset += x.size
 
     new_array.types = types
+    new_array._state = state
 
     if imap:
         new_array.imap = imap
@@ -828,6 +1065,101 @@ def concatenate(arrays, axis=0, out=None):
 # @implements(np.broadcast_to)
 # def broadcast_to(array, shape):
 #     ...  # implementation of broadcast_to for MyArray objects
+
+def check_gyro(gyro):
+    """
+    Check if gyro is matrix or scalar.
+
+    Args:
+        gyro (ndarray or float): Gyromagnetic ratio matrix or float.
+
+    Returns:
+        tuple: tuple containing:
+
+            * **ndarray or float**: Gyromagnetic ratio.
+            * **bool**: True if gyro is float, False otherwise.
+    """
+    try:
+        gyro = float(gyro)
+        check = True
+    except TypeError:
+        check = False
+
+    if not check:
+        gyro = np.asarray(gyro)
+        if gyro.ndim == 1:  # Assume array
+            check = True
+        elif not gyro.shape or gyro.shape[0] == 1:
+            check = True
+            gyro = gyro.reshape(1)[0]
+        else:
+            test_gyros = gyro.copy()
+            indexes = np.arange(gyro.shape[-1])
+            test_gyros[..., indexes, indexes] = 0
+
+            diag_check = np.isclose(test_gyros, 0).all()
+            same_check = ((gyro[..., 0, 0] == gyro[..., 1, 1]) & (gyro[..., 1, 1] == gyro[..., 2, 2])).all()
+            check = diag_check & same_check
+            if check:
+                gyro = gyro[..., 0, 0][()]
+
+    return gyro, check
+
+
+def point_dipole(pos, gyro_array, gyro_center):
+    """
+    Generate an array hyperfine couplings, assuming point dipole approximation.
+
+    Args:
+        pos (ndarray with shape (n, 3)): Relative position of the bath spins.
+        gyro_array (ndarray with shape (n,)): Array of the gyromagnetic ratios of the bath spins.
+
+        gyro_center (float or ndarray with shape (3, 3)):
+            gyromagnetic ratio of the central spin
+
+            **OR**
+
+            tensor corresponding to interaction between magnetic field and central spin.
+
+    Returns:
+        ndarray with shape (n, 3, 3): Array of hyperfine tensors.
+    """
+    identity = np.eye(3, dtype=np.float64)
+
+    try:
+        posxpos = np.einsum('...i,...j->...ij', pos, pos)
+    except ValueError:
+        posxpos = np.outer(pos, pos)
+
+    r = np.linalg.norm(pos, axis=-1)[..., np.newaxis, np.newaxis]
+    gyro_center, check = check_gyro(gyro_center)
+    gyro_array, check_array = check_gyro(gyro_array)
+
+    gyro_center = np.asarray(gyro_center)
+    gyro_array = np.asarray(gyro_array)
+
+    if check and check_array:
+
+        if gyro_center.shape and gyro_array.shape:
+            pref = gyro_center[:, np.newaxis] * gyro_array[np.newaxis, :]
+
+        else:
+            pref = gyro_center * gyro_array
+        out = -(3 * posxpos - identity * r ** 2) / (r ** 5)
+        out = out * pref.reshape(*pref.shape, 1, 1) * HBAR_MU0_O4PI / PI2
+        return out
+
+    out = -(3 * posxpos - identity * r ** 2) / (r ** 5) * HBAR_MU0_O4PI / PI2
+
+    if not check_array:
+        out = np.matmul(out, gyro_array)
+    else:
+        out *= gyro_array.reshape(*gyro_array.shape, 1, 1)
+    if not check:
+        out = np.matmul(gyro_center, out)
+    else:
+        out *= gyro_center.reshape(*gyro_center.shape, 1, 1)
+    return out
 
 
 def same_bath_indexes(barray_1, barray_2, error_range=0.2, ignore_isotopes=True):
@@ -849,16 +1181,16 @@ def same_bath_indexes(barray_1, barray_2, error_range=0.2, ignore_isotopes=True)
 
     """
     # counter_ext = 0
-    dist_matrix = np.linalg.norm(barray_1['xyz'][:, np.newaxis, :] - barray_2['xyz'][np.newaxis, :, :], axis=-1)
+    dist_matrix = np.linalg.norm(barray_1.xyz[:, np.newaxis, :] - barray_2.xyz[np.newaxis, :, :], axis=-1)
 
     if ignore_isotopes:
-        tb_names = np.core.defchararray.strip(barray_1['N'], '1234567890')
-        ab_names = np.core.defchararray.strip(barray_2['N'], '1234567890')
+        tb_names = np.core.defchararray.strip(barray_1.N, '1234567890')
+        ab_names = np.core.defchararray.strip(barray_2.N, '1234567890')
 
         same_names = tb_names[:, np.newaxis] == ab_names[np.newaxis, :]
 
     else:
-        same_names = barray_1['N'][:, np.newaxis] == barray_2['N'][np.newaxis, :]
+        same_names = barray_1.N[:, np.newaxis] == barray_2.N[np.newaxis, :]
 
     criteria = np.logical_and(dist_matrix < error_range, same_names)
     indexes, ext_indexes = np.nonzero(criteria)
@@ -895,10 +1227,17 @@ def update_bath(total_bath, added_bath, error_range=0.2, ignore_isotopes=True, i
         total_bath = total_bath.copy()
 
     indexes, ext_indexes = same_bath_indexes(total_bath, added_bath, error_range, ignore_isotopes)
+    neq = total_bath.nc != added_bath.nc
+    if neq and added_bath.nc != 1:
+        raise ValueError('Arrays correspond to different number of central spins.')
+
     for n in added_bath.dtype.names:
         if ignore_isotopes and n == 'N':
             continue
-        total_bath[n][indexes] = added_bath[n][ext_indexes]
+        if n == 'A' and neq:
+            total_bath[n][indexes, 0] = added_bath[n][ext_indexes]
+        else:
+            total_bath[n][indexes] = added_bath[n][ext_indexes]
 
     return total_bath
 
@@ -938,47 +1277,30 @@ def transform(atoms, center=None, cell=None, rotation_matrix=None, style='col', 
     """
 
     styles = ['col', 'row']
-    if style not in styles:
+    if style.lower() not in styles:
         raise ValueError('Unsupported style of matrices. Available styles are: ' + ', '.join(*styles))
 
     if not inplace:
         atoms = atoms.copy()
 
-    if len(atoms.shape) == 0:
-        atoms = atoms[np.newaxis]
-
     if center is None:
         center = np.zeros(3)
 
-    if cell is None:
-        cell = np.eye(3)
-
-    if rotation_matrix is None:
-        rotation_matrix = np.eye(3)
-
-    if style.lower() == 'row':
-        cell = cell.T
-        rotation_matrix = rotation_matrix.T
-
     if not atoms.dtype.names:
         atoms -= np.asarray(center)
-        atoms = np.einsum('jk,ik->ij', cell, atoms)
-        atoms = np.einsum('jk,ik->ij', np.linalg.inv(rotation_matrix), atoms)
+        atoms = rotate_coordinates(atoms, rotation=rotation_matrix, cell=cell, style=style)
 
         return atoms
 
     atoms['xyz'] -= np.asarray(center)
 
-    atoms['xyz'] = np.einsum('jk,ik->ij', cell, atoms['xyz'])
-    atoms['xyz'] = np.einsum('jk,ik->ij', np.linalg.inv(rotation_matrix), atoms['xyz'])
+    atoms['xyz'] = rotate_coordinates(atoms['xyz'], rotation=rotation_matrix, cell=cell, style=style)
 
     if 'A' in atoms.dtype.names:
-        atoms['A'] = np.matmul(atoms['A'], rotation_matrix)
-        atoms['A'] = np.matmul(np.linalg.inv(rotation_matrix), atoms['A'])
+        atoms['A'] = rotate_tensor(atoms['A'], rotation=rotation_matrix, style=style)
 
     if 'Q' in atoms.dtype.names:
-        atoms['Q'] = np.matmul(atoms['Q'], rotation_matrix)
-        atoms['Q'] = np.matmul(np.linalg.inv(rotation_matrix), atoms['Q'])
+        atoms['Q'] = rotate_tensor(atoms['Q'], rotation=rotation_matrix, style=style)
 
     return atoms
 
@@ -1013,6 +1335,100 @@ def _inner_set_attr(types, key, attr, value):
         types[key] = (0, 0, 0)
         setattr(types[key], attr, value)
     return
+
+
+def _get_sd_attribute(array, attribute_name):
+    if not array.shape:
+        return getattr(array.types[array], attribute_name)
+
+    if attribute_name == 'h':
+        if array.size == 1:
+            return getattr(array.types[array[0]], attribute_name)
+
+        unique_names = np.unique(array.N)
+
+        if unique_names.size == 1:
+            return getattr(array.types[array[0]], attribute_name)
+
+        raise RuntimeError('Hamiltonian terms can be modified only for single spin type at a time')
+
+    if array.size == 1:
+        newarr = np.array([getattr(array.types[array.N[0]], attribute_name)])
+
+        if attribute_name == 'dim':
+            newarr = newarr.astype(int)
+
+        return newarr
+
+    unique_names = np.unique(array.N)
+
+    if unique_names.size == 1:
+        n = unique_names[0]
+        v = getattr(array.types[n], attribute_name)
+        if attribute_name == 'gyro' and isinstance(v, np.ndarray):
+            values = np.tile(v, reps=(array.size, 1, 1))
+        else:
+            if attribute_name == 'dim':
+                ones = np.ones(array.shape, dtype=int)
+            else:
+                ones = np.ones(array.shape, dtype=np.float64)
+            values = v * ones
+
+    else:
+
+        temp_values = []
+        check = True
+        for n in unique_names:
+            v = getattr(array.types[n], attribute_name)
+            if attribute_name == 'gyro' and isinstance(v, np.ndarray):
+                check = False
+            temp_values.append(v)
+
+        if check:
+            if attribute_name == 'dim':
+                values = np.empty(array.shape, dtype=np.float64)
+            else:
+                values = np.empty(array.shape, dtype=int)
+
+            for n, v in zip(unique_names, temp_values):
+                values[array.N == n] = v
+        else:
+            values = np.empty((array.size, 3, 3), dtype=np.float64)
+            for i, n in enumerate(unique_names):
+                v = temp_values[i]
+                if not isinstance(v, np.ndarray):
+                    temp_values[i] = np.eye(3, dtype=np.float64) * v
+                values[array.N == n] = v
+    return values
+
+
+def broadcast_array(array, root=0):
+    """
+    Using mpi4py broadcast ``BathArray`` or ``CenterArray`` to all processes.
+    Args:
+        array (BathArray or CenterArray): Array to broadcast.
+        root (int): Rank of the process to broadcast from.
+
+    Returns:
+        BathArray or CenterArray: Broadcasted array.
+    """
+    import mpi4py
+    comm = mpi4py.MPI.COMM_WORLD
+    rank = comm.Get_rank()
+
+    if rank == root:
+        parameters = vars(array)
+    else:
+        array = None
+        parameters = None
+
+    nbath = comm.bcast(array, root)
+    nparam = comm.bcast(parameters, root)
+
+    for k in nparam:
+        setattr(nbath, k, nparam[k])
+
+    return nbath
 
 
 class SpinType:
@@ -1057,15 +1473,10 @@ class SpinType:
         self.name = name
         self.s = s
 
-        try:
-            self.dim = int(2 * s + 1 + 1e-8)
-
-        except TypeError:
-            self.dim = (2 * s + 1 + 1e-8).astype(np.int32)
-
         self.gyro = gyro
         self.q = q
         self.detuning = detuning
+        self._h = None
 
     def __eq__(self, obj):
         if not isinstance(obj, SpinType):
@@ -1075,6 +1486,71 @@ class SpinType:
                 self.gyro == obj.gyro) & (self.q == obj.q) & (self.detuning == obj.detuning)
 
         return checks
+
+    @_add_args(_stevens_str_doc)
+    @property
+    def h(self):
+        if self._h is None:
+            self._h = {}
+        return self._h
+
+    @property
+    def name(self):
+        return self._name
+
+    @name.setter
+    def name(self, name):
+        self._name = name
+
+    @property
+    def s(self):
+        return self._s
+
+    @s.setter
+    def s(self, s):
+
+        try:
+            if isinstance(s, np.ndarray) and s.shape:
+                raise TypeError
+
+            self._s = float(s)
+            self._dim = int(2 * s + 1 + 1e-8)
+
+        except TypeError:
+            self._dim = np.asarray(2 * s + 1 + 1e-8).astype(np.int32)
+            self._s = np.asarray(s).astype(np.float64)
+
+    @property
+    def gyro(self):
+        return self._gyro
+
+    @gyro.setter
+    def gyro(self, gyro):
+        gyro, check = check_gyro(gyro)
+        self._gyro = gyro
+
+    @property
+    def q(self):
+        return self._q
+
+    @q.setter
+    def q(self, q):
+        self._q = q
+
+    @property
+    def detuning(self):
+        return self._detuning
+
+    @detuning.setter
+    def detuning(self, d):
+        try:
+            self._detuning = float(d)
+        except TypeError:
+            self._detuning = np.asarray(d).astype(np.float64)
+
+    @property
+    def dim(self):
+        return self._dim
 
     def __repr__(self):
         try:
@@ -1204,30 +1680,41 @@ class SpinDict(UserDict):
                 if key.dtype.names:
                     key = key['N']
 
-                unique_names = np.unique(key)
-
-                if unique_names.size == 1:
-                    n = unique_names[0]
-                    # ones = np.ones(key.shape, dtype=np.float64)
-
-                    spins = self._super_get_item(n).s  # * ones
-                    gyros = self._super_get_item(n).gyro  # * ones
-                    quads = self._super_get_item(n).q  # * ones
-                    detus = self._super_get_item(n).detuning  # * ones
-
+                key = np.asarray(key)
+                if key.size == 1:
+                    n = key[0]
+                    spins = np.array([self._super_get_item(n).s])
+                    gyros = np.array([self._super_get_item(n).gyro])
+                    quads = np.array([self._super_get_item(n).q])
+                    detus = np.array([self._super_get_item(n).detuning])
+                    return SpinType(key, s=spins, gyro=gyros, q=quads, detuning=detus)
                 else:
-                    spins = np.empty(key.shape, dtype=np.float64)
-                    gyros = np.empty(key.shape, dtype=np.float64)
-                    quads = np.empty(key.shape, dtype=np.float64)
-                    detus = np.empty(key.shape, dtype=np.float64)
+                    raise TypeError('Unsupported key.')
 
-                    for n in unique_names:
-                        spins[key == n] = self._super_get_item(n).s
-                        gyros[key == n] = self._super_get_item(n).gyro
-                        quads[key == n] = self._super_get_item(n).q
-                        detus[key == n] = self._super_get_item(n).detuning
-
-                return SpinType(key, s=spins, gyro=gyros, q=quads, detuning=detus)
+                # unique_names = np.unique(key)
+                #
+                # if unique_names.size == 1:
+                #     n = unique_names[0]
+                #     ones = np.ones(key.shape, dtype=np.float64)
+                #
+                #     spins = self._super_get_item(n).s * ones
+                #     gyros = self._super_get_item(n).gyro * ones
+                #     quads = self._super_get_item(n).q * ones
+                #     detus = self._super_get_item(n).detuning * ones
+                #
+                # else:
+                #     spins = np.empty(key.shape, dtype=np.float64)
+                #     gyros = np.empty(key.shape, dtype=np.float64)
+                #     quads = np.empty(key.shape, dtype=np.float64)
+                #     detus = np.empty(key.shape, dtype=np.float64)
+                #
+                #     for n in unique_names:
+                #         spins[key == n] = self._super_get_item(n).s
+                #         gyros[key == n] = self._super_get_item(n).gyro
+                #         quads[key == n] = self._super_get_item(n).q
+                #         detus[key == n] = self._super_get_item(n).detuning
+                #
+                # return SpinType(key, s=spins, gyro=gyros, q=quads, detuning=detus)
 
                 # params = {}
                 # unique_names = np.unique(key)
@@ -1319,24 +1806,29 @@ class SpinDict(UserDict):
         """
         keys = []
         try:
-            for nuc in args:
-                if isinstance(nuc, SpinType):
-                    key = nuc.name
-                    self[key] = nuc
-                    keys.append(key)
-                elif isinstance(nuc, Mapping):
-                    self.update(nuc)
-                    keys += list(nuc.keys())
-                else:
-                    key = nuc[0]
-                    self[key] = SpinType(*nuc)
-                    keys.append(key)
+            st = SpinType(*args, **kwargs)
+            self[st.name] = st
+            return
         except TypeError:
-            for k in keys:
-                self.pop(k)
-            self[args[0]] = SpinType(*args)
-        for nuc in kwargs:
-            self[nuc] = kwargs[nuc]
+            try:
+                for nuc in args:
+                    if isinstance(nuc, SpinType):
+                        key = nuc.name
+                        self[key] = nuc
+                        keys.append(key)
+                    elif isinstance(nuc, Mapping):
+                        self.update(nuc)
+                        keys += list(nuc.keys())
+                    else:
+                        key = nuc[0]
+                        self[key] = SpinType(*nuc)
+                        keys.append(key)
+            except TypeError:
+                for k in keys:
+                    self.pop(k)
+                self[args[0]] = SpinType(*args)
+            for nuc in kwargs:
+                self[nuc] = kwargs[nuc]
 
 
 def _check_key_spintype(k, v):
@@ -1367,15 +1859,16 @@ filepath = os.path.join(__location__, 'isotopes.txt')
 all_spins = pd.read_csv(filepath, delim_whitespace=True, header=None, comment='%',
                         names=['protons', 'nucleons', 'radioactive', 'symbol', 'name', 'spin', 'g', 'conc', 'q'])
 
-stable_spins = all_spins[(all_spins['spin'] > 0) & (all_spins['conc'] > 0)]
+# only stable isotopes with nonzero spins
+spins = all_spins[(all_spins['spin'] > 0) & (all_spins['conc'] > 0)]
 
-_names = stable_spins['nucleons'].astype(str) + stable_spins['symbol']
-_gyros = stable_spins['g'] / HBAR_SI * NUCLEAR_MAGNETON / 1e7
-_quads = stable_spins['q']
-_spins = stable_spins['spin']
+_names = spins['nucleons'].astype(str) + spins['symbol']
+_gyros = spins['g'] / HBAR_SI * NUCLEAR_MAGNETON / 1e7
+_quads = spins['q']
+_spins = spins['spin']
 
-_mi = pd.MultiIndex.from_arrays([stable_spins['symbol'], _names])
-_ser = pd.Series((stable_spins['conc'] / 100).values, index=_mi)
+_mi = pd.MultiIndex.from_arrays([spins['symbol'], _names])
+_ser = pd.Series((spins['conc'] / 100).values, index=_mi)
 
 common_concentrations = {level: _ser.xs(level).to_dict() for level in _ser.index.levels[0]}
 """
@@ -1392,3 +1885,5 @@ The isotope is considered common if it is stable and has nonzero concentration i
 
 # electron spin
 common_isotopes['e'] = SpinType('e', 1 / 2, ELECTRON_GYRO, 0)
+# allias for common_isotopes
+ci = common_isotopes

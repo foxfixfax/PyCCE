@@ -361,7 +361,7 @@ def expand_clusters(sc):
     return newsc
 
 
-def find_valid_subclusters(graph, maximum_order, nclusters=None, bath=None, strong=False):
+def find_valid_subclusters(graph, maximum_order, nclusters=None, bath=None, strong=False, ):
     """
     Find subclusters from connectivity matrix.
 
@@ -380,7 +380,11 @@ def find_valid_subclusters(graph, maximum_order, nclusters=None, bath=None, stro
             Here matrix is the number of clusters of given size, N is the size of the cluster.
             Each row contains indexes of the bath spins included in the given cluster.
     """
+
     clusters = {1: np.arange(graph.shape[0])[:, np.newaxis]}
+
+    if nclusters is not None and isinstance(nclusters, int):
+        nclusters = {k: nclusters for k in range(1, maximum_order + 1)}
 
     if maximum_order > 1:
         strength = {}
@@ -393,8 +397,18 @@ def find_valid_subclusters(graph, maximum_order, nclusters=None, bath=None, stro
         bonds = np.column_stack([row_ind, col_ind])
 
         if nclusters is not None:
-            strength[2] = np.abs(bath[col_ind].gyro * bath[row_ind].gyro / (bath[col_ind].dist(bath[row_ind]) ** 3))
-            ordered = strength[2].argsort()[::-1]
+            r = bath[col_ind].dist(bath[row_ind])
+            # cos_theta = (bath[col_ind].z - bath[row_ind].z) / r
+            # strength[2] = np.abs(bath[col_ind].gyro * bath[row_ind].gyro / r ** 3)  # * (1 - 2 * cos_theta ** 2))
+            gyros_1 = bath[col_ind].gyro
+            gyros_2 = bath[row_ind].gyro
+            if len(gyros_1.shape) > 1:
+                gyros_1 = np.abs(gyros_1.reshape(gyros_1.shape[0], -1)).max(axis=1)
+            if len(gyros_2.shape) > 1:
+                gyros_2 = np.abs(gyros_2.reshape(gyros_2.shape[0], -1)).max(axis=1)
+
+            strength[2] = 1 / np.abs(gyros_1 * gyros_2 / r ** 3)  # * (1 - 2 * cos_theta ** 2))
+            ordered = strength[2].argsort()  # smallest strength - largest coupling # [::-1] if strength = np.abs
             bonds = bonds[ordered]
             strength[2] = strength[2][ordered]
 
@@ -403,6 +417,8 @@ def find_valid_subclusters(graph, maximum_order, nclusters=None, bath=None, stro
                 strength[2] = strength[2][:nclusters[2]]
 
         clusters[2] = bonds
+
+        del coomat, row_ind, col_ind
 
         for order in range(3, maximum_order + 1):
 
@@ -441,7 +457,8 @@ def find_valid_subclusters(graph, maximum_order, nclusters=None, bath=None, stro
                 if nclusters is not None:
                     teststrength = strength[order - 1][i]
                     tripletstrength = strength[2][choosebonds][rows]
-                    tripletstrength[tripletstrength > teststrength] = teststrength
+                    # tripletstrength[tripletstrength > teststrength] = teststrength
+                    tripletstrength += teststrength
 
                 if strong and triplets.any():
                     unique, index, counts = np.unique(np.sort(triplets, axis=1), axis=0, return_index=True,
@@ -464,12 +481,26 @@ def find_valid_subclusters(graph, maximum_order, nclusters=None, bath=None, stro
             # Transform list of numpy arrays into numpy array
 
             try:
+
                 ltriplets = np.concatenate(ltriplets, axis=0)
+
+                # First order by lowest strength, so from two identical triplets
+                # one with lower strength will be first in np.unique call
+
+                if nclusters is not None:
+                    ltstr = np.concatenate(ltstr)
+                    ordered_by_lowest_strength = ltstr.argsort()  # [::-1]  # reverse indexes b/c strength is 1/strength
+                    # ordered_by_lowest_strength = ltstr.argsort()
+                    ltriplets = ltriplets[ordered_by_lowest_strength]
+                    ltstr = ltstr[ordered_by_lowest_strength]
+
                 ltriplets, indexes = np.unique(np.sort(ltriplets, axis=1), axis=0, return_index=True)
 
                 if nclusters is not None:
-                    ltstr = np.concatenate(ltstr)[indexes]
-                    ordered_by_strength = ltstr.argsort()[::-1]
+                    ltstr = ltstr[indexes]
+                    ordered_by_strength = ltstr.argsort()  # 0 strength - all bonds are strongly coupled
+                    # ordered_by_strength = ltstr.argsort()[::-1]
+
                     ltriplets = ltriplets[ordered_by_strength]
                     ltstr = ltstr[ordered_by_strength]
 

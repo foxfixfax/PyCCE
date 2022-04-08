@@ -1,6 +1,8 @@
+import warnings
+
 import numpy as np
 from pycce.bath.array import BathArray
-import warnings
+
 from .base import set_isotopes
 
 

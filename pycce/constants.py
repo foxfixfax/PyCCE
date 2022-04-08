@@ -19,7 +19,6 @@ thz_to_khz = 1.00000E+09
 phz_to_khz = 1.00000E+12
 wavenumber_to_khz = 2.99792E+07
 
-
 _CONVERSION_TO_RADKHZ = {
     'ghz': ghz_to_khz * PI2,
     'radghz': ghz_to_khz,
@@ -43,14 +42,13 @@ _CONVERSION_TO_A = {
     'a': a_to_angstrom
 }
 
-
 BOHR_TO_ANGSTROM = 5.29177E-01
 
 HARTREE_TO_MHZ = 6579680000.0
 M_TO_BOHR = 18897300000.0
 
 ELECTRON_GYRO = -17608.597050  # rad / (ms * Gauss) or rad * kHz / G
-HBAR = 1.05457172  # When everything else in rad, kHz, ms, G, A
+HBAR_MU0_O4PI = 1.05457172  # When everything else in rad, kHz, ms, G, A
 
 COMPLEX_DTYPE = np.complex128
 

@@ -1,86 +1,273 @@
-from collections import UserList
+import copy
+import warnings
+from collections import UserList, UserDict
 
 import numpy as np
 import scipy.linalg
-from pycce.utilities import expand
 
 
-class Pulse:
+class BasePulse:
+    """
+    Base class for Pulse.
+
+    Args:
+        x (float): Rotation angle about x-axis in radians.
+        y (float): Rotation angle about y-axis in radians.
+        z (float): Rotation angle about z-axis in radians.
+    """
+    axes = 'xyz'
+    indices = np.arange(3)
+    indices.flags.writeable = False
+
+    def __init__(self, x=None, y=None, z=None):
+
+        self.__angles = np.zeros(3, dtype=np.float64)
+        self.has_angle = np.zeros(3, dtype=np.float64)
+        self._naxes = None
+        self._flip = False
+
+        self.x = x
+        self.y = y
+        self.z = z
+
+    def set_angle(self, axis, angle):
+        """
+        Set rotation angle ``angle`` about axis ``axis``.
+
+        Args:
+            axis (str): Axis of the rotation.
+            angle (float): Rotation angle in radians.
+
+        Returns:
+
+        """
+        if axis not in self.axes:
+            raise ValueError(f'Wrong axis format: {axis}')
+        ind = _rot[axis]
+        angle = _check_angle(angle)
+
+        self._angles[ind] = angle
+        self.has_angle = self.__angles.astype(bool)
+        self._flip = None
+        self._naxes = None
+
+    def check_flip(self):
+        """
+        Check if the rotation is about single cartesian axis by an angle :math:`\pi`.
+        """
+        self._flip = (self.naxes == 1) and (np.isclose(self._angles[self.has_angle], np.pi))
+
+    @property
+    def naxes(self):
+        """
+        int: Number of axes the rotation is defined for.
+        """
+        if self._naxes is None:
+            self._naxes = self.has_angle.sum()
+        return self._naxes
+
+    @property
+    def flip(self):
+        """bool: True if the angle == pi."""
+        if self._flip is None:
+            self.check_flip()
+        return self._flip
+
+    @property
+    def _angles(self):
+        return self.__angles
+
+    @_angles.setter
+    def _angles(self, angles):
+        self.__angles[:] = [_check_angle(a) for a in angles]
+        self.has_angle = self.__angles.astype(bool)
+        self._flip = None
+        self._naxes = None
+
+    @property
+    def x(self):
+        """float: Angle of rotation of the spin about x axis in rad."""
+        return self._angles[0]
+
+    @x.setter
+    def x(self, x):
+        self.set_angle('x', x)
+
+    @property
+    def y(self):
+        """float: Angle of rotation of the spin about y axis in rad."""
+        return self._angles[1]
+
+    @y.setter
+    def y(self, y):
+        self.set_angle('y', y)
+
+    @property
+    def z(self):
+        """float: Angle of rotation of the spin about z axis in rad."""
+        return self._angles[2]
+
+    @z.setter
+    def z(self, z):
+        self.set_angle('z', z)
+
+    def __repr__(self):
+        inner_message = '(' + ', '.join(f'{x}: {getattr(self, x):.2f}' for x in 'xyz') + ')'
+        return inner_message
+
+    def generate_rotation(self, spinvec, spin_half=False):
+        """
+        Generate rotation matrix given spin vector.
+
+        Args:
+            spinvec (ndarray with shape (3, n, n)): Spin vector.
+            spin_half (bool): True if spin vector is for a spin-1/2. Default is False.
+
+        Returns:
+            ndarray with shape (n, n): Rotation operator.
+        """
+        if spin_half and self.flip:
+            return -1j * 2 * spinvec[self.indices[self.has_angle][0]]
+        if self.naxes == 1:
+            ind = self.indices[self.has_angle][0]
+            return scipy.linalg.expm(-1j * spinvec[ind] * self._angles[ind])
+
+        na = np.newaxis
+        return scipy.linalg.expm(-1j * (spinvec[self.has_angle] * self._angles[self.has_angle][:, na, na]).sum(axis=0))
+
+
+class Pulse(BasePulse, UserDict):
     """
     Class containing properties of each control pulse, applied to the system.
 
+    The properties of the pulse, applied on the central spin(s) can be accessed as attributes, while bath spin
+    pulses can be acessed as elements of the ``Pulse`` instance.
+
     Args:
+
         axis (str): Axis of rotation of the central spin. Can be 'x', 'y', or 'z'. Default is None.
+
         angle (float or str): Angle of rotation of central spin. Can be provided in rad, or as a string, containing
             fraction of pi: ``'pi'``, ``'pi/2'``, ``'2*pi'`` etc. Default is None.
+
         delay (float or ndarray): Delay before the pulse or array of delays with the same shape as time points.
             Default is None.
+
+        which (array-like): Indexes of the central spins to be rotated by the pulse. Default is all.
+            Separated indexes are supported only if qubit states are provided separately for all
+            center spins.
+
         bath_names (str or array-like of str): Name or array of names of bath spin types, impacted by the bath pulse.
             Default is None.
+
         bath_axes (str or array-like of str): Axis of rotation or array of axes of the bath spins.
             Default is None. If ``bath_names`` is provided, but ``bath_axes`` and ``bath_angles`` are not,
             assumes the same axis and angle as the one of the central spin
+
         bath_angles (float or str or array-like): Angle of rotation or array of axes of rotations of the bath spins.
+
+        x (float): Rotation angle of the central spin about x-axis in radians.
+
+        y (float): Rotation angle of the central spin about y-axis in radians.
+
+        z (float): Rotation angle of the central spin about z-axis in radians.
 
     Examples:
 
         >>> Pulse('x', 'pi')
-        Pulse((x, 3.14))
+        Pulse((x: 3.14, y: 0.00, z: 0.00))
         >>> Pulse('x', 'pi', bath_names=['13C', '14C'])
-        Pulse((x, 3.14), {13C: (x, 3.14), 14C: (x, 3.14)})
+        Pulse((x: 3.14, y: 0.00, z: 0.00), {13C: (x: 3.14, y: 0.00, z: 0.00), 14C: (x: 3.14, y: 0.00, z: 0.00)})
         >>> import numpy as np
-        >>> Pulse('x', 'pi', delay=np.linspace(0, 1, 5), bath_names=['13C', '14C'], bath_axes='x', bath_angles='pi/2')
-        Pulse((x, 3.14), {13C: (x, 1.57), 14C: (x, 1.57)}, t = [0.   0.25 0.5  0.75 1.  ])
-
+        >>> p = Pulse('x', 'pi', delay=np.linspace(0, 1, 5), bath_names=['13C', '14C'],
+        >>>           bath_axes='x', bath_angles='pi/2')
+        >>> print(p)
+        Pulse((x: 3.14, y: 0.00, z: 0.00), {13C: (x: 1.57, y: 0.00, z: 0.00), 14C: (x: 1.57, y: 0.00, z: 0.00)},
+        t = [0.   0.25 0.5  0.75 1.  ])
+        >>> print(p['13C'])
+        (x: 1.57, y: 0.00, z: 0.00)
     """
 
-    def __init__(self, axis=None, angle=None, delay=None, bath_names=None, bath_axes=None, bath_angles=None):
-        pi = np.pi
+    def __init__(self, axis=None, angle=None, delay=None, which=None,
+                 bath_names=None, bath_axes=None, bath_angles=None, **kwargs):
+        super().__init__(**kwargs)
+        self.data = {}
 
-        self.axis = axis
-        """str: Axis of rotation of the central spin"""
-        if isinstance(angle, str):
-            angle = eval(angle)
+        if angle is not None:
+            angle = _check_angle(angle)
 
-        self.angle = angle
-        """float: Angle of rotation of central spin in rad."""
-        self.flip = False
-        """bool: True if the angle == pi."""
-        if angle is not None and np.isclose(angle, np.pi):
-            self.flip = True
+        if axis is not None:
+            self.set_angle(axis, angle)
+
+        elif angle is not None:
+            angle = np.asarray(angle)
+            if angle.size == 3:
+                self._angles = angle
 
         self._has_delay = False
         self.delay = delay
+        """ndarray or float: Delay or array of delays before the pulse."""
+        self.which = None
+        """iterable: Indexes of the central spins to be rotated by the pulse."""
+
+        if which is not None:
+            self.which = np.array(which).reshape(-1)
 
         if bath_names is not None:
-            bath_names = np.asarray(bath_names)
+            bath_names = np.array(bath_names).reshape(-1)
+
+            use_axes = False
+            if bath_axes is not None:
+                bath_axes = np.array(bath_axes).reshape(-1)
+                use_axes = True
+
+            if bath_angles is not None:
+                bath_angles = np.array(bath_angles)
+
+                if (bath_axes is None) and (bath_angles.ndim > 1 or (bath_angles.size == 3)):
+                    if bath_names.size == 3 and bath_angles.size == 3:
+                        warnings.warn('Ill defined bath angles format. Assuming same vector of angles for all spins.')
+                    try:
+                        bath_angles = bath_angles.reshape(-1, 3)
+                    except ValueError:
+                        raise ValueError('Wrong bath angles format')
+                elif axis is not None:
+                    use_axes = True
+                    bath_axes = np.array(axis).reshape(-1)
+                else:
+                    use_axes = True
+                    bath_angles = bath_angles.reshape(-1)
+
+            else:
+                bath_angles = np.array(angle).reshape(-1)
+
+                if bath_angles.size == 3:
+                    use_axes = False
+                    bath_angles = bath_angles.reshape(-1, 3)
+                else:
+                    use_axes = True
+                    bath_axes = axis
+            if use_axes:
+                for n, x, a in np.broadcast(bath_names, bath_axes, bath_angles):
+                    self[n] = BasePulse()
+                    if x is not None:
+                        self[n].set_angle(x, a)
+            else:
+                for n, a in zip(bath_names, np.tile(bath_angles, [bath_names.size, 1])):
+                    self[n] = BasePulse()
+                    self[n]._angles = a
 
         self.bath_names = bath_names
         """ndarray: Array of names of bath spin types, impacted by the bath pulse."""
-        if bath_axes is not None:
-            bath_axes = np.asarray(bath_axes)
-        elif bath_names is not None:
-            bath_axes = np.asarray(axis)
 
         self.bath_axes = bath_axes
         """ndarray: Array of axes of rotation of the bath spins."""
-
-        if bath_angles is not None:
-            bath_angles = np.asarray(bath_angles)
-            if bath_angles.dtype.char in 'SU':
-                if bath_angles.shape:
-                    bath_angles = np.asarray([eval(a) for a in bath_angles])
-                else:
-                    bath_angles = np.asarray(eval(bath_angles[()]))
-
-        elif bath_names is not None:
-            bath_angles = np.asarray(angle)
 
         self.bath_angles = bath_angles
         """ndarray: Array of angles of rotation of the bath spins."""
 
         self.rotation = None
-        """ndarray: Matrix representation of the pulse for the given cluster. Generated by ``Sequence`` object."""
+        """ndarray: Matrix representation of the pulse for the given cluster. Generated by ``Run`` object."""
 
     @property
     def delay(self):
@@ -95,31 +282,35 @@ class Pulse:
             self._has_delay = True
         else:
             self._has_delay = False
+
     def __repr__(self):
 
         w = f'Pulse('
         inner_message = ''
-        if self.axis is not None:
-            try:
-                inner_message += f'({self.axis}, {self.angle:.2f})'
-            except TypeError:
-                inner_message += f'({self.axis}, {self.angle})'
+
+        if self.has_angle.any() is not None:
+            if self.which is not None:
+                inner_message += f'{self.which}: '
+
+            x = super().__repr__()
+            inner_message += x
 
         if self.bath_names is not None:
+
+            bm = ''
+            for k in self:
+                if bm:
+                    bm += ', '
+                bm += f'{k}: ' + self[k].__repr__()
             if inner_message:
-                inner_message += ', {'
-            properties = np.broadcast(self.bath_names, self.bath_axes, self.bath_angles)
-            for name, axis, angle in properties:
-                try:
-                    inner_message += f'{name}: ({axis}, {angle:.2f}), '
-                except TypeError:
-                    inner_message += f'{name}: ({axis}, {angle}), '
-            inner_message = inner_message[:-2] + '}'
+                inner_message += ', '
+            inner_message += '{' + bm + '}'
 
         if self.delay is not None:
             if inner_message:
                 inner_message += ', '
             inner_message += f't = {self.delay}'
+
         w += inner_message + ')'
         return w
 
@@ -127,8 +318,23 @@ class Pulse:
 _rot = {'x': 0, 'y': 1, 'z': 2}
 
 
+def _check_angle(angle):
+    pi = np.pi
+    if angle is None:
+        angle = 0
+    elif isinstance(angle, str):
+        angle = eval(angle)
+
+    if np.isclose(angle, 0):
+        angle = 0
+
+    return angle
+
+
 def _get_pulse(value):
-    if not isinstance(value, Pulse):
+    if isinstance(value, Pulse):
+        value = copy.deepcopy(value)
+    else:
         try:
             value = Pulse(**value)
         except TypeError:
@@ -164,138 +370,15 @@ class Sequence(UserList):
 
         super().__init__(t)
 
-        self.small_sigma = None
-        """dict: Dictionary with Pauli matrices of the central spin"""
-        self.delays = None
-        """list or None: List with delays before each pulse or None if equispaced.
-        Generated by ``.generate_pulses`` method."""
-        self.rotations = None
-        """list: List with matrix representations of the rotation from each pulse.
-        Generated by ``.generate_pulses`` method."""
+        # self.delays = None
+        # """list or None: List with delays before each pulse or None if equispaced.
+        # Generated by ``.generate_pulses`` method."""
+        # self.rotations = None
+        # """list: List with matrix representations of the rotation from each pulse.
+        # Generated by ``.generate_pulses`` method."""
 
     def __setitem__(self, key, value):
         self.data[key] = _get_pulse(value)
 
     def append(self, item):
         self.data.append(_get_pulse(item))
-
-    def set_central_spin(self, alpha, beta):
-        r"""
-        Set Pauli matrices of the central spin.
-
-        Args:
-            alpha (ndarray): :math:`\ket{0}` state of the qubit in :math:`S_z` basis.
-            beta (ndarray): :math:`\ket{1}` state of the qubit in :math:`S_z` basis.
-
-        """
-        alpha_x_alpha = np.tensordot(alpha, alpha, axes=0)
-        beta_x_beta = np.tensordot(beta, beta, axes=0)
-        alpha_x_beta = np.tensordot(alpha, beta, axes=0)
-        beta_x_alpha = np.tensordot(beta, alpha, axes=0)
-
-        self.small_sigma = {'x': alpha_x_beta + beta_x_alpha,
-                            'y': -1j * alpha_x_beta + 1j * beta_x_alpha,
-                            'z': alpha_x_alpha - beta_x_beta}
-
-    def generate_pulses(self, dimensions=None,
-                        bath=None, vectors=None, central_spin=True):
-        """
-        Generate list of matrix representations of the rotations, induced by the sequence of the pulses.
-
-        The rotations are stored in the ``.rotation`` attribute of the each ``Pulse`` object
-        and in ``Sequence.rotations``.
-
-        Args:
-            dimensions (ndarray with shape (N,)): Array of spin dimensions in the system.
-            bath (BathArray with shape (n,)): Array of bath spins in the system.
-            vectors (ndarray  with shape (N, 3, prod(dimensions), prod(dimensions))):
-                 Array with vectors of spin matrices for each spin in the system.
-
-            central_spin (bool): True if generate the rotations including central spin rotations. Default is True.
-
-        Returns:
-            tuple: *tuple* containing:
-
-            * **list** or **None**: List with delays before each pulse or None if equispaced.
-
-            * **list**: List with matrix representations of the rotation from each pulse.
-        """
-        self.delays = None
-        self.rotations = None
-
-        equispaced = not any(p._has_delay for p in self.data)
-
-        if equispaced:
-            delays = None
-
-        else:
-            delays = [p.delay if p.delay is not None else 0 for p in self.data]
-
-        rots = []
-        sigma = {}
-
-        for p in self.data:
-
-            initial_rotation = rotation = 1
-
-            if p.angle and central_spin:
-
-                if p.axis not in sigma:
-                    sigma[p.axis] = expand(self.small_sigma[p.axis], len(dimensions) - 1, dimensions)
-
-                if p.angle == np.pi:
-                    rotation = -1j * sigma[p.axis]
-                else:
-                    rotation = scipy.linalg.expm(-1j * sigma[p.axis] * p.angle / 2)
-
-            if p.bath_names is not None:
-                if vectors.shape != bath.shape:
-                    vectors = vectors[:bath.shape[0]]
-                    # print(vectors.shape)
-                properties = np.broadcast(p.bath_names, p.bath_axes, p.bath_angles)
-
-                for name, axis, angle in properties:
-                    if angle:
-                        which = (bath.N == name)
-
-                        if any(which):
-                            vecs = vectors[which]
-                            rotation = np.dot(bath_rotation(vecs, axis, angle), rotation)
-
-            if initial_rotation is rotation:
-                rotation = None
-
-            p.rotation = rotation
-
-            rots.append(rotation)
-
-        self.delays = delays
-        self.rotations = rots
-        return delays, rots
-
-
-def bath_rotation(vectors, axis, angle):
-    """
-    Generate rotation of the bath spins with given spin vectors.
-
-    Args:
-        vectors (ndarray with shape (n, 3, x, x)): Array of *n* bath spin vectors.
-        axis (str): Axis of rotation.
-        angle (float): Angle of rotation.
-
-    Returns:
-        ndarray with shape (x, x): Matrix representation of the spin rotation.
-
-    """
-    ax = _rot[axis]  # name -> index
-    if (angle == np.pi) and (vectors[0][0, 0, 0] < 1):  # only works for spin-1/2
-        rotation = -1j * 2 * vectors[0][ax]  # 2 here is to transform into pauli matrices
-        for v in vectors[1:]:
-            np.matmul(rotation, -1j * 2 * v[ax], out=rotation)
-    else:
-        rotation = scipy.linalg.expm(-1j * vectors[0][ax] * angle)
-        for v in vectors[1:]:
-            add = scipy.linalg.expm(-1j * v[ax] * angle)
-            np.matmul(rotation, add, out=rotation)
-
-    return rotation

@@ -4,10 +4,12 @@ Module with helper functions to obtain CPMG coherence from the noise autocorrela
 import numba
 import numpy as np
 import scipy.integrate
-from numba import cfunc, carray, jit
-from numba.types import intc, CPointer, float64, int32
+from numba import cfunc, carray
+from numba.types import intc, CPointer, float64
 from scipy import LowLevelCallable
+
 from .constants import PI2
+
 
 def _jit_integrand_function(integrand_function):
     jitted_function = numba.jit(integrand_function, nopython=True)
@@ -47,12 +49,10 @@ def filterfunc(ts, tau, npulses):
         npulses (int): Number of pulses in CPMG sequence.
 
     Returns:
-        ndarray with shape (n,): Filter function for the given CPMG sequence
+        ndarray with shape (n,): Filter function for the given CPMG sequence.
     """
     fs = np.empty(ts.shape)
-    ks = np.empty(npulses) * 2
-    ks[:npulses] = np.arange(npulses)
-    ks[npulses:] = np.arange(npulses)
+    ks = np.r_[np.arange(npulses), np.arange(npulses)]
 
     for i, u in enumerate(ts):
         bad_points = (2 * ks + 1) * tau / npulses
@@ -88,9 +88,9 @@ def gaussian_phase(timespace, corr, npulses, units='khz'):
         ndarray with shape (n,): Random phase accumulated by the qubit.
     """
     if 'rad' not in units:
-        corr *= PI2**2
+        corr *= PI2 ** 2
     timespace = np.asarray(timespace)
-    chis = np.zeros(timespace.shape)
+    chis = np.zeros(timespace.shape, dtype=np.complex128)
     for i, tau in enumerate(timespace):
         if tau == 0:
             chis[i] = 0

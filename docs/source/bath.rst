@@ -1,6 +1,49 @@
 
-Generating the Spin bath
+Spin Bath
 ====================================================================
+
+BathArray
+-----------------------------------------------------------------------
+Documentation for the ``pycce.BathArray`` - central class, containing properties of the bath spins.
+
+.. automodule:: pycce.bath.array
+   :members:
+   :exclude-members: concatenate, implements, update_bath, transform, SpinType, SpinDict, common_isotopes, common_concentrations
+
+.. automethod:: pycce.utilities.rotmatrix
+   :noindex:
+
+BathState
+..............................................................
+
+.. automodule:: pycce.bath.state
+   :members:
+   :exclude-members: objarr, project_bath_states
+
+
+Cube
+..............................................................
+
+.. automodule:: pycce.bath.cube
+   :members:
+
+
+SpinDict and SpinType
+..............................................................
+
+Documentation for the ``SpinDict`` - dict-like class which describes
+the properties of the different types of the spins in the bath.
+
+.. autoclass:: pycce.SpinDict
+   :members:
+
+.. autoclass:: pycce.SpinType
+   :members:
+
+.. autodata:: pycce.bath.array.common_isotopes
+
+.. autodata:: pycce.bath.array.common_concentrations
+   :annotation: = {element ('H', 'He',...) : { isotope ('1H', '2H', ..) : concentration}}
 
 Random bath
 ---------------------------------------------------------------------
@@ -19,42 +62,3 @@ necessary helper functions.
    :members:
    :exclude-members: random_bath
 
-
-BathArray
------------------------------------------------------------------------
-Documentation for the ``pycce.BathArray`` - central class, containing properties of the bath spins.
-
-.. automodule:: pycce.bath.array
-   :members:
-   :exclude-members: concatenate, implements, update_bath, transform, SpinType, SpinDict, common_isotopes, common_concentrations
-
-.. automethod:: pycce.utilities.rotmatrix
-   :noindex:
-
-InteractionMap
-..............................................................
-
-.. automodule:: pycce.bath.map
-   :members:
-
-Cube
-..............................................................
-
-.. automodule:: pycce.bath.cube
-   :members:
-
-SpinDict and SpinType
------------------------------------------------------------------------
-Documentation for the ``SpinDict`` - dict-like class which describes
-the properties of the different types of the spins in the bath.
-
-.. autoclass:: pycce.SpinDict
-   :members:
-
-.. autoclass:: pycce.SpinType
-   :members:
-
-.. autodata:: pycce.bath.array.common_isotopes
-
-.. autodata:: pycce.bath.array.common_concentrations
-   :annotation: = {element ('H', 'He',...) : { isotope ('1H', '2H', ..) : concentration}}

@@ -1,3 +1,3 @@
-from .functions import *
 from .base import *
+from .functions import *
 from .total import *

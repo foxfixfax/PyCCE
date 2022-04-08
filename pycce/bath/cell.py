@@ -1,10 +1,11 @@
-import sys
-from string import digits
 import re
+import sys
 import warnings
+from collections import defaultdict
+from string import digits
+
 import numpy as np
 from pycce.utilities import rotmatrix
-from collections import defaultdict
 
 from .array import BathArray
 from .array import common_concentrations
@@ -317,7 +318,7 @@ class BathCell:
 
         return self.isotopes
 
-    def gen_supercell(self, size, add=None, remove=None, seed=None):
+    def gen_supercell(self, size, add=None, remove=None, seed=None, recenter=True):
         """
         Generate supercell populated with spins.
 
@@ -342,6 +343,10 @@ class BathCell:
                 and its coordinates in the cell basis: ``(atom_name, x_cell, y_cell, z_cell)``.
 
             seed (int): Seed for random number generator.
+
+            recenter (bool):
+                True if place approximate center of the supercell at (0,0,0). False if start supercell
+                at (0, 0, 0). Default True.
 
         .. note::
 
@@ -368,7 +373,7 @@ class BathCell:
         axb = np.cross(self.cell[:, 0], self.cell[:, 1])
         bxc = np.cross(self.cell[:, 1], self.cell[:, 2])
         cxa = np.cross(self.cell[:, 2], self.cell[:, 0])
-
+        # Number of unit cells along a,b,c directions
         anumber = int(size * np.linalg.norm(bxc) / (bxc @ self.cell[:, 0]) + 1)
         bnumber = int(size * np.linalg.norm(cxa) / (cxa @ self.cell[:, 1]) + 1)
         cnumber = int(size * np.linalg.norm(axb) / (axb @ self.cell[:, 2]) + 1)
@@ -378,19 +383,22 @@ class BathCell:
         atoms = []
 
         for a in isotopes:
+            # Number of sites for given type of atom
             nsites = len(self.atoms[a])
-            # print(nsites)
+            # Cartesian of those positions
             sites_xyz = np.asarray(self.atoms[a]) @ self.cell.T
             # print(sites_xyz)
+
             maxind = np.array([anumber,
                                bnumber,
                                cnumber,
                                nsites], dtype=np.int32)
 
             natoms = np.prod(maxind, dtype=np.int32)
+            # 0, 1,2, .. natoms
             atom_seedsites = np.arange(natoms, dtype=np.int32)
             mask = np.zeros(natoms, dtype=bool)
-
+            # C: 13C, 14C
             for i in isotopes[a]:
                 conc = isotopes[a][i]
                 nisotopes = int(round(natoms * conc))
@@ -402,9 +410,14 @@ class BathCell:
                 bcn = bnumber * cnumber * nsites
                 cn = cnumber * nsites
 
-                aindexes = seedsites // bcn - (anumber - 1) // 2  # recenter at 0
-                bindexes = (seedsites % bcn) // cn - (bnumber - 1) // 2
-                cindexes = ((seedsites % bcn) % cn) // nsites - (cnumber - 1) // 2
+                if recenter:
+                    aindexes = seedsites // bcn - (anumber - 1) // 2  # recenter at 0
+                    bindexes = (seedsites % bcn) // cn - (bnumber - 1) // 2
+                    cindexes = ((seedsites % bcn) % cn) // nsites - (cnumber - 1) // 2
+                else:
+                    aindexes = seedsites // bcn
+                    bindexes = (seedsites % bcn) // cn
+                    cindexes = ((seedsites % bcn) % cn) // nsites
 
                 # indexes of the sites
                 nindexes = ((seedsites % bcn) % cn) % nsites
@@ -578,9 +591,9 @@ def random_bath(names, size, number=1000, density=None, types=None,
 
         center (ndarray with shape (3,)): Coordinates of the (0, 0, 0) point of the final coordinate system
             in the initial coordinates. Default is ``size / 2`` - center is in the middle of the box.
-
+        seed (int): Seed for random number generator.
     Returns:
-        BathArray with shape (np.prod(number)): Array of the bath spins with random positions.
+        BathArray with shape (np.prod(number),): Array of the bath spins with random positions.
     """
     size = np.asarray(size)
     unit_conversion = {'a': 1, 'cm': 1e-8, 'm': 1e-10}
@@ -633,6 +646,20 @@ def random_bath(names, size, number=1000, density=None, types=None,
 
     spins.xyz = generator.random(spins.xyz.shape) * size - center
     return spins
+
+
+def read_ase(atoms_object):
+    """
+    Generate ``BathCell`` instance from ``ase.Atoms`` object of Atomic Simulations Environment (ASE) package.
+
+    Args:
+        atoms_object (Atoms): Atoms object, used to generate new ``BathCell`` instance.
+
+    Returns:
+        BathCell: New instance of the ``BathCell`` with atoms read from ``ase.Atoms``.
+    """
+
+    return BathCell.from_ase(atoms_object)
 
 
 def defect(cell, atoms, add=None, remove=None):

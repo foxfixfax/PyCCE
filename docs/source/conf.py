@@ -24,7 +24,7 @@ copyright = '2021, Mykyta Onizhuk'
 author = 'Mykyta Onizhuk'
 
 # The full version, including alpha/beta/rc tags
-release = '0.6.8'
+release = '1.0.0'
 
 
 # -- General configuration ---------------------------------------------------
@@ -69,6 +69,9 @@ html_static_path = ['_static']
 # The name of the Pygments (syntax highlighting) style to use.
 pygments_style = 'sphinx'
 
+nbsphinx_input_prompt = '%.0s'
+nbsphinx_output_prompt = '%.0s'
+nbsphinx_prompt_width = '0'
 
 autodoc_member_order = 'bysource'
 add_module_names = False
