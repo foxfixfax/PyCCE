@@ -833,7 +833,7 @@ class BathArray(np.ndarray):
         else:
             array = self.copy()
 
-        gyros = array.types[array].gyro
+        gyros = array.gyro
 
         if array.nc > 1:
             array.A[:, which] = cube.integrate(array.xyz, gyros, gyro_center, **kwargs)
