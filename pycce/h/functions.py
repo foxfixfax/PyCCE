@@ -427,7 +427,6 @@ def projected_addition(vectors, bath, center, state):
         try:
 
             iterator = iter(state)  # iterable
-            state = state[0]
 
         except TypeError:
             for i, c in enumerate(center):

@@ -131,6 +131,8 @@ class CCE(RunObject):
 
     def __init__(self, *args, as_delay=False, second_order=False,
                  level_confidence=0.95, **kwargs):
+        self.key_alpha = None
+        self.key_beta = None
 
         self.initial_pulses = None
         """int or Sequence: Input pulses"""
@@ -184,28 +186,39 @@ class CCE(RunObject):
             angles = np.array([p._angles for p in pulses])
             naxes = [p.naxes for p in pulses]
 
-            c0 = all(p.which is None for p in pulses)
-            c1 = all(n <= 1 for n in naxes)
-            c2 = all([not p.keys() for p in pulses])
-            c3 = all([not p._has_delay for p in pulses])
-
-            if (c0 & c1 & c2 & c3) or not number:
+            if not number:
                 self.pulses = number
 
             else:
-                self.pulses = self.initial_pulses
-                self.use_pulses = True
+                c0 = all(p.which is None for p in pulses)
+                c1 = all(n <= 1 for n in naxes)
+                c2 = all([not p.keys() for p in pulses])
+                c3 = all([not p._has_delay for p in pulses])
+                c4 = np.isclose(angles, np.pi).any(axis=1).all()
 
-            if not c1 or not (np.isclose(angles, np.pi) | np.isclose(angles, 0)).all():
-                raise ValueError('Only pi-pulses are supported in CCE. Use gCCE for user-defined sequences.')
+                if c0 & c1 & c2 & c3 & c4:
+                    self.pulses = number
+                else:
+                    self.pulses = self.initial_pulses
+                    self.use_pulses = True
 
-            if not c0 and self.second_order:
-                raise ValueError('Only full flip pulses are supported in CCE with second order corrections')
+                if not c1 or not (np.isclose(angles, np.pi) | np.isclose(angles, 0)).all():
+                    raise ValueError('Only pi-pulses are supported in CCE. Use gCCE for user-defined sequences.')
+
+                if not c0 and self.second_order:
+                    raise ValueError('Only full flip pulses are supported in CCE with second order corrections')
 
         except TypeError:
             self.pulses = self.initial_pulses
 
         self.center.generate_projections(second_order=self.second_order, level_confidence=self.level_confidence)
+
+        if self.center.state_index is not None and isinstance(self.center.state_index, np.ndarray):
+            self.key_alpha = self.center.state_index[:, 0]
+            self.key_beta = self.center.state_index[:, 1]
+        else:
+            self.key_alpha = np.ones(len(self.center), dtype=bool)
+            self.key_beta = np.zeros(len(self.center), dtype=bool)
 
     def postprocess(self):
         super().postprocess()
@@ -310,13 +323,13 @@ class CCE(RunObject):
     def _no_delays(self):
         delays = self.timespace if self.as_delay else self.timespace / (2 * len(self.pulses))
 
-        ha, hb = self._proj_ham()
+        key_alpha = list(self.key_alpha)
+        key_beta = list(self.key_beta)
+
+        ha, hb = self._proj_ham(alpha=key_alpha, beta=key_beta)
 
         v0, v1 = simple_propagators(delays, ha, hb)
         vs = {}
-
-        key_alpha = [True] * self.center.size
-        key_beta = [False] * self.center.size
 
         vs[tuple(key_alpha)] = v0
         vs[tuple(key_beta)] = v1
@@ -358,15 +371,16 @@ class CCE(RunObject):
     def _delays(self):
 
         times = 0
-        ha, hb = self._proj_ham()
+        key_alpha = list(self.key_alpha)
+        key_beta = list(self.key_beta)
+
+        ha, hb = self._proj_ham(alpha=key_alpha, beta=key_beta)
+
         eval0, evec0 = np.linalg.eigh(ha * PI2)
         eval1, evec1 = np.linalg.eigh(hb * PI2)
 
         # for timesteps, rotation in zip(pulses.delays, pulses.rotations):
         eval_evec = {}
-        key_alpha = [True] * self.center.size
-        key_beta = [False] * self.center.size
-
         eval_evec[tuple(key_alpha)] = eval0, evec0
         eval_evec[tuple(key_beta)] = eval1, evec1
 

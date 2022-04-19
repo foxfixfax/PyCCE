@@ -63,6 +63,7 @@ class Center:
 
             Default 0.
     """
+    _state_mapping = {0: 'beta', 1: 'alpha'}
 
     def __init__(self, position=None,
                  spin=0, D=0, E=0,
@@ -314,8 +315,10 @@ class Center:
     def _set_state(self, name, state):
         if state is not None:
             state = np.asarray(state)
-            if state.size == 1:
+            if state.size == 1 and np.issubdtype(state.dtype, int):
                 setattr(self, name + '_index', int(state))
+            elif state.dtype == bool:
+                setattr(self, name + '_index', state)
             else:
                 assert state.size == np.prod(self.dim), f"Incorrect format of {name}: {state}"
                 setattr(self, '_' + name, normalize(state))
@@ -337,6 +340,11 @@ class Center:
             return state
 
         return None
+
+    def get_state(self, name):
+        if not isinstance(name, str):
+            name = self._state_mapping[name]
+        return self._get_state(name)
 
     def generate_states(self, magnetic_field=None, bath=None, projected_bath_state=None):
         r"""
@@ -663,8 +671,22 @@ class CenterArray(Center, collections.abc.Sequence):
         ndarray: Initial state of the qubit in gCCE simulations.
         Assumed to be :math:`\frac{1}{\sqrt{2}}(\ket{0} + \ket{1})` unless provided."""
         state = super(CenterArray, self)._get_state('state')
+
+        if isinstance(state, np.ndarray) and state.dtype == bool:
+            state = state.reshape(-1, 2)
+
+            alpha = 1
+            beta = 1
+
+            for c, s in zip(self, state):
+                alpha = np.kron(alpha, c.get_state(s[0]))
+                beta = np.kron(beta, c.get_state(s[1]))
+
+            return normalize(alpha + beta)
+
         if state is not None:
             return state
+
         else:
             self._check_states()
             return normalize(self.alpha + self.beta)
@@ -764,7 +786,6 @@ class CenterArray(Center, collections.abc.Sequence):
                 self.imap[i, j] = point_dipole(c1.xyz - c2.xyz, c1.gyro, c2.gyro)
 
     def generate_states(self, magnetic_field=None, bath=None, projected_bath_state=None):
-
         if isinstance(bath, BathArray):
             projected_bath_state = bath.proj
             bath = bath.A
@@ -782,7 +803,7 @@ class CenterArray(Center, collections.abc.Sequence):
 
         super(CenterArray, self).generate_states(magnetic_field=magnetic_field,
                                                  bath=bath, projected_bath_state=projected_bath_state)
-        if self.state_index is not None:
+        if self.state_index is not None and isinstance(self.state_index, (int, np.integer)):
             self._state = np.ascontiguousarray(self.eigenvectors[:, self.state_index])
 
     def generate_projections(self, second_order=False, level_confidence=0.95):
@@ -822,7 +843,9 @@ class CenterArray(Center, collections.abc.Sequence):
 
         """
         self._check_states()
+
         if second_order:
+
             ai = _close_state_index(self.alpha, self.eigenvectors, level_confidence=level_confidence)
             bi = _close_state_index(self.beta, self.eigenvectors, level_confidence=level_confidence)
 
@@ -867,6 +890,7 @@ class CenterArray(Center, collections.abc.Sequence):
         Returns:
             float: Energy of the qubit state.
         """
+
         if which == 'alpha' or which == True:
             return self.energy_alpha
         elif which == 'beta' or which == False:
@@ -875,6 +899,7 @@ class CenterArray(Center, collections.abc.Sequence):
     def generate_sigma(self):
         self._check_states()
         super(CenterArray, self).generate_sigma()
+
         for i, c in enumerate(self):
             if c.alpha is not None and c.beta is not None:
                 try:

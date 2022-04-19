@@ -123,7 +123,8 @@ class PWCoordinates(DFTCoordinates):
             None
 
         """
-        lines = open(filename).readlines()
+        with open(filename) as f:
+            lines = f.readlines()
         alat_index = find_first_index('lattice parameter (alat)', lines)
 
         self.alat = float(lines[alat_index].split()[-2]) * BOHR_TO_ANGSTROM
@@ -198,7 +199,9 @@ class PWCoordinates(DFTCoordinates):
             to_angstrom (bool): True if automatically convert the units of ``cell`` and ``coordinates`` to Angstrom.
 
         """
-        input_string = open(filename).read()
+        with open(filename) as f:
+            input_string = f.read()
+
         namelists = read_qe_namelists(input_string.lower())
         lines = input_string.splitlines()
 
@@ -501,7 +504,8 @@ def read_hyperfine(filename, spin=1):
     """
     conversion = MHZ_TO_KHZ / (2 * spin)
 
-    lines = open(filename).readlines()
+    with open(filename) as f:
+        lines = f.readlines()
 
     dipol_keyword = 'total dipolar (symmetrized)'
     contact_keyword = 'Fermi contact in MHz'
@@ -532,7 +536,9 @@ def read_efg(filename):
 
     """
     efg_kw = 'total EFG (symmetrized)'
-    lines = open(filename).readlines()
+    with open(filename) as f:
+        lines = f.readlines()
+
     tensors = read_gipaw_tensors(lines, keyword=efg_kw, conversion=EFG_CONVERSION)
 
     return np.asarray(tensors)
