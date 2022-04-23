@@ -450,9 +450,12 @@ def _gen_key(p, key_alpha, key_beta):
     if p.flip:
         if p.which is None:
             key_alpha, key_beta = key_beta, key_alpha
+            # key_alpha = [not k for k in key_alpha]
+            # key_beta = [not k for k in key_beta]
         else:
             for index in p.which:
-                key_alpha[index], key_beta[index] = key_beta[index], key_alpha[index]
+                key_alpha[index] = not key_alpha[index]
+                key_beta[index] = not key_beta[index]
     return key_alpha, key_beta
 
 # def compute_coherence(H0, H1, timespace, N, as_delay=False, states=None):
