@@ -62,6 +62,48 @@ def expand(matrix, i, dim):
     return expanded_matrix
 
 
+def partial_trace(dmarray, dimensions, sel):
+    """
+    Compute partial trace of the operator (or array of operators).
+
+    Args:
+        dmarray (ndarray with shape (N, N) or (m, N, N):
+        dimensions (array-like): Array of all dimensions of the system.
+        sel (int or array-like): Index or indexes of dimensions to keep.
+
+    Returns:
+        ndarray with shape (n, n) or (m, n, n): Partially traced operator.
+    """
+    sel = np.asarray(sel, dtype=int).reshape(-1)
+    dimensions = np.asarray(dimensions, dtype=int)
+    lendim = len(dimensions)
+
+    initial_shape = dmarray.shape
+
+    if len(initial_shape) > 2:
+        dmarray.shape = (initial_shape[0], *dimensions, *dimensions)
+        add = 1
+    else:
+        add = 0
+        dmarray.shape = (*dimensions, *dimensions)
+
+    indexes = np.delete(np.arange(lendim, dtype=int), sel)
+    dims = dimensions.copy()
+    for ind in indexes:  # The last one is el spin
+        dims[ind] = 1
+        dmarray = np.trace(dmarray, axis1=ind + add, axis2=lendim + ind + add)
+        if add:
+            dmarray = dmarray.reshape(initial_shape[0], *dims, *dims)
+        else:
+            dmarray = dmarray.reshape(*dims, *dims)
+    after_tr = dimensions[sel].prod()
+    if add:
+        dmarray = dmarray.reshape(initial_shape[0], after_tr, after_tr)
+    else:
+        dmarray = dmarray.reshape(after_tr, after_tr)
+
+    return dmarray
+
 def partial_inner_product(avec, total, dimensions, index=-1):
     r"""
     Returns partial inner product :math:`\ket{b}=\bra{a}\ket{\psi}`, where :math:`\ket{a}` provided by
