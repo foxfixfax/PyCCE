@@ -1239,7 +1239,6 @@ def _broadcast_simulator(simulator=None, root=0):
     else:
         bath = None
         center = None
-        simulator = None
 
     nbath = broadcast_array(bath, root=root)
     ncenter = broadcast_array(center, root=root)
