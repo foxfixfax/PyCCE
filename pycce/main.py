@@ -1244,7 +1244,16 @@ def _broadcast_simulator(simulator=None, root=0):
     nbath = broadcast_array(bath, root=root)
     ncenter = broadcast_array(center, root=root)
 
+    dict_with_attr = vars(simulator)
+    callable_attr = {}
+    for k in dict_with_attr:
+        if callable(dict_with_attr[k]):
+            callable_attr[k] = dict_with_attr[k]
+            dict_with_attr[k] = None
+
     nsim = comm.bcast(simulator, root=root)
+    for k in callable_attr:
+        setattr(nsim, k, callable_attr[k])
 
     nsim.center = ncenter
     nsim._bath = nbath

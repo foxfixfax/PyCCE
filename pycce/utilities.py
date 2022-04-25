@@ -89,7 +89,7 @@ def partial_trace(dmarray, dimensions, sel):
 
     indexes = np.delete(np.arange(lendim, dtype=int), sel)
     dims = dimensions.copy()
-    for ind in indexes:  # The last one is el spin
+    for ind in indexes:
         dims[ind] = 1
         dmarray = np.trace(dmarray, axis1=ind + add, axis2=lendim + ind + add)
         if add:
