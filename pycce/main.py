@@ -1239,6 +1239,11 @@ def _broadcast_simulator(simulator=None, root=0):
     else:
         bath = None
         center = None
+        try:
+            simulator._bath = None
+            simulator.center = None
+        except AttributeError:
+            pass
 
     nbath = broadcast_array(bath, root=root)
     ncenter = broadcast_array(center, root=root)
