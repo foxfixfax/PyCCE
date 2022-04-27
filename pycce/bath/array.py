@@ -1387,9 +1387,9 @@ def _get_sd_attribute(array, attribute_name):
 
         if check:
             if attribute_name == 'dim':
-                values = np.empty(array.shape, dtype=np.float64)
-            else:
                 values = np.empty(array.shape, dtype=int)
+            else:
+                values = np.empty(array.shape, dtype=np.float64)
 
             for n, v in zip(unique_names, temp_values):
                 values[array.N == n] = v
