@@ -360,8 +360,22 @@ def expand_clusters(sc):
 
     return newsc
 
+def default_strength(bath, bonds):
+    row_ind, col_ind = bonds.T
+    r = bath[col_ind].dist(bath[row_ind])
 
-def find_valid_subclusters(graph, maximum_order, nclusters=None, bath=None, strong=False, ):
+    gyros_1 = bath[col_ind].gyro
+    gyros_2 = bath[row_ind].gyro
+    if len(gyros_1.shape) > 1:
+        gyros_1 = np.abs(gyros_1.reshape(gyros_1.shape[0], -1)).max(axis=1)
+    if len(gyros_2.shape) > 1:
+        gyros_2 = np.abs(gyros_2.reshape(gyros_2.shape[0], -1)).max(axis=1)
+
+    return np.abs(gyros_1 * gyros_2 / r ** 3)
+
+
+
+def find_valid_subclusters(graph, maximum_order, nclusters=None, bath=None, strong=False, compute_strength=None):
     """
     Find subclusters from connectivity matrix.
 
