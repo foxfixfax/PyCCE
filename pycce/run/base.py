@@ -189,7 +189,7 @@ class RunObject:
 
         self.has_states = False
         """bool: Whether there are states provided in the bath during the run."""
-        self.initial_states_mask = bath.has_state
+        self.initial_states_mask = bath.has_state.copy()
         """ndarray: Bool array of the states, initially present in the bath."""
         self.pulses = pulses
         """ Sequence: Sequence object, containing series of pulses, applied to the system."""
