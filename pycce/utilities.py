@@ -75,6 +75,7 @@ def partial_trace(dmarray, dimensions, sel):
         ndarray with shape (n, n) or (m, n, n): Partially traced operator.
     """
     sel = np.asarray(sel, dtype=int).reshape(-1)
+    dmarray = dmarray.copy()
     dimensions = np.asarray(dimensions, dtype=int)
     lendim = len(dimensions)
 

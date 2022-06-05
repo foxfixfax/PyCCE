@@ -300,8 +300,11 @@ class gCCE(RunObject):
         evalues, evec = np.linalg.eigh(self.hamiltonian * PI2)
 
         full_u = np.eye(self.base_hamiltonian.data.shape[0], dtype=np.complex128)
+        times = 0
 
         for delay, rotation in zip(self.delays, self.rotations):
+            times += delay
+
             eigexp = np.exp(-1j * np.outer(delay, evalues),
                             dtype=np.complex128)
 
@@ -313,7 +316,16 @@ class gCCE(RunObject):
             if rotation is not None:
                 full_u = np.matmul(rotation, full_u)
 
+        which = np.isclose(self.timespace, times)
+
+        if ((self.timespace - times)[~which] >= 0).all():
+            u = simple_propagator(self.timespace - times, self.hamiltonian)
+
             full_u = np.matmul(u, full_u)
+
+        elif not which.all():
+            raise ValueError(f"Pulse sequence time steps add up to larger than total times. Delays at"
+                             f"{self.timespace[(self.timespace - times) < 0]} ms are longer than total time.")
 
         return full_u
 
