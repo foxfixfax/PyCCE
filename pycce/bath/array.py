@@ -300,6 +300,10 @@ class BathArray(np.ndarray):
         return _get_sd_attribute(self, 'h')
 
     @property
+    def so(self):
+        return _get_sd_attribute(self, 'so')
+
+    @property
     def name(self):
         """
         ndarray: Array of the ``name`` attribute for each spin in the array from ``types`` dictionary.
@@ -1477,7 +1481,8 @@ class SpinType:
         self.gyro = gyro
         self.q = q
         self.detuning = detuning
-        self._h = None
+        self._h = None  # custom hamiltonian
+        self._so = None  # superoperators
 
     def __eq__(self, obj):
         if not isinstance(obj, SpinType):
@@ -1494,6 +1499,15 @@ class SpinType:
         if self._h is None:
             self._h = {}
         return self._h
+
+    @property
+    def so(self):
+
+        if self._so is None:
+            self._so = {}
+        # thinking about making a key with coma, before coma - left redfield operator, after - right redfield operator
+        return self._so
+
 
     @property
     def name(self):

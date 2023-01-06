@@ -78,6 +78,7 @@ class Center:
         self._xyz = None
         self._s = None
         self._h = {}
+        self._so = {}
 
         self._detuning = None
 
@@ -203,6 +204,11 @@ class Center:
     @property
     def h(self):
         return self._h
+
+    @property
+    def so(self):
+        return self._so
+
 
     @detuning.setter
     def detuning(self, detune):

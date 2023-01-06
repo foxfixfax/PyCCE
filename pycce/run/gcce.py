@@ -3,8 +3,7 @@ from numpy import ma as ma
 from pycce.bath.array import BathArray
 from pycce.constants import PI2
 from pycce.h import total_hamiltonian
-from pycce.run import simple_propagator
-from pycce.run.base import RunObject, generate_initial_state
+from pycce.run.base import RunObject, generate_initial_state, simple_propagator
 from pycce.utilities import shorten_dimensions, outer
 
 
