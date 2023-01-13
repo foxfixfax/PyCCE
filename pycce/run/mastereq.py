@@ -1,4 +1,5 @@
 import numpy as np
+import scipy
 from numpy import ma as ma
 from pycce.bath.array import BathArray
 from pycce.constants import PI2
@@ -22,13 +23,15 @@ def simple_incoherent_propagator(timespace, lindbladian):
         ndarray with shape (n, N, N): Master equation propagators, evaluated at each timepoint. Use with vector form
             of density matrix.
     """
-    evalues, evec = np.linalg.eig(lindbladian * PI2)
-
-    eigexp = np.exp(np.outer(timespace, evalues),
-                    dtype=np.complex128)
-
-    return np.matmul(np.einsum('...ij,...j->...ij', evec, eigexp, dtype=np.complex128),
-                     evec.conj().T)
+    return scipy.linalg.expm(timespace[:, np.newaxis, np.newaxis] * lindbladian[np.newaxis, :] * PI2)
+    
+    # evalues, evec = np.linalg.eig(lindbladian * PI2)
+    #
+    # eigexp = np.exp(np.outer(timespace, evalues),
+    #                 dtype=np.complex128)
+    #
+    # return np.matmul(np.einsum('...ij,...j->...ij', evec, eigexp, dtype=np.complex128),
+    #                  evec.conj().T)
 
 
 def collapse_superoperator(superoperators, index, dims):
