@@ -48,11 +48,12 @@ class Hamiltonian:
     def __delitem__(self, key):
         self.data.__delitem__(key)
 
-    def __getattr__(self, item):
-        if item in dir(self):
-            return getattr(self, item)
-        else:
-            return getattr(self.data, item)
+    #
+    # def __getattr__(self, item):
+    #     if item in dir(self):
+    #         return getattr(self, item)
+    #     else:
+    #         return getattr(self.data, item)
 
     @classmethod
     def from_bath(cls, bath, center=None):

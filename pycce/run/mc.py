@@ -139,7 +139,8 @@ def monte_carlo_method_decorator(func):
                     divider_shape = None
 
                 divider_shape = comm.bcast(divider_shape, root=0)
-
+                if np.array(divider).shape != divider_shape:
+                    divider = np.zeros(divider_shape, dtype=np.int32)
                 root_divider = np.zeros(divider_shape, dtype=np.int32)
                 comm.Allreduce(divider, root_divider, MPI.SUM)
 
