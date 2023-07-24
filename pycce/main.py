@@ -24,6 +24,7 @@ from .run.cce import CCE
 from .run.corr import CCENoise, gCCENoise
 from .run.gcce import gCCE
 from .run.pulses import Sequence
+from .run.mastereq import Lindblad
 from .utilities import _add_args
 
 _returns = r"""
@@ -1127,6 +1128,25 @@ class Simulator:
 
         return result
 
+    def full_bath_compute(self, timespace, quantity='coherence', method='cce', **kwargs):
+        self.timespace = timespace
+        self._prepare(**kwargs)
+        return_dms = False
+        if quantity == 'dm':
+            return_dms = True
+            quantity = 'coherence'
+
+        runner = self._compute_func[method.lower()][quantity.lower()].from_simulator(self)
+        if return_dms:
+            runner.store_states = True
+        self.runner = runner
+
+        result = runner.run_with_total_bath()
+        if return_dms:
+            result = runner.cluster_evolved_states
+
+        return result
+
     def _broadcast(self):
         """
         Update attributes for the ``Simulator`` object from the root process.
@@ -1145,6 +1165,10 @@ class Simulator:
         'gcce': {
             'coherence': gCCE,
             'noise': gCCENoise,
+        },
+        'me': {
+            'coherence': Lindblad,
+            
         }
     }
 

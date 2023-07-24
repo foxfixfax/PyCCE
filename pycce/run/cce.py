@@ -258,7 +258,8 @@ class CCE(RunObject):
 
         if self.states is None:
             coherence_function = np.einsum('zij,zij->z', unitary_0, unitary_1.conj()) / unitary_0.shape[1]
-
+            if self.store_states:
+                self.cluster_evolved_states = unitary_0 / unitary_0.shape[1], unitary_1 / unitary_1.shape[1]
         else:
             dm = generate_initial_state(self.base_hamiltonian.dimensions, states=self.states)
             # tripple einsum is slow
@@ -267,13 +268,21 @@ class CCE(RunObject):
 
                 dm_udagger = np.matmul(dm, unitary_1.conj().transpose(0, 2, 1))
                 coherence_function = np.trace(np.matmul(unitary_0, dm_udagger), axis1=1, axis2=2)
+                if self.store_states:
+                    dm0_udagger = np.matmul(dm, unitary_0.conj().transpose(0, 2, 1))
+                    dm0 = np.matmul(unitary_0, dm0_udagger)
 
+                    dm1_udagger = np.matmul(dm, unitary_1.conj().transpose(0, 2, 1))
+                    dm1 = np.matmul(unitary_1, dm1_udagger)
+                    self.cluster_evolved_states = dm0, dm1
             else:
 
                 rightside = unitary_1 @ dm
                 leftside = unitary_0 @ dm
 
                 coherence_function = np.einsum('ki,ki->k', leftside.conj(), rightside)
+                if self.store_states:
+                    self.cluster_evolved_states = leftside, rightside
 
         return coherence_function
 

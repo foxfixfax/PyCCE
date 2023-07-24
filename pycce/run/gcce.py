@@ -215,11 +215,16 @@ class gCCE(RunObject):
         if initial_state.ndim > 1:
             # rho U^\dagger
             dm_udagger = np.matmul(initial_state, unitary_evolution.conj().transpose(0, 2, 1))
+
             # U rho U^\dagger
             result = np.matmul(unitary_evolution, dm_udagger)
+            if self.store_states:
+                self.cluster_evolved_states = result.copy()
         else:
             # |dm> = U|dm>
             result = unitary_evolution @ initial_state
+            if self.store_states:
+                self.cluster_evolved_states = result
             # |dm><dm|
             result = np.einsum('ki,kj->kij', result, result.conj())
 

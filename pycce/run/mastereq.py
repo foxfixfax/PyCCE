@@ -120,12 +120,6 @@ class Lindblad(gCCE):
         return result
 
     def postprocess(self):
-        self.result = self.zero_cluster * self.result
-        if self.fulldm:
-            self.result = self.result.filled()
-        elif self.normalized:
-            self.result = self.result / self.normalization
-
         super().postprocess()
 
         # else:
@@ -178,6 +172,9 @@ class Lindblad(gCCE):
 
         result = non_unitary_evolution @ initial_state
         result = vec_to_mat(result)
+
+        if self.store_states:
+            self.cluster_evolved_states = result.copy()
 
         initial_shape = result.shape
         result.shape = (initial_shape[0], *dimensions, *dimensions)
