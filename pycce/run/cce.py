@@ -111,9 +111,6 @@ class CCE(RunObject):
             number of pulses in CPMG sequence or instance of Sequence object.
             For now, only CPMG sequences are supported in conventional CCE simulations.
 
-        as_delay (bool):
-            True if time points are delay between pulses, False if time points are total time.
-
         second_order (bool):
             True if add second order perturbation theory correction to the cluster Hamiltonian.
             If set to True sets the qubit states as eigenstates of central spin Hamiltonian from the following
@@ -129,7 +126,7 @@ class CCE(RunObject):
 
     """
 
-    def __init__(self, *args, as_delay=False, second_order=False,
+    def __init__(self, *args, second_order=False,
                  level_confidence=0.95, **kwargs):
         self.key_alpha = None
         self.key_beta = None
@@ -139,8 +136,6 @@ class CCE(RunObject):
         self.pulses = None
         """int or Sequence: If input Sequence contains only pi pulses at even delay, stores number of pulses.
         Otherwise stores full ``Sequence``."""
-        self.as_delay = as_delay
-        """bool: True if time points are delay between pulses, False if time points are total time."""
         self.second_order = second_order
         """bool: True if add second order perturbation theory correction to the cluster hamiltonian."""
         self.level_confidence = level_confidence

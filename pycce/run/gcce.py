@@ -61,9 +61,6 @@ class gCCE(RunObject):
 
         pulses (Sequence): Sequence object, containing series of pulses, applied to the system.
 
-        as_delay (bool):
-            True if time points are delay between pulses, False if time points are total time.
-
         fulldm (bool):
             True if return full density matrix. Default False.
 
@@ -71,10 +68,7 @@ class gCCE(RunObject):
 
     """
 
-    def __init__(self, *args, i=None, j=None, as_delay=False, fulldm=False, normalized=True, **kwargs):
-
-        self.as_delay = as_delay
-        """ bool: True if time points are delay between pulses, False if time points are total time."""
+    def __init__(self, *args, i=None, j=None, fulldm=False, normalized=True, **kwargs):
 
         self.dm0 = None
         """ ndarray with shape (2s+1, 2s+1): Initial density matrix of the central spin."""

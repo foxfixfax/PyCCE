@@ -68,6 +68,9 @@ class RunObject:
             tensor corresponding to interaction between magnetic field and
             central spin.
 
+        as_delay (bool):
+            True if time points are delay between pulses, False if time points are total time.
+
         nbstates (int): Number of random bath states to sample over in bath state sampling runs.
 
         bath_state (ndarray): Array of bath states in any accepted format.
@@ -136,6 +139,7 @@ class RunObject:
                  direct=False,
                  parallel_states=False,
                  store_states=False,
+                 as_delay=False,
                  **kwargs):
 
         self.nbstates = nbstates
@@ -155,6 +159,8 @@ class RunObject:
         """ndarray or callable: Magnetic field of type ``magnetic_field = np.array([Bx, By, Bz])``,
         or a function that takes position as an argument."""
 
+        self.as_delay = as_delay
+        """bool: True if time points are delay between pulses, False if time points are total time."""
         self.parallel = parallel
         """bool: True if parallelize calculation of cluster contributions over different mpi processes.
         Default False."""

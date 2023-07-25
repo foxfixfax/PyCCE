@@ -3,10 +3,12 @@ import scipy
 from numpy import ma as ma
 from pycce.bath.array import BathArray
 from pycce.constants import PI2
-from pycce.h import total_hamiltonian
+from pycce.h import total_hamiltonian, projected_addition
 from pycce.run.base import RunObject, generate_initial_state, simple_propagator
 from pycce.utilities import shorten_dimensions, outer, expand
 from pycce.run.gcce import gCCE, rotation_propagator
+from pycce.run.cce import CCE, _rotmul, _gen_key
+
 from pycce.sm import _smc
 
 
@@ -24,7 +26,7 @@ def simple_incoherent_propagator(timespace, lindbladian):
             of density matrix.
     """
     return scipy.linalg.expm(timespace[:, np.newaxis, np.newaxis] * lindbladian[np.newaxis, :] * PI2)
-    
+
     # evalues, evec = np.linalg.eig(lindbladian * PI2)
     #
     # eigexp = np.exp(np.outer(timespace, evalues),
@@ -71,6 +73,11 @@ def coherent_superoperator(hamiltonian):
     return -1j * (op_to_supop(hamiltonian, eye) - op_to_supop(eye, hamiltonian))
 
 
+def projected_coherent_superoperator(hamiltonian0, hamiltonian1):
+    eye = np.eye(hamiltonian0.shape[0], dtype=np.complex128)
+    return -1j * (op_to_supop(hamiltonian0, eye) - op_to_supop(eye, hamiltonian1))
+
+
 def mat_to_vec(operator):
     return operator.reshape(np.prod(operator.shape))
 
@@ -87,9 +94,8 @@ def op_to_supop(left_operator, right_operator):
 
 
 class Lindblad(gCCE):
-
     def __init__(self, *args, **kwargs):
-        self.lindbladian = None
+        self.superoperator = None
         super().__init__(*args, **kwargs)
 
     def preprocess(self):
@@ -138,12 +144,138 @@ class Lindblad(gCCE):
 
         return ham
 
-    def get_hamiltonian_variable_bath_state(self, index=0):
-        super().get_hamiltonian_variable_bath_state(index=index)
-        self.lindbladian = coherent_superoperator(self.hamiltonian)
-        self.lindbladian += incoherent_superoperator(self.cluster, self.base_hamiltonian.dimensions)
-        self.lindbladian += incoherent_superoperator(self.center, self.base_hamiltonian.dimensions,
-                                                     offset=self.cluster.size)
+    def get_superoperator(self):
+        self.superoperator = coherent_superoperator(self.hamiltonian)
+        self.superoperator += incoherent_superoperator(self.cluster, self.base_hamiltonian.dimensions)
+        self.superoperator += incoherent_superoperator(self.center, self.base_hamiltonian.dimensions,
+                                                       offset=self.cluster.size)
+
+    def super_propagator(self):
+
+        if not self.pulses:
+            return simple_incoherent_propagator(self.timespace, self.superoperator)
+
+        if self.delays is None:
+            if self.projected_states is None:
+                return self._no_delays_no_ps_super()
+            # proj_states is not None - there are bath rotations alas
+            return self._no_delays_ps_super()
+
+        # There are delays but no bath flips
+        if self.projected_states is None:
+            return self._delays_no_ps_super()
+
+        # The most complicated case - both projected_states is not None and delays is not None
+        return self._delays_ps_super()
+
+    def generate_pulses(self):
+        delays, rotations = super(Lindblad, self).generate_pulses()
+        rotations = [op_to_supop(rot, rot.conj().T) if rot is not None else None for rot in rotations]
+        self.rotations = rotations
+        return delays, rotations
+
+    def _no_delays_no_ps_super(self):
+
+        delays = self.timespace if self.as_delay else self.timespace / (2 * len(self.pulses))
+
+        # Same propagator for all parts
+        u = simple_incoherent_propagator(delays, self.superoperator)
+
+        return rotation_propagator(u, self.rotations)
+
+    def _no_delays_ps_super(self):
+        delays = self.timespace if self.as_delay else self.timespace / (2 * len(self.pulses))
+
+        self.get_hamiltonian_variable_bath_state(0)
+        self.get_superoperator()
+
+        u = simple_incoherent_propagator(delays, self.superoperator)
+
+        full_u = np.eye(self.superoperator.shape[0], dtype=np.complex128)
+
+        ps_counter = 0
+
+        for p, rotation in zip(self.pulses, self.rotations):
+
+            full_u = np.matmul(u, full_u)
+
+            if rotation is not None:
+                full_u = np.matmul(rotation, full_u)
+
+                if p.bath_names is not None:
+                    ps_counter += 1
+                    self.get_hamiltonian_variable_bath_state(ps_counter)
+                    u = simple_incoherent_propagator(delays, self.superoperator)
+
+            full_u = np.matmul(u, full_u)
+
+        return full_u
+
+    def _delays_no_ps_super(self):
+
+        evalues, evec = np.linalg.eigh(self.superoperator * PI2)
+
+        full_u = np.eye(self.superoperator.shape[0], dtype=np.complex128)
+        times = 0
+        for delay, rotation in zip(self.delays, self.rotations):
+            times += delay
+
+            eigexp = np.exp(np.outer(delay, evalues),
+                            dtype=np.complex128)
+
+            u = np.matmul(np.einsum('ij,kj->kij', evec, eigexp, dtype=np.complex128),
+                          evec.conj().T)
+
+            full_u = np.matmul(u, full_u)
+
+            if rotation is not None:
+                full_u = np.matmul(rotation, full_u)
+
+        which = np.isclose(self.timespace, times)
+
+        if ((self.timespace - times)[~which] >= 0).all():
+            u = simple_incoherent_propagator(self.timespace - times, self.superoperator)
+
+            full_u = np.matmul(u, full_u)
+
+        elif not which.all():
+            raise ValueError(f"Pulse sequence time steps add up to larger than total times. Delays at"
+                             f"{self.timespace[(self.timespace - times) < 0]} ms are longer than total time.")
+
+        return full_u
+
+    def _delays_ps_super(self):
+        self.get_hamiltonian_variable_bath_state(0)
+        self.get_superoperator()
+        full_u = np.eye(self.superoperator.shape[0], dtype=np.complex128)
+
+        ps_counter = 0
+        times = 0
+
+        for p, rotation, delay in zip(self.pulses, self.rotations, self.delays):
+            times += delay
+            u = simple_incoherent_propagator(delay, self.superoperator)
+            full_u = np.matmul(u, full_u)
+
+            if rotation is not None:
+                full_u = np.matmul(rotation, full_u)
+
+                if p.bath_names is not None:
+                    ps_counter += 1
+                    self.get_hamiltonian_variable_bath_state(ps_counter)
+
+        which = np.isclose(self.timespace, times)
+
+        if ((self.timespace - times)[~which] >= 0).all():
+            u = simple_incoherent_propagator(self.timespace - times, self.superoperator)
+
+            full_u = np.matmul(u, full_u)
+
+        elif not which.all():
+            raise ValueError(f"Pulse sequence time steps add up to larger than total times. Delays at"
+                             f"{self.timespace[(self.timespace - times) < 0]} ms are longer than total time.")
+
+        return full_u
 
     def compute_result(self):
         """
@@ -155,10 +287,7 @@ class Lindblad(gCCE):
             ndarray: Computed coherence.
 
         """
-        self.lindbladian = coherent_superoperator(self.hamiltonian)
-        self.lindbladian += incoherent_superoperator(self.cluster, self.base_hamiltonian.dimensions)
-        self.lindbladian += incoherent_superoperator(self.center, self.base_hamiltonian.dimensions,
-                                                     offset=self.cluster.size)
+        self.get_superoperator()
 
         dimensions = shorten_dimensions(self.base_hamiltonian.dimensions, self.center.size)
 
@@ -189,126 +318,201 @@ class Lindblad(gCCE):
 
         return result / self.zero_cluster
 
+
+def propagate_superpropagators(u_before_pi, u_after_pi, number):
+    v_he = np.matmul(u_after_pi, u_before_pi, dtype=np.complex128)
+
+    if number == 1:
+        return v_he
+
+    v_he_reversed = np.matmul(u_before_pi, u_after_pi, dtype=np.complex128)
+    v_cp = np.matmul(v_he_reversed, v_he, dtype=np.complex128)  # v0 @ v1 @ v1 @ v0
+
+    if number == 2:
+        return v_cp
+
+    nonunitary = np.linalg.matrix_power(v_cp, number // 2)
+
+    if number % 2 == 1:
+        nonunitary = np.matmul(v_he, nonunitary)
+
+    return nonunitary
+
+
+class LindbladCCE(CCE):
+    def __init__(self, *args, **kwargs):
+        self.superoperator = None
+        super().__init__(*args, **kwargs)
+
+    def generate_pulses(self):
+        delays, rotations = super().generate_pulses()
+        rotations = [op_to_supop(rot, rot.conj().T) if rot is not None else None for rot in rotations]
+        self.rotations = rotations
+        return delays, rotations
+
+    def preprocess(self):
+        super().preprocess()
+
+    def postprocess(self):
+        super().postprocess()
+
+        # else:
+        #     self.result = self.center.eigenvectors @ self.result @ self.center.eigenvectors.conj().T
+
+    def get_superoperator(self, alpha=True, beta=False, return_two=False, index=0):
+        self.get_hamiltonian_variable_bath_state(index)
+
+        ha = self.hamiltonian + projected_addition(self.base_hamiltonian.vectors,
+                                                   self.cluster, self.center, alpha)
+
+        hb = self.hamiltonian + projected_addition(self.base_hamiltonian.vectors,
+                                                   self.cluster, self.center, beta)
+
+        addition = (incoherent_superoperator(self.cluster, self.base_hamiltonian.dimensions) +
+                    incoherent_superoperator(self.center, self.base_hamiltonian.dimensions,
+                                             offset=self.cluster.size))
+        self.superoperator = projected_coherent_superoperator(ha, hb) + addition
+
+        if return_two:
+            flipped_superoperator = projected_coherent_superoperator(hb, ha) + addition
+            return self.superoperator, flipped_superoperator
+
     def super_propagator(self):
 
-        if not self.pulses:
-            return simple_incoherent_propagator(self.timespace, self.lindbladian)
+        if not self.use_pulses:
+            return self._no_pulses()
 
         if self.delays is None:
-            if self.projected_states is None:
-                return self._no_delays_no_ps()
-            # proj_states is not None - there are bath rotations alas
-            return self._no_delays_ps()
+            return self._no_delays()
 
-        # There are delays but no bath flips
-        if self.projected_states is None:
-            return self._delays_no_ps()
+    def _no_pulses_super(self):
+        delays = self.timespace / (2 * self.pulses) if ((not self.as_delay) and self.pulses) else self.timespace
+        if not self.pulses:
+            u = simple_incoherent_propagator(delays, self.superoperator)
+            return u
 
-        # The most complicated case - both projected_states is not None and delays is not None
-        return self._delays_ps()
+        i1, i2 = self.get_superoperator(return_two=True)
+        u0, u1 = (simple_incoherent_propagator(delays, isup) for isup in (i1, i2))
+        return propagate_superpropagators(u0, u1, self.pulses)
 
-    def _no_delays_no_ps(self):
-
+    def _no_delays_super(self):
         delays = self.timespace if self.as_delay else self.timespace / (2 * len(self.pulses))
 
-        # Same propagator for all parts
-        u = simple_incoherent_propagator(delays, self.lindbladian)
-        rotations = [op_to_supop(rot, rot.conj().T) if rot is not None else None for rot in self.rotations]
-        return rotation_propagator(u, rotations)
-
-    def _no_delays_ps(self):
-        delays = self.timespace if self.as_delay else self.timespace / (2 * len(self.pulses))
-
-        self.get_hamiltonian_variable_bath_state(0)
-        u = simple_incoherent_propagator(delays, self.lindbladian)
-
-        full_u = np.eye(self.lindbladian.shape[0], dtype=np.complex128)
-
+        key_alpha = list(self.key_alpha)
+        key_beta = list(self.key_beta)
         ps_counter = 0
 
-        rotations = [op_to_supop(rot, rot.conj().T) if rot is not None else None for rot in self.rotations]
+        self.get_superoperator(alpha=key_alpha, beta=key_beta, index=ps_counter)
 
-        for p, rotation in zip(self.pulses, rotations):
+        v01 = simple_incoherent_propagator(delays, self.superoperator)
+        vs = {(tuple(key_alpha), tuple(key_beta)): v01}
+        nonunitary = np.eye(v01.shape[1], dtype=np.complex128)
 
-            full_u = np.matmul(u, full_u)
+        for p, rotation in zip(self.pulses, self.rotations):
+            nonunitary = np.matmul(v01, nonunitary)
+            nonunitary = _rotmul(rotation, nonunitary)
 
-            if rotation is not None:
-                full_u = np.matmul(rotation, full_u)
+            if p.bath_names is not None:
+                ps_counter += 1
+                vs.clear()
 
-                if p.bath_names is not None:
-                    ps_counter += 1
-                    self.get_hamiltonian_variable_bath_state(ps_counter)
-                    u = simple_incoherent_propagator(delays, self.lindbladian)
+            key_alpha, key_beta = _gen_key(p, key_alpha, key_beta)
 
-            full_u = np.matmul(u, full_u)
+            try:
+                v01 = vs[(tuple(key_alpha), tuple(key_beta))]
 
-        return full_u
+            except KeyError:
+                self.get_superoperator(alpha=key_alpha, beta=key_beta, index=ps_counter)
+                v01 = simple_incoherent_propagator(delays, self.superoperator)
 
-    def _delays_no_ps(self):
+                vs[(tuple(key_alpha), tuple(key_beta))] = v01
 
-        evalues, evec = np.linalg.eigh(self.lindbladian * PI2)
+            nonunitary = np.matmul(v01, nonunitary)
 
-        full_u = np.eye(self.lindbladian.shape[0], dtype=np.complex128)
+        return nonunitary
+
+    def _delays(self):
+
         times = 0
-        rotations = [op_to_supop(rot, rot.conj().T) if rot is not None else None for rot in self.rotations]
-
-        for delay, rotation in zip(self.delays, rotations):
-            times += delay
-
-            eigexp = np.exp(np.outer(delay, evalues),
-                            dtype=np.complex128)
-
-            u = np.matmul(np.einsum('ij,kj->kij', evec, eigexp, dtype=np.complex128),
-                          evec.conj().T)
-
-            full_u = np.matmul(u, full_u)
-
-            if rotation is not None:
-                full_u = np.matmul(rotation, full_u)
-
-        which = np.isclose(self.timespace, times)
-
-        if ((self.timespace - times)[~which] >= 0).all():
-            u = simple_incoherent_propagator(self.timespace - times, self.lindbladian)
-
-            full_u = np.matmul(u, full_u)
-
-        elif not which.all():
-            raise ValueError(f"Pulse sequence time steps add up to larger than total times. Delays at"
-                             f"{self.timespace[(self.timespace - times) < 0]} ms are longer than total time.")
-
-        return full_u
-
-    def _delays_ps(self):
-        self.get_hamiltonian_variable_bath_state(0)
-
-        full_u = np.eye(self.lindbladian.shape[0], dtype=np.complex128)
-
+        key_alpha = list(self.key_alpha)
+        key_beta = list(self.key_beta)
         ps_counter = 0
-        times = 0
 
-        rotations = [op_to_supop(rot, rot.conj().T) if rot is not None else None for rot in self.rotations]
-        for p, rotation, delay in zip(self.pulses, rotations, self.delays):
-            times += delay
-            u = simple_incoherent_propagator(delay, - self.lindbladian)
-            full_u = np.matmul(u, full_u)
+        self.get_superoperator(alpha=key_alpha, beta=key_beta, index=ps_counter)
 
-            if rotation is not None:
-                full_u = np.matmul(rotation, full_u)
+        eval01, evec01 = np.linalg.eigh(self.superoperator * PI2)
 
-                if p.bath_names is not None:
-                    ps_counter += 1
-                    self.get_hamiltonian_variable_bath_state(ps_counter)
+        # for timesteps, rotation in zip(pulses.delays, pulses.rotations):
+        eval_evec = {(tuple(key_alpha), tuple(key_beta)): (eval01, evec01)}
+
+        nonunitary = None
+
+        for p, delay, rotation in zip(self.pulses, self.delays, self.rotations):
+            if np.any(delay):
+                eigen_exp = np.exp(-1j * np.outer(delay, eval01), dtype=np.complex128)
+                u01 = np.matmul(np.einsum('...ij,...j->...ij', evec01, eigen_exp, dtype=np.complex128), evec01.conj().T)
+
+                times += delay
+
+                nonunitary = _rotmul(rotation, u01) if nonunitary is None else np.matmul(u01, _rotmul(rotation, nonunitary))
+            else:
+                nonunitary = _rotmul(rotation, nonunitary)
+
+            if p.bath_names is not None:
+                ps_counter += 1
+                eval_evec.clear()
+
+            key_alpha, key_beta = _gen_key(p, key_alpha, key_beta)
+
+            try:
+                eval01, evec01 = eval_evec[(tuple(key_alpha), tuple(key_beta))]
+            except KeyError:
+                self.get_superoperator(alpha=key_alpha, beta=key_beta, index=ps_counter)
+                eval01, evec01 = np.linalg.eigh(self.superoperator * PI2)
+
+                eval_evec[(tuple(key_alpha), tuple(key_beta))] = eval01, evec01
 
         which = np.isclose(self.timespace, times)
-
         if ((self.timespace - times)[~which] >= 0).all():
-            u = simple_incoherent_propagator(self.timespace - times, - self.lindbladian)
 
-            full_u = np.matmul(u, full_u)
+            eigen_exp = np.exp(-1j * np.outer(self.timespace - times, eval01), dtype=np.complex128)
+            u01 = np.matmul(np.einsum('...ij,...j->...ij', evec01, eigen_exp, dtype=np.complex128), evec01.conj().T)
+
+            nonunitary = np.matmul(u01, nonunitary)
 
         elif not which.all():
-            raise ValueError(f"Pulse sequence time steps add up to larger than total times. Delays at"
-                             f"{self.timespace[(self.timespace - times) < 0]} ms are longer than total time.")
+            raise ValueError(f"Pulse sequence time steps add up to larger than total times"
+                             f"{np.argwhere((self.timespace - times) < 0)} are longer than total time.")
 
-        return full_u
+        return nonunitary
+
+    def compute_result(self):
+        """
+        Using the attributes of the ``self`` object,
+        compute the coherence function of the central spin.
+
+        Returns:
+
+            ndarray: Computed coherence.
+
+        """
+        self.get_superoperator()
+
+        dimensions = shorten_dimensions(self.base_hamiltonian.dimensions, self.center.size)
+        initial_state = generate_initial_state(dimensions, states=self.states)
+
+        if initial_state.ndim == 1:
+            initial_state = outer(initial_state, initial_state)
+
+        initial_state = mat_to_vec(initial_state)
+        non_unitary_evolution = self.super_propagator()
+
+        result = non_unitary_evolution @ initial_state
+        result = vec_to_mat(result)
+
+        if self.store_states:
+            self.cluster_evolved_states = result.copy()
+
+        result = np.trace(result, axis1=1, axis2=2)
+
+        return result
