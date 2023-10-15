@@ -24,7 +24,7 @@ from .run.cce import CCE
 from .run.corr import CCENoise, gCCENoise
 from .run.gcce import gCCE
 from .run.pulses import Sequence
-from .run.mastereq import Lindblad
+from .run.mastereq import LindbladgCCE, LindbladCCE
 from .utilities import _add_args
 
 _returns = r"""
@@ -1166,8 +1166,12 @@ class Simulator:
             'coherence': gCCE,
             'noise': gCCENoise,
         },
-        'me': {
-            'coherence': Lindblad,
+        'megcce': {
+            'coherence': LindbladgCCE,
+            
+        },
+        'mecce': {
+            'coherence': LindbladCCE,
             
         }
     }

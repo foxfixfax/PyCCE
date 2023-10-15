@@ -93,7 +93,7 @@ def op_to_supop(left_operator, right_operator):
     return np.kron(left_operator, right_operator.T)
 
 
-class Lindblad(gCCE):
+class LindbladgCCE(gCCE):
     def __init__(self, *args, **kwargs):
         self.superoperator = None
         super().__init__(*args, **kwargs)
@@ -168,23 +168,19 @@ class Lindblad(gCCE):
         # The most complicated case - both projected_states is not None and delays is not None
         return self._delays_ps_super()
 
-    def generate_pulses(self):
-        delays, rotations = super(Lindblad, self).generate_pulses()
-        rotations = [op_to_supop(rot, rot.conj().T) if rot is not None else None for rot in rotations]
-        self.rotations = rotations
-        return delays, rotations
-
     def _no_delays_no_ps_super(self):
 
         delays = self.timespace if self.as_delay else self.timespace / (2 * len(self.pulses))
+        rotations = [op_to_supop(rot, rot.conj().T) if rot is not None else None for rot in self.rotations]
 
         # Same propagator for all parts
         u = simple_incoherent_propagator(delays, self.superoperator)
 
-        return rotation_propagator(u, self.rotations)
+        return rotation_propagator(u, rotations)
 
     def _no_delays_ps_super(self):
         delays = self.timespace if self.as_delay else self.timespace / (2 * len(self.pulses))
+        rotations = [op_to_supop(rot, rot.conj().T) if rot is not None else None for rot in self.rotations]
 
         self.get_hamiltonian_variable_bath_state(0)
         self.get_superoperator()
@@ -195,7 +191,7 @@ class Lindblad(gCCE):
 
         ps_counter = 0
 
-        for p, rotation in zip(self.pulses, self.rotations):
+        for p, rotation in zip(self.pulses, rotations):
 
             full_u = np.matmul(u, full_u)
 
@@ -214,10 +210,10 @@ class Lindblad(gCCE):
     def _delays_no_ps_super(self):
 
         evalues, evec = np.linalg.eigh(self.superoperator * PI2)
-
+        rotations = [op_to_supop(rot, rot.conj().T) if rot is not None else None for rot in self.rotations]
         full_u = np.eye(self.superoperator.shape[0], dtype=np.complex128)
         times = 0
-        for delay, rotation in zip(self.delays, self.rotations):
+        for delay, rotation in zip(self.delays, rotations):
             times += delay
 
             eigexp = np.exp(np.outer(delay, evalues),
@@ -247,12 +243,13 @@ class Lindblad(gCCE):
     def _delays_ps_super(self):
         self.get_hamiltonian_variable_bath_state(0)
         self.get_superoperator()
+        rotations = [op_to_supop(rot, rot.conj().T) if rot is not None else None for rot in self.rotations]
         full_u = np.eye(self.superoperator.shape[0], dtype=np.complex128)
 
         ps_counter = 0
         times = 0
 
-        for p, rotation, delay in zip(self.pulses, self.rotations, self.delays):
+        for p, rotation, delay in zip(self.pulses, rotations, self.delays):
             times += delay
             u = simple_incoherent_propagator(delay, self.superoperator)
             full_u = np.matmul(u, full_u)
@@ -344,12 +341,6 @@ class LindbladCCE(CCE):
         self.superoperator = None
         super().__init__(*args, **kwargs)
 
-    def generate_pulses(self):
-        delays, rotations = super().generate_pulses()
-        rotations = [op_to_supop(rot, rot.conj().T) if rot is not None else None for rot in rotations]
-        self.rotations = rotations
-        return delays, rotations
-
     def preprocess(self):
         super().preprocess()
 
@@ -380,10 +371,12 @@ class LindbladCCE(CCE):
     def super_propagator(self):
 
         if not self.use_pulses:
-            return self._no_pulses()
+            return self._no_pulses_super()
 
         if self.delays is None:
-            return self._no_delays()
+            return self._no_delays_super()
+        
+        return self._delays_super()
 
     def _no_pulses_super(self):
         delays = self.timespace / (2 * self.pulses) if ((not self.as_delay) and self.pulses) else self.timespace
@@ -397,6 +390,7 @@ class LindbladCCE(CCE):
 
     def _no_delays_super(self):
         delays = self.timespace if self.as_delay else self.timespace / (2 * len(self.pulses))
+        rotations = [op_to_supop(rot, rot.conj().T) if rot is not None else None for rot in self.rotations]
 
         key_alpha = list(self.key_alpha)
         key_beta = list(self.key_beta)
@@ -408,7 +402,7 @@ class LindbladCCE(CCE):
         vs = {(tuple(key_alpha), tuple(key_beta)): v01}
         nonunitary = np.eye(v01.shape[1], dtype=np.complex128)
 
-        for p, rotation in zip(self.pulses, self.rotations):
+        for p, rotation in zip(self.pulses, rotations):
             nonunitary = np.matmul(v01, nonunitary)
             nonunitary = _rotmul(rotation, nonunitary)
 
@@ -431,7 +425,7 @@ class LindbladCCE(CCE):
 
         return nonunitary
 
-    def _delays(self):
+    def _delays_super(self):
 
         times = 0
         key_alpha = list(self.key_alpha)
@@ -439,6 +433,7 @@ class LindbladCCE(CCE):
         ps_counter = 0
 
         self.get_superoperator(alpha=key_alpha, beta=key_beta, index=ps_counter)
+        rotations = [op_to_supop(rot, rot.conj().T) if rot is not None else None for rot in self.rotations]
 
         eval01, evec01 = np.linalg.eigh(self.superoperator * PI2)
 
@@ -447,7 +442,7 @@ class LindbladCCE(CCE):
 
         nonunitary = None
 
-        for p, delay, rotation in zip(self.pulses, self.delays, self.rotations):
+        for p, delay, rotation in zip(self.pulses, self.delays, rotations):
             if np.any(delay):
                 eigen_exp = np.exp(-1j * np.outer(delay, eval01), dtype=np.complex128)
                 u01 = np.matmul(np.einsum('...ij,...j->...ij', evec01, eigen_exp, dtype=np.complex128), evec01.conj().T)
