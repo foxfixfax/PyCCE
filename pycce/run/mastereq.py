@@ -14,7 +14,7 @@ from pycce.sm import _smc
 
 def simple_incoherent_propagator(timespace, lindbladian):
     r"""
-    Generate a simple propagator :math:`U=\exp[ \mathcal{L}]` from the Lindbladian superoperator.
+    Generate a simple superpropagator :math:`U=\exp[ \mathcal{L}]` from the Lindbladian superoperator.
 
     Args:
 
@@ -27,6 +27,7 @@ def simple_incoherent_propagator(timespace, lindbladian):
     """
     return scipy.linalg.expm(timespace[:, np.newaxis, np.newaxis] * lindbladian[np.newaxis, :] * PI2)
 
+    # This is how I did it for coherent operator, doesn't work with non-Hermitian L
     # evalues, evec = np.linalg.eig(lindbladian * PI2)
     #
     # eigexp = np.exp(np.outer(timespace, evalues),
@@ -37,6 +38,20 @@ def simple_incoherent_propagator(timespace, lindbladian):
 
 
 def collapse_superoperator(superoperators, index, dims):
+    """
+    Generate incoherent superoperator from the dictionary containing all single-spin jump operators
+    for ``index`` spin.
+    Args:
+        superoperators (dict): Dictionary with the keys corresponding to the jump operator
+            (symbols from the list 'xyzpm' for :math:`x,y,z` Pauli matrices and spin raising/lowering operators)
+            or Stevenson operators.
+            Each value is the square root of the corresponding rate.
+        index (int): Index of the spin in the cluster.
+        dims (ndarray with shape (n,)): Dimensions of all spins in the cluster.
+
+    Returns:
+        ndarray with shape (N*N,N*N): Superoperator corresponding to single spin jump operators.
+    """
     sm = _smc[(dims[index] - 1) / 2]
     full_lindb = 0
     eye = np.eye(dims.prod(), dtype=np.complex128)
@@ -58,6 +73,17 @@ def collapse_superoperator(superoperators, index, dims):
 
 
 def incoherent_superoperator(spins, dims=None, offset=0):
+    r"""
+    Generate dissipators for all bath spins in the cluster.
+    Args:
+        spins (BathArray with shape (n,)): Spins inside the cluster.
+        dims (ndarray with shape (n+offset,)): Dimensions of the spins.
+        offset (int): Index from which dimensions in the ``dims`` correspond to the bath spins.
+
+    Returns:
+        ndarray with shape (N*N,N*N): Superoperator which includes all single spin jump operators in the cluster.
+
+    """
     if dims is None:
         dims = spins.dim
     add = 0
@@ -69,20 +95,59 @@ def incoherent_superoperator(spins, dims=None, offset=0):
 
 
 def coherent_superoperator(hamiltonian):
+    """
+    Generate coherent superoperator from the Hamiltonian.
+
+    Args:
+        hamiltonian (ndarray with shape (N, N): Hamiltonian of the cluster.
+
+    Returns:
+        ndarray with shape (N*N, N*N): Superoperator corresponding to the coherent evolution of the cluster.
+    """
     eye = np.eye(hamiltonian.shape[0], dtype=np.complex128)
     return -1j * (op_to_supop(hamiltonian, eye) - op_to_supop(eye, hamiltonian))
 
 
 def projected_coherent_superoperator(hamiltonian0, hamiltonian1):
+    r"""
+    Generate coherent superoperator for evolution of :math:`\hat\rho_{01}` object in conventional CCE.
+    Args:
+        hamiltonian0 (ndarray with shape (N, N): Hamiltonian of the cluster projected on
+            :math:`\ket{0}` state of the qubit.
+        hamiltonian1 (ndarray with shape (N, N): Hamiltonian of the cluster projected on
+            :math:`\ket{1}` state of the qubit.
+
+    Returns:
+        ndarray with shape (N*N, N*N): Superoperator corresponding to the coherent evolution of the cluster.
+    """
     eye = np.eye(hamiltonian0.shape[0], dtype=np.complex128)
     return -1j * (op_to_supop(hamiltonian0, eye) - op_to_supop(eye, hamiltonian1))
 
 
 def mat_to_vec(operator):
+    """
+    Convenience function that transforms matrix with shape (n,n) into a vector with shape (n*n,).
+
+    Args:
+        operator (ndarray with shape (n,n)): Matrix to be transformed.
+
+    Returns:
+        ndarray with shape (n*n,): Vector representation of the matrix.
+    """
     return operator.reshape(np.prod(operator.shape))
 
 
 def vec_to_mat(vector):
+    """
+    Convenience function that transforms vector representation of the matrix.
+    into a matrix.
+
+    Args:
+        vector (ndarray with shape (n*n,)): Vector representation of the matrix.
+
+    Returns:
+        ndarray with shape (n,n): Matrix form of the operator.
+    """
     side = np.sqrt(vector.shape[-1])
     if not int(side) == side:
         raise ValueError('Unsupported vector shape')
@@ -90,10 +155,37 @@ def vec_to_mat(vector):
 
 
 def op_to_supop(left_operator, right_operator):
+    r"""
+    Generate superoperator matrix :math:`\mathcal{S}`
+        acting on the vector representation of the density matrix from the operators
+        :math:`\mathcal{S}\hat \rho =\hat A \hat \rho \hat B`.
+
+    Args:
+        left_operator (ndarray with shape (n,n)): Operator :math:`\hat A` acting on the left side of the
+            density matrix.
+        right_operator (ndarray with shape (n,n)): Operator :math:`\hat B` acting on the right side of the
+            density matrix.
+
+    Returns:
+        ndarray with shape (n*n,n*n): Resulting Liouvillian superoperator.
+    """
     return np.kron(left_operator, right_operator.T)
 
 
 class LindbladgCCE(gCCE):
+    """
+    Class for running generalized CCE simulations with Lindblad master equation.
+
+    .. note::
+
+        Subclass of the ``gCCE`` class.
+
+    Args:
+        *args: Positional arguments of the ``gCCE``.
+
+        **kwargs: Keyword arguments of the ``gCCE``.
+
+    """
     def __init__(self, *args, **kwargs):
         self.superoperator = None
         super().__init__(*args, **kwargs)
@@ -102,17 +194,6 @@ class LindbladgCCE(gCCE):
         super().preprocess()
 
     def process_dm(self, density_matrix):
-        """
-        Obtain the result from the density matrices.
-
-        Args:
-            density_matrix (ndarray with shape (n, N, N)): Array of the density matrices.
-
-        Returns:
-            ndarray:
-                Depending on the parameters,
-                returns the off diagonal element of the density matrix or full matrix.
-        """
         if self.fulldm:
             return density_matrix
 
@@ -132,26 +213,29 @@ class LindbladgCCE(gCCE):
         #     self.result = self.center.eigenvectors @ self.result @ self.center.eigenvectors.conj().T
 
     def generate_hamiltonian(self):
-        """
-        Using the attributes of the ``self`` object,
-        compute the cluster hamiltonian including the central spin.
-
-        Returns:
-            Hamiltonian: Cluster hamiltonian.
-
-        """
         ham = total_hamiltonian(self.cluster, self.center, self.magnetic_field)
 
         return ham
 
     def get_superoperator(self):
+        """
+        Generate superoperator representation of the Lindbladian.
+
+        Returns:
+            None
+        """
         self.superoperator = coherent_superoperator(self.hamiltonian)
         self.superoperator += incoherent_superoperator(self.cluster, self.base_hamiltonian.dimensions)
         self.superoperator += incoherent_superoperator(self.center, self.base_hamiltonian.dimensions,
                                                        offset=self.cluster.size)
 
     def super_propagator(self):
+        """
+        Compute super propagator from the Lindbladian superoperator.
 
+        Returns:
+            ndarray with shape (n*n,n*n): matrix representation of the propagation superoperator.
+        """
         if not self.pulses:
             return simple_incoherent_propagator(self.timespace, self.superoperator)
 
@@ -169,7 +253,12 @@ class LindbladgCCE(gCCE):
         return self._delays_ps_super()
 
     def _no_delays_no_ps_super(self):
+        """
+        Compute propagator when no delays between pulses are provided and no states of the bath.
 
+        Returns:
+            ndarray with shape (n*n,n*n): matrix representation of the propagation superoperator.
+        """
         delays = self.timespace if self.as_delay else self.timespace / (2 * len(self.pulses))
         rotations = [op_to_supop(rot, rot.conj().T) if rot is not None else None for rot in self.rotations]
 
@@ -179,6 +268,13 @@ class LindbladgCCE(gCCE):
         return rotation_propagator(u, rotations)
 
     def _no_delays_ps_super(self):
+        """
+        Compute propagator when no delays between pulses are provided
+        but states of the bath spins are provided.
+
+        Returns:
+            ndarray with shape (n*n,n*n): matrix representation of the propagation superoperator.
+        """
         delays = self.timespace if self.as_delay else self.timespace / (2 * len(self.pulses))
         rotations = [op_to_supop(rot, rot.conj().T) if rot is not None else None for rot in self.rotations]
 
@@ -208,7 +304,12 @@ class LindbladgCCE(gCCE):
         return full_u
 
     def _delays_no_ps_super(self):
+        """
+        Compute propagator when delays between pulses are provided but no states of the bath.
 
+        Returns:
+            ndarray with shape (n*n,n*n): matrix representation of the propagation superoperator.
+        """
         evalues, evec = np.linalg.eigh(self.superoperator * PI2)
         rotations = [op_to_supop(rot, rot.conj().T) if rot is not None else None for rot in self.rotations]
         full_u = np.eye(self.superoperator.shape[0], dtype=np.complex128)
@@ -241,6 +342,12 @@ class LindbladgCCE(gCCE):
         return full_u
 
     def _delays_ps_super(self):
+        """
+        Compute propagator when bath delays and bath states are provided.
+
+        Returns:
+            ndarray with shape (n*n,n*n): matrix representation of the propagation superoperator.
+        """
         self.get_hamiltonian_variable_bath_state(0)
         self.get_superoperator()
         rotations = [op_to_supop(rot, rot.conj().T) if rot is not None else None for rot in self.rotations]
@@ -275,15 +382,7 @@ class LindbladgCCE(gCCE):
         return full_u
 
     def compute_result(self):
-        """
-        Using the attributes of the ``self`` object,
-        compute the coherence function of the central spin.
 
-        Returns:
-
-            ndarray: Computed coherence.
-
-        """
         self.get_superoperator()
 
         dimensions = shorten_dimensions(self.base_hamiltonian.dimensions, self.center.size)
@@ -317,6 +416,19 @@ class LindbladgCCE(gCCE):
 
 
 def propagate_superpropagators(u_before_pi, u_after_pi, number):
+    r"""
+    Compute propagator superoperator, assuming a number of :math:`\pi`-pulses is applied to the central spin
+    with equal distances.
+    Args:
+        u_before_pi (ndarray with shape (n*n,n*n)): Superoperator representation of the propagator for the cluster
+            before :math:`\pi`-pulse is applied.
+        u_after_pi (ndarray with shape (n*n,n*n)): Superoperator representation of the propagator for the cluster
+            after :math:`\pi`-pulse is applied.
+        number (int): Number of applied :math:`\pi`-pulses in the CPMG sequence.
+
+    Returns:
+        ndarray with shape (n*n,n*n): Superoperator representation of the propagator including all :math:`\pi`-pulses.
+    """
     v_he = np.matmul(u_after_pi, u_before_pi, dtype=np.complex128)
 
     if number == 1:
@@ -337,6 +449,19 @@ def propagate_superpropagators(u_before_pi, u_after_pi, number):
 
 
 class LindbladCCE(CCE):
+    """
+    Class for running conventional CCE simulations with Lindblad master equation.
+
+    .. note::
+
+        Subclass of the ``CCE`` class.
+
+    Args:
+        *args: Positional arguments of the ``CCE``.
+
+        **kwargs: Keyword arguments of the ``CCE``.
+
+    """
     def __init__(self, *args, **kwargs):
         self.superoperator = None
         super().__init__(*args, **kwargs)
@@ -351,6 +476,21 @@ class LindbladCCE(CCE):
         #     self.result = self.center.eigenvectors @ self.result @ self.center.eigenvectors.conj().T
 
     def get_superoperator(self, alpha=True, beta=False, return_two=False, index=0):
+        """
+        Generate superoperator for the given state of the cluster.
+        Args:
+            alpha (bool or list): Set of indexes defining the curent state of the qubit state :math:`\ket{0}`
+                which is can be expressed in several ways. Single ``bool`` defines the state of the overall
+                ``CenterArray`` with ``True``  corresponding to ``alpha`` state and ``False`` to ``beta``.
+                List of ``bool`` objects defines the same but for each element of the ``CenterArray`` separately.
+            beta (bool or list): Same as ``alpha`` but for the :math:`\ket{1}` state of the qubit.
+            return_two (bool): True if return two superoperators (second with flipped order of projected Hamiltonians).
+                Default False.
+            index (int): Index of the projected bath state stored in the ``self.projected_states`` attribute.
+
+        Returns:
+
+        """
         self.get_hamiltonian_variable_bath_state(index)
 
         ha = self.hamiltonian + projected_addition(self.base_hamiltonian.vectors,
