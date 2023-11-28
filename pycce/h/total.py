@@ -1,7 +1,7 @@
 from pycce.sm import _smc
 from pycce.sm import dimensions_spinvectors
 from pycce.utilities import expand
-
+from pycce.bath.array import _process_key_operator
 from .base import Hamiltonian
 from .functions import *
 
@@ -195,12 +195,8 @@ def custom_single(h, index, dims):
     sm = _smc[(dims[index] - 1) / 2]
     ham = 0
     for key in h:
-        if isinstance(key, str):
-            add = None
-            for sym in key:
-                add = h[key] * getattr(sm, sym) if add is None else np.matmul(add, getattr(sm, sym))
-        else:
-            add = h[key] * sm.stev(*key)
-
+        add = _process_key_operator(key, h[key], sm)
         ham += add
     return expand(ham, index, dims)
+
+

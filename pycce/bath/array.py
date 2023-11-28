@@ -659,6 +659,42 @@ class BathArray(np.ndarray):
         else:
             self.imap[i, j] = tensor
 
+    def add_single_jump(self, operator, rate=1, units='rad', square_root=False):
+        """
+        Add single-spin jump operator for the given type of spins to be used in the Lindbladian master equation CCE.
+
+        Args:
+            operator (str or ndarray with shape (dim, dim)): Definition of the operator. Can be either of the following:
+                * Pair of integers defining the Sven operator.
+                * String where each symbol corresponds to the spin matrix or operation between them.
+                  Allowed symbols: ``xyz+``. If there is nothing between symbols,
+                  assume multiplication of the operators.
+                  If there is a ``+`` symbol, assume summation between terms. For example, ``xx+z`` would correspond to
+                  the operator :math:`\hat S_x \hat S_x + \hat S_z`.
+                * String equal to ``A``. Then assumes that the correct matrix form of the operator has been provided
+                  by the user.
+
+            rate (float): Rate associated with the given jump operator. By default, is given in rad ms^-1.
+            units (str): Units of the rate, can be either rad (for radial frequency units) or deg
+                (for rotational frequency).
+            square_root (bool): True if the rate is given as a square root of the rate (to match how one sets up
+                collapse operators in Qutip). Default False.
+        """
+        if not square_root:
+            rate = np.sqrt(rate)
+        if 'rad' in units:
+            rate = rate / np.sqrt(PI2)
+
+        if isinstance(operator, str):
+            self.so[operator] = rate
+        else:
+            operator = np.asarray(operator, dtype=np.complex128)
+            dimensions = self.dim
+            if self.size > 1:
+                dimensions = self.dim[0]
+            assert operator.shape == (dimensions, dimensions), f'Operator should have shape {dimensions, dimensions}'
+            self.so['A'] = operator * rate
+
     def update(self, ext_bath, error_range=0.2, ignore_isotopes=True, inplace=True):
         """
         Update the properties of the spins in the array using data from other ``BathArray`` instance.
@@ -1008,7 +1044,7 @@ def sort(a, axis=-1, kind=None, order=None):
 @implements(np.argsort)
 def argsort(a, *args, **kwargs):
     """
-    Return a indexes of an sorted array. Overrides ``numpy.argsort`` function.
+    Return ``a`` indexes of a sorted array. Overrides ``numpy.argsort`` function.
     """
     return np.argsort(a, *args, **kwargs).view(np.ndarray)
 
@@ -1346,7 +1382,7 @@ def _get_sd_attribute(array, attribute_name):
     if not array.shape:
         return getattr(array.types[array], attribute_name)
 
-    if attribute_name == 'h':
+    if (attribute_name == 'h') or (attribute_name == 'so'):
         if array.size == 1:
             return getattr(array.types[array[0]], attribute_name)
 
@@ -1355,7 +1391,7 @@ def _get_sd_attribute(array, attribute_name):
         if unique_names.size == 1:
             return getattr(array.types[array[0]], attribute_name)
 
-        raise RuntimeError('Hamiltonian terms can be modified only for single spin type at a time')
+        raise RuntimeError('Hamiltonian and Jump operator terms can be modified only for single spin type at a time')
 
     if array.size == 1:
         newarr = np.array([getattr(array.types[array.N[0]], attribute_name)])
@@ -1813,6 +1849,45 @@ def _check_key_spintype(k, v):
         v = SpinType(k, *v)
     return v
 
+
+def _process_key_operator(key, rate, sm):
+    r"""
+    Process key of the .so or .h dictionaries of the SpinType
+    Args:
+        key (str or int): key of the dictionary. Can be either of the following:
+
+            * Pair of integers defining the Sven operator.
+            * String where each symbol corresponds to the spin matrix or operation between them.
+              Allowed symbols: ``xyz+``. If there is nothing between symbols, assume multiplication of the operators.
+              If there is a ``+`` symbol, assume summation between terms. For example, ``xx+z`` would correspond to
+              the operator :math:`\hat S_x \hat S_x + \hat S_z`.
+            * String equal to ``A``. Then assumes that the correct matrix form of the operator has been provided
+              by the user.
+
+
+        rate (float or ndarray with shape (n,n): value stored in the dictionary.
+        sm (SpinMatrix): Object containing spin matrices of the given spin.
+
+    Returns:
+        ndarray with shape (n,n): Resulting operator.
+    """
+    if isinstance(key, str):
+        if key.lower() == 'a':
+            return rate
+
+        separated = key.split('+')
+        operator = 0
+        for k in separated:
+            current = None
+            for sym in k:
+                current = getattr(sm, sym) if current is None else np.matmul(current, getattr(sm, sym))
+            operator = operator + current
+
+        operator = operator * rate
+    else:
+        operator = sm.stev(*key) * rate
+
+    return operator
 
 _spin_not_found_message = lambda x: 'Spin type for {} was not provided and was not found in common isotopes.'.format(x)
 

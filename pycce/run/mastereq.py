@@ -1,7 +1,7 @@
 import numpy as np
 import scipy
 from numpy import ma as ma
-from pycce.bath.array import BathArray
+from pycce.bath.array import BathArray, _process_key_operator
 from pycce.constants import PI2
 from pycce.h import total_hamiltonian, projected_addition
 from pycce.run.base import RunObject, generate_initial_state, simple_propagator
@@ -19,7 +19,7 @@ def simple_incoherent_propagator(timespace, lindbladian):
     Args:
 
         timespace (ndarray with shape (n, )): Time points at which to evaluate the propagator.
-        lindbladian (ndarray with shape (N, N)): Lindbladian superoperator of the system in matrix form.
+        lindbladian (ndarray with shape (n, N, N)): Lindbladian superoperator of the system in matrix form.
 
     Returns:
         ndarray with shape (n, N, N): Master equation propagators, evaluated at each timepoint. Use with vector form
@@ -56,20 +56,18 @@ def collapse_superoperator(superoperators, index, dims):
     full_lindb = 0
     eye = np.eye(dims.prod(), dtype=np.complex128)
     for key in superoperators:
-        if isinstance(key, str):
-            collapse = None
-            for sym in key:
-                collapse = superoperators[key] * getattr(sm, sym) if collapse is None else np.matmul(collapse,
-                                                                                                     getattr(sm, sym))
-        else:
-            collapse = superoperators[key] * sm.stev(*key)
+        collapse = _process_key_operator(key, superoperators[key], sm)
+
         cn = expand(collapse, index, dims)
         cn_rho_cndag = op_to_supop(cn, cn.conj().T)
         rho_cndag_cn = op_to_supop(eye, cn.conj().T @ cn)
         cndag_cn_rho = op_to_supop(cn.conj().T @ cn, eye)
         lindb = 1 / 2 * (2 * cn_rho_cndag - rho_cndag_cn - cndag_cn_rho)
         full_lindb += lindb
+
     return full_lindb
+
+
 
 
 def incoherent_superoperator(spins, dims=None, offset=0):
