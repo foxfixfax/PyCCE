@@ -659,7 +659,7 @@ class BathArray(np.ndarray):
         else:
             self.imap[i, j] = tensor
 
-    def add_single_jump(self, operator, rate=1, units='rad', square_root=False):
+    def add_single_jump(self, operator, rate=1, units='rad', square_root=False, which=None):
         """
         Add single-spin jump operator for the given type of spins to be used in the Lindbladian master equation CCE.
 
@@ -679,21 +679,32 @@ class BathArray(np.ndarray):
                 (for rotational frequency).
             square_root (bool): True if the rate is given as a square root of the rate (to match how one sets up
                 collapse operators in Qutip). Default False.
+
+            which (str): For which type of the spins add the jump operator. Default is None - if
+                 there is only one spin type in the array then the jump operator is added,
+                 otherwise the exception is raised.
         """
         if not square_root:
             rate = np.sqrt(rate)
         if 'rad' in units:
             rate = rate / np.sqrt(PI2)
 
+        if which is None:
+            superoperators = self.so
+        else:
+            superoperators = self[which].so
+
         if isinstance(operator, str):
-            self.so[operator] = rate
+            superoperators[operator] = rate
         else:
             operator = np.asarray(operator, dtype=np.complex128)
             dimensions = self.dim
+
             if self.size > 1:
                 dimensions = self.dim[0]
+
             assert operator.shape == (dimensions, dimensions), f'Operator should have shape {dimensions, dimensions}'
-            self.so['A'] = operator * rate
+            superoperators['A'] = operator * rate
 
     def update(self, ext_bath, error_range=0.2, ignore_isotopes=True, inplace=True):
         """

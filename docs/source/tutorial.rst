@@ -12,6 +12,7 @@ The examples below are available as Jupyter notebooks in the Github repository.
    tutorials/si_shallow
    tutorials/classical_noise
    tutorials/second_spin
+   tutorials/mecce
 
 
 The recommended order of the tutorials is from the top to bottom:
@@ -26,5 +27,6 @@ The recommended order of the tutorials is from the top to bottom:
   to predict the decay of the coherence of the NV center in diamond.
 * :doc:`tutorials/second_spin` example goes over the systems with two central spins, either forming a hybrid qubit,
   or system of two entangled qubits.
+* :doc:`tutorials/mecce` example provides details on the master-eqation based solvers ME-CCE and ME-gCCE.
 
 
