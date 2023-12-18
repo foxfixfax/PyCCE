@@ -401,7 +401,7 @@ class Center:
         """
 
         self.generate_hamiltonian(magnetic_field=magnetic_field, bath=bath, projected_bath_state=projected_bath_state)
-        self.energies, self.eigenvectors = np.linalg.eigh(self.hamiltonian, UPLO='U')
+        self.energies, self.eigenvectors = np.linalg.eigh(self.hamiltonian.data, UPLO='U')
 
         if self.alpha_index is not None:
             self._alpha = np.ascontiguousarray(self.eigenvectors[:, self.alpha_index])
