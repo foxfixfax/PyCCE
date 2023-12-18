@@ -44,8 +44,41 @@ PyCCE: A Python Package for CCE Simulations
 a spin qubit interacting with a spin bath using the cluster-correlation expansion (CCE) method.
 
 
-Updates
-------------
+Major Updates
+-----------------------------
+
+PyCCE 1.1
+++++++++++++++++++
+* The **PyCCE** 1.1 release contains implementation of the master equation-based CCE approaches. Checkout the
+    :doc:`tutorials/mecce` for examples of the usage.
+
+* Various optimization and bugfixes.
+
+PyCCE 1.0
+++++++++++++++++++
+The **PyCCE** 1.0 has been released!
+Main changes from the previous version include:
+
+* Support for several central spins with the new class ``CenterArray``!
+    Check out a tutorial :doc:`tutorials/second_spin` on how to use the new class to study the decoherence
+    of the hybrid qubit or entanglement of dipolarly coupled qubits.
+
+* Direct definition of the bath spin states with ``BathArray.state`` attribute.
+    Check out the updated tutorial :doc:`tutorials/diamond_nv` to see how one can use this functionality
+    to study the effect of spin polarization on Hahn-echo signal.
+
+* Expanded the control over pulse sequences.
+    See documentation for ``Pulse`` class in :doc:`simulator` for details.
+
+* *EXPERIMENTAL FEATURE*. Added ability to define your own single particle Hamiltonian.
+    See ``BathArray.h`` and ``Center.h`` in :doc:`bath` and :doc:`center` respectively for further details.
+
+* Significant overhaul of computational expensive parts of the code with Numba. This makes the first run of
+  **PyCCE** quite slow, but after compilation it should run observably faster.
+
+* Various bug fixes and QoL changes.
+
+This is a major update. If you find any issues ot bugs, please let us know as soon as possible!
 The **PyCCE** 1.0 has been released!
 Main changes from the previous version include:
 
@@ -100,13 +133,13 @@ Requirements
 ----------------
 The following modules are required to run **PyCCE**.
 
-*  `Python <http://www.python.org/>`_ (version >= 3.6).
+*  `Python <http://www.python.org/>`_ (version >= 3.9).
 
 * `NumPy <https://numpy.org/>`_ (version >= 1.16).
 
-* `SciPy <https://www.scipy.org/>`_.
+* `SciPy <https://www.scipy.org/>`_ (version >= 1.10).
 
-* `Numba <http://numba.pydata.org/>`_ (version >= 0.50).
+* `Numba <http://numba.pydata.org/>`_ (version >= 0.56).
 
 * `Atomic Simulation Environment (ASE) <https://wiki.fysik.dtu.dk/ase/>`_.
 

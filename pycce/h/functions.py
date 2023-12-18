@@ -1,9 +1,9 @@
 import numpy as np
-from numba import jit, generated_jit, types
+from numba import jit, types #  generated_jit,
 
 from pycce.constants import HBAR_MU0_O4PI, PI2, ELECTRON_GYRO
 from pycce.utilities import tensor_vdot, vec_tensor_vec
-
+from numba.extending import overload
 
 @jit(cache=True, nopython=True)
 def expanded_single(ivec, gyro, mfield, self_tensor, detuning=.0):
@@ -36,7 +36,23 @@ def expanded_single(ivec, gyro, mfield, self_tensor, detuning=.0):
     return hself + hzeeman
 
 
-@generated_jit(cache=True, nopython=True)
+def _innerzeeman(gyro):
+
+    if isinstance(gyro, float):
+        def z(ivec, gyro, mfield):
+            return -gyro / PI2 * (mfield[0] * ivec[0] + mfield[1] * ivec[1] + mfield[2] * ivec[2])
+
+    # else assume tensor
+    else:
+        def z(ivec, gyro, mfield):
+            gsvec = tensor_vdot(gyro / PI2, ivec)
+            return mfield[0] * gsvec[0] + mfield[1] * gsvec[1] + mfield[2] * gsvec[2]
+
+    return z
+
+overload(_innerzeeman)(lambda gyro: _innerzeeman)
+
+@jit(cache=True, nopython=True)
 def zeeman(ivec, gyro, mfield):
     """
     Function
@@ -49,20 +65,48 @@ def zeeman(ivec, gyro, mfield):
         ndarray with shape (n, n): Zeeman interactions.
 
     """
-    if isinstance(gyro, types.Float):
-        def z(ivec, gyro, mfield):
-            return - gyro / PI2 * (mfield[0] * ivec[0] + mfield[1] * ivec[1] + mfield[2] * ivec[2])
+    return _innerzeeman(gyro)(ivec, gyro, mfield)
 
-    # else assume tensor
+def _inner_dd_tensor(g1, g2):
+    """
+    Generate dipole-dipole interaction tensor.
+
+    Args:
+        coord_1 (ndarray with shape (3,)): Coordinates of the first spin.
+        coord_2 (ndarray with shape (3,)): Coordinates of the second spin.
+        g1 (float or ndarray with shape (3, 3)): Gyromagnetic ratio of the first spin.
+        g2 (float or ndarray with shape (3, 3)): Gyromagnetic ratio of the second spin.
+
+    Returns:
+        ndarray with shape (3, 3): Interaction tensor.
+
+    """
+    if isinstance(g2, float) and isinstance(g1, float):
+        def func(coord_1, coord_2, g1, g2):
+            p_tensor = gen_pos_tensor(coord_1, coord_2) * HBAR_MU0_O4PI / PI2
+            p_tensor *= g2 * g1
+            return p_tensor
+
+    elif isinstance(g1, float):
+        def func(coord_1, coord_2, g1, g2):
+            p_tensor = gen_pos_tensor(coord_1, coord_2) * HBAR_MU0_O4PI / PI2
+            p_tensor = g1 * p_tensor @ g2
+            return p_tensor
+    elif isinstance(g2, float):
+        def func(coord_1, coord_2, g1, g2):
+            p_tensor = gen_pos_tensor(coord_1, coord_2) * HBAR_MU0_O4PI / PI2
+            p_tensor = g1 @ p_tensor * g2
+            return p_tensor
     else:
-        def z(ivec, gyro, mfield):
-            gsvec = tensor_vdot(gyro / PI2, ivec)
-            return mfield[0] * gsvec[0] + mfield[1] * gsvec[1] + mfield[2] * gsvec[2]
+        def func(coord_1, coord_2, g1, g2):
+            p_tensor = gen_pos_tensor(coord_1, coord_2) * HBAR_MU0_O4PI / PI2
+            p_tensor = g1 @ p_tensor @ g2
+            return p_tensor
+    return func
 
-    return z
+overload(_inner_dd_tensor)(lambda g1, g2: _inner_dd_tensor)
 
-
-@generated_jit(cache=True, nopython=True)
+@jit(cache=True, nopython=True)
 def dd_tensor(coord_1, coord_2, g1, g2):
     """
     Generate dipole-dipole interaction tensor.
@@ -77,29 +121,7 @@ def dd_tensor(coord_1, coord_2, g1, g2):
         ndarray with shape (3, 3): Interaction tensor.
 
     """
-    if isinstance(g2, types.Float) and isinstance(g1, types.Float):
-        def func(coord_1, coord_2, g1, g2):
-            p_tensor = gen_pos_tensor(coord_1, coord_2) * HBAR_MU0_O4PI / PI2
-            p_tensor *= g2 * g1
-            return p_tensor
-
-    elif isinstance(g1, types.Float):
-        def func(coord_1, coord_2, g1, g2):
-            p_tensor = gen_pos_tensor(coord_1, coord_2) * HBAR_MU0_O4PI / PI2
-            p_tensor = g1 * p_tensor @ g2
-            return p_tensor
-    elif isinstance(g2, types.Float):
-        def func(coord_1, coord_2, g1, g2):
-            p_tensor = gen_pos_tensor(coord_1, coord_2) * HBAR_MU0_O4PI / PI2
-            p_tensor = g1 @ p_tensor * g2
-            return p_tensor
-    else:
-        def func(coord_1, coord_2, g1, g2):
-            p_tensor = gen_pos_tensor(coord_1, coord_2) * HBAR_MU0_O4PI / PI2
-            p_tensor = g1 @ p_tensor @ g2
-            return p_tensor
-    return func
-
+    return _inner_dd_tensor(g1,g2)(coord_1, coord_2, g1, g2)
 
 @jit(cache=True, nopython=True)
 def dipole_dipole(coord_1, coord_2, g1, g2, ivec_1, ivec_2):

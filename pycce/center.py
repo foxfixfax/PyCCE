@@ -3,7 +3,7 @@ import collections.abc
 import numpy as np
 from pycce.bath.array import check_gyro, point_dipole, BathArray, _add_args, _stevens_str_doc
 from pycce.bath.map import InteractionMap
-from pycce.constants import ELECTRON_GYRO
+from pycce.constants import ELECTRON_GYRO, PI2
 from pycce.h.total import central_hamiltonian
 from pycce.sm import _smc
 from pycce.utilities import expand, rotate_coordinates, rotate_tensor, outer, \
@@ -78,6 +78,7 @@ class Center:
         self._xyz = None
         self._s = None
         self._h = {}
+        self._so = {}
 
         self._detuning = None
 
@@ -204,9 +205,50 @@ class Center:
     def h(self):
         return self._h
 
+    @property
+    def so(self):
+        return self._so
+
+
     @detuning.setter
     def detuning(self, detune):
         _attr_arr_setter(self, '_detuning', detune)
+
+    def add_single_jump(self, operator, rate=1, units='rad', square_root=False, which=None):
+        """
+        Add single-spin jump operator for the spin to be used in the Lindbladian master equation CCE.
+
+        Args:
+            operator (str or ndarray with shape (dim, dim)): Definition of the operator. Can be either of the following:
+                * Pair of integers defining the Sven operator.
+                * String where each symbol corresponds to the spin matrix or operation between them.
+                  Allowed symbols: ``xyz+``. If there is nothing between symbols,
+                  assume multiplication of the operators.
+                  If there is a ``+`` symbol, assume summation between terms. For example, ``xx+z`` would correspond to
+                  the operator :math:`\hat S_x \hat S_x + \hat S_z`.
+                * String equal to ``A``. Then assumes that the correct matrix form of the operator has been provided
+                  by the user.
+
+            rate (float): Rate associated with the given jump operator. By default, is given in rad ms^-1.
+            units (str): Units of the rate, can be either rad (for radial frequency units) or deg
+                (for rotational frequency).
+            square_root (bool): True if the rate is given as a square root of the rate (to match how one sets up
+                collapse operators in Qutip). Default False.
+            which (int): For which central spin in the center array add the jump operator. Default is None - if
+                there is only one central spin then the jump operator is added, otherwise the exception is raised.
+        """
+        if not square_root:
+            rate = np.sqrt(rate)
+        if 'rad' in units:
+            rate = rate / np.sqrt(PI2)
+
+        if isinstance(operator, str):
+            self.so[operator] = rate
+        else:
+            operator = np.asarray(operator, dtype=np.complex128)
+            dimensions = self.dim
+            assert operator.shape == (dimensions, dimensions), f'Operator should have shape {dimensions, dimensions}'
+            self.so['A'] = operator * rate
 
     def set_zfs(self, D=0, E=0):
         """
@@ -723,6 +765,14 @@ class CenterArray(Center, collections.abc.Sequence):
                 ca._h = self.h[item]
 
             return ca
+
+    def add_single_jump(self, operator, rate=1, units='rad', square_root=False, which=None):
+        if self.size == 1:
+            self[0].add_single_jump(operator, rate=rate, units=units, square_root=square_root)
+        else:
+            if which is None:
+                raise ValueError('Multiple central spins detected but no which keyword is provided')
+            self[which].add_single_jump(operator, rate=rate, units=units, square_root=square_root)
 
     def __setitem__(self, key, val):
         if not isinstance(val, Center):

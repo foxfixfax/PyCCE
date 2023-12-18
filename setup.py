@@ -3,7 +3,7 @@ from setuptools import setup
 
 setup(
     name='pycce',
-    version='1.0.1.4',
+    version='1.1.0',
     url='',
     license='',
     author='Nikita Onizhuk',
@@ -13,7 +13,7 @@ setup(
     long_description_content_type='text/markdown',
     packages=setuptools.find_packages(),
     install_requires=[
-        'numpy', 'scipy', 'ase', 'pandas'
+        'numpy', 'scipy', 'ase', 'pandas', 'numba'
     ],
     include_package_data=True,
     package_data={'': ['bath/*.txt']},

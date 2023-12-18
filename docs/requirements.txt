@@ -3,7 +3,7 @@ sphinx_rtd_theme
 IPython==7.31.1
 nbsphinx==0.8.6
 sphinx-mathjax-offline
-numba==0.53.1
+numba==0.56.1
 numpy
 pandas
 scipy

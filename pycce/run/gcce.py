@@ -3,8 +3,7 @@ from numpy import ma as ma
 from pycce.bath.array import BathArray
 from pycce.constants import PI2
 from pycce.h import total_hamiltonian
-from pycce.run import simple_propagator
-from pycce.run.base import RunObject, generate_initial_state
+from pycce.run.base import RunObject, generate_initial_state, simple_propagator
 from pycce.utilities import shorten_dimensions, outer
 
 
@@ -62,9 +61,6 @@ class gCCE(RunObject):
 
         pulses (Sequence): Sequence object, containing series of pulses, applied to the system.
 
-        as_delay (bool):
-            True if time points are delay between pulses, False if time points are total time.
-
         fulldm (bool):
             True if return full density matrix. Default False.
 
@@ -72,10 +68,7 @@ class gCCE(RunObject):
 
     """
 
-    def __init__(self, *args, i=None, j=None, as_delay=False, fulldm=False, normalized=True, **kwargs):
-
-        self.as_delay = as_delay
-        """ bool: True if time points are delay between pulses, False if time points are total time."""
+    def __init__(self, *args, i=None, j=None, fulldm=False, normalized=True, **kwargs):
 
         self.dm0 = None
         """ ndarray with shape (2s+1, 2s+1): Initial density matrix of the central spin."""
@@ -216,11 +209,16 @@ class gCCE(RunObject):
         if initial_state.ndim > 1:
             # rho U^\dagger
             dm_udagger = np.matmul(initial_state, unitary_evolution.conj().transpose(0, 2, 1))
+
             # U rho U^\dagger
             result = np.matmul(unitary_evolution, dm_udagger)
+            if self.store_states:
+                self.cluster_evolved_states = result.copy()
         else:
             # |dm> = U|dm>
             result = unitary_evolution @ initial_state
+            if self.store_states:
+                self.cluster_evolved_states = result
             # |dm><dm|
             result = np.einsum('ki,kj->kij', result, result.conj())
 
