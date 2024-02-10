@@ -1865,7 +1865,7 @@ def _process_key_operator(key, rate, sm):
     r"""
     Process key of the .so or .h dictionaries of the SpinType
     Args:
-        key (str or int): key of the dictionary. Can be either of the following:
+        key (str or int or tuple): key of the dictionary. Can be either of the following:
 
             * Pair of integers defining the Sven operator.
             * String where each symbol corresponds to the spin matrix or operation between them.

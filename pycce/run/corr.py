@@ -229,7 +229,7 @@ class CCENoise(RunObject):
 
     def preprocess(self):
         super().preprocess()
-        pycce.center.generate_projections()
+        self.center.generate_projections()
         if self.center.size > 1:
             raise ValueError('Correlation calculations are supported only for single central spin')
 
