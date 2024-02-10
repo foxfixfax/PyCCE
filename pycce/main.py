@@ -200,6 +200,12 @@ _args = r"""
             parallel (bool):
                 True if parallelize calculation of cluster contributions over different mpi processes.
 
+                Default is **False**.
+                
+            fulldm (bool):
+                Used in gCCE. True if return full density matrix of the central spin.
+                False if only return the computed property.
+                
                 Default is **False**."""
 
 
@@ -472,7 +478,9 @@ class Simulator:
         self.timespace = None
         """timespace (ndarray with shape (n,)): Time points at which compute the desired property."""
         self.runner = None
+        # Parameters of gCCE
         self.fulldm = False
+        """bool: True if return full density matrix as the result in the gCCE calculations."""
         self.normalized = True
 
         self.i = None
