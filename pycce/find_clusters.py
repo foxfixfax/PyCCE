@@ -65,8 +65,8 @@ def generate_clusters(bath, r_dipole, order, r_inner=0, ignore=None, strong=Fals
 
         dict:
             Dictionary with keys corresponding to size of the cluster,
-            and value corresponds to ndarray of shape (matrix, N).
-            Here matrix is the number of clusters of given size, N is the size of the cluster.
+            and value corresponds to ndarray of shape (M, N).
+            Here M is the number of clusters of given size, N is the size of the cluster.
             Each row contains indexes of the bath spins included in the given cluster.
     """
     graph = make_graph(bath, r_dipole, r_inner=r_inner, ignore=ignore, max_size=5000)
@@ -121,13 +121,13 @@ def make_graph(bath, r_dipole, r_inner=0, ignore=None, max_size=5000):
     if bath.shape[0] == 0:
         print('No spins, no neighbours.')
 
-    # Generate sparse matrix contain connectivity
+    # Generate sparse connectivity matrix
     graph = csr_matrix(atoms_within, dtype=bool)
 
     return graph
 
 
-# Import from connected components from scipy
+# Import from connected components scipy
 def connected_components(csgraph, directed=False, connection='weak', return_labels=True):
     """
     Find connected components using ``scipy.sparse.csgraph``.
@@ -152,12 +152,11 @@ def find_subclusters(maximum_order, graph, labels, n_components, strong=False):
     Returns:
         dict:
             Dictionary with keys corresponding to size of the cluster,
-            and value corresponds to ndarray of shape (matrix, N).
-            Here matrix is the number of clusters of given size, N is the size of the cluster.
+            and value corresponds to ndarray of shape (M, N).
+            Here M is the number of clusters of given size, N is the size of the cluster.
             Each row contains indexes of the bath spins included in the given cluster.
     """
-    # bool 1D array which is true when given element of graph corresponds to
-    # cluster component
+
     clusters = {}
     for k in range(1, maximum_order + 1):
         clusters[k] = []
@@ -167,12 +166,6 @@ def find_subclusters(maximum_order, graph, labels, n_components, strong=False):
         vertices = np.nonzero(vert_pos)[0]
 
         # print('{} cluster contains {} components'.format(component, ncomp))
-
-        # if ncomp <= CCE_order:
-        #
-        #     clusters[ncomp].append(vertices[np.newaxis, :])
-        #
-        # else:
 
         subclusters = {1: vertices[:, np.newaxis]}
 
@@ -185,8 +178,8 @@ def find_subclusters(maximum_order, graph, labels, n_components, strong=False):
             # Change to coordinate format of matrix
             coomat = csrmat.tocoo()
             # rows, col give row and colum indexes, which correspond to
-            # edges of the graph. as we already slised out the rows,
-            # to obtain correct row indexes we need to use vertices array
+            # edges of the graph. as we already chose the rows,
+            # to obtain initial correct row indexes we need to use vertices array
             row_ind, col_ind = vertices[coomat.row], coomat.col
 
             bonds = np.column_stack([row_ind, col_ind])
@@ -203,9 +196,9 @@ def find_subclusters(maximum_order, graph, labels, n_components, strong=False):
                 # List of cluster of size 4
                 ltriplets = []
 
-                # For ith triplet direct i+1:N pairs, if one of them contains
-                # one and only one element of jth pair, they form a cluster of 4
-                # There is no need to direct the last one, as it would be included
+                # For ith triplet look at all bonds, if ith triplet contains
+                # one and only one element of jth bond, ith triplet and jth bond form cluster of 4
+                # There is no need to include last triplet, as it would be included
                 # into quartet already if it were to be a part of one
                 for i in range(subclusters[order - 1].shape[0] - 1):
 
@@ -216,17 +209,17 @@ def find_subclusters(maximum_order, graph, labels, n_components, strong=False):
                     # consider only bonds l, n with l >= i, n >= j without loss of generality
                     testbonds = bonds[np.all(bonds >= test[:2], axis=1)]
 
-                    # cond is an bool 2D array of shape (testbonds.shape[0], test.size)
+                    # cond is a bool 2D array of shape (testbonds.shape[0], test.size)
                     # i.e. number of rows corresponds to number of testbonds,
-                    # lenght of the row is equal to the length of the test cluster (3 in case CCE4)
+                    # length of the row is equal to the length of the test cluster (3 in case CCE4)
                     # cond[i,j] is True if bond[i] contains element of test[j], otherwise False
 
                     # To construct this array the following procedure is applied:
                     # Reshape testbonds from (n, 2) to (n, 2, 1)
-                    # when asked to do logical operation == testbonds is broadcasted to shape (n, 2, order - 1)
+                    # when asked to do logical operation "==" testbonds is broadcasted to shape (n, 2, order - 1)
                     # In the case of CCE4 (n, 2, 3). Resulting 3D bool array has True entry i,j,k
                     # If j element of testbonds[i] is equal to k element of test
-                    # Applying logical operation any along 2nd axis (axis=1, any element of the bond i)
+                    # Applying logical operation "any" along 2nd axis (axis=1, any element of the bond i)
                     # we obtain resulting array cond
 
                     cond = np.any(testbonds.reshape(testbonds.shape + (1,)) == test, axis=1)
@@ -248,15 +241,15 @@ def find_subclusters(maximum_order, graph, labels, n_components, strong=False):
                         # to bond to create a quartet, therefore appendix should have shape (nrows, 2)
                         appendix = flatten.reshape(flatten.size // (order - 2), order - 2)
                     else:
-                        # For CCE3 it's easier to do in this way
-                        # (probably, idk, I really just don't want to break it)
+                        # For CCE3 it's faster to do in this way
+                        # (but I really just don't want to break it)
                         appendix = tiled_test[~cond[rows]][:, np.newaxis]
 
                     triplets = np.concatenate((testbonds[rows], appendix), axis=1)
 
                     # If strong keyword was used, the program will find only the completely interconnected clusters
                     # For CCE4 this means that from the given triplet i,j,k to form an interconnected array
-                    # i,j,k,l, vertex l should have edges il, jl, kl. Therefore the quartet will appear 3 times
+                    # i,j,k,l, vertex l should have edges il, jl, kl. Therefore, the quartet will appear 3 times
                     # in the array triplets. we choose unique quartets, and from them choose only quartets that
                     # appeared 3 times.
                     if strong and triplets.any():
@@ -283,7 +276,6 @@ def find_subclusters(maximum_order, graph, labels, n_components, strong=False):
 
     for o in range(1, maximum_order + 1):
         if clusters[o]:
-            # print(clusters[o])
             clusters[o] = np.concatenate(clusters[o], axis=0)
         else:
             print('Set of clusters of order {} is empty!'.format(o))
@@ -298,7 +290,7 @@ def combine_clusters(cs1, cs2):
 
     Args:
         cs1 (dict): First cluster dictionary with keys corresponding to size of the cluster,
-            and value corresponds to ndarray of shape (matrix, N).
+            and value corresponds to ndarray of shape (M, N).
 
         cs2 (dict): Second cluster dictionary with the same structure.
 
@@ -360,8 +352,13 @@ def expand_clusters(sc):
 
     return newsc
 
-def default_strength(bath, bonds):
+
+def _default_strength(bath, bonds):
+    # function to be used to normalize how to compute strength in the future
     row_ind, col_ind = bonds.T
+
+    # cos_theta = (bath[col_ind].z - bath[row_ind].z) / r
+
     r = bath[col_ind].dist(bath[row_ind])
 
     gyros_1 = bath[col_ind].gyro
@@ -371,8 +368,7 @@ def default_strength(bath, bonds):
     if len(gyros_2.shape) > 1:
         gyros_2 = np.abs(gyros_2.reshape(gyros_2.shape[0], -1)).max(axis=1)
 
-    return np.abs(gyros_1 * gyros_2 / r ** 3)
-
+    return np.abs(gyros_1 * gyros_2 / r ** 3)  # * (1 - 2 * cos_theta ** 2))
 
 
 def find_valid_subclusters(graph, maximum_order, nclusters=None, bath=None, strong=False, compute_strength=None):
@@ -390,10 +386,11 @@ def find_valid_subclusters(graph, maximum_order, nclusters=None, bath=None, stro
     Returns:
         dict:
             Dictionary with keys corresponding to size of the cluster,
-            and value corresponds to ndarray of shape (matrix, N).
-            Here matrix is the number of clusters of given size, N is the size of the cluster.
+            and value corresponds to ndarray of shape (M, N).
+            Here M is the number of clusters of given size, N is the size of the cluster.
             Each row contains indexes of the bath spins included in the given cluster.
     """
+    # This function is called when nclusters is provided in the Simulator class
 
     clusters = {1: np.arange(graph.shape[0])[:, np.newaxis]}
 
@@ -411,17 +408,7 @@ def find_valid_subclusters(graph, maximum_order, nclusters=None, bath=None, stro
         bonds = np.column_stack([row_ind, col_ind])
 
         if nclusters is not None:
-            r = bath[col_ind].dist(bath[row_ind])
-            # cos_theta = (bath[col_ind].z - bath[row_ind].z) / r
-            # strength[2] = np.abs(bath[col_ind].gyro * bath[row_ind].gyro / r ** 3)  # * (1 - 2 * cos_theta ** 2))
-            gyros_1 = bath[col_ind].gyro
-            gyros_2 = bath[row_ind].gyro
-            if len(gyros_1.shape) > 1:
-                gyros_1 = np.abs(gyros_1.reshape(gyros_1.shape[0], -1)).max(axis=1)
-            if len(gyros_2.shape) > 1:
-                gyros_2 = np.abs(gyros_2.reshape(gyros_2.shape[0], -1)).max(axis=1)
-
-            strength[2] = 1 / np.abs(gyros_1 * gyros_2 / r ** 3)  # * (1 - 2 * cos_theta ** 2))
+            strength[2] = 1 / _default_strength(bath, bonds)
             ordered = strength[2].argsort()  # smallest strength - largest coupling # [::-1] if strength = np.abs
             bonds = bonds[ordered]
             strength[2] = strength[2][ordered]
@@ -437,7 +424,7 @@ def find_valid_subclusters(graph, maximum_order, nclusters=None, bath=None, stro
         for order in range(3, maximum_order + 1):
 
             ltriplets = []
-            # list of triplet strength (used only when n_clusters is not None)
+            # list of triplet strength (used only when nclusters is not None)
             ltstr = []
 
             for i in range(clusters[order - 1].shape[0] - 1):
@@ -471,7 +458,8 @@ def find_valid_subclusters(graph, maximum_order, nclusters=None, bath=None, stro
                 if nclusters is not None:
                     teststrength = strength[order - 1][i]
                     tripletstrength = strength[2][choosebonds][rows]
-                    # tripletstrength[tripletstrength > teststrength] = teststrength
+                    # tripletstrength[tripletstrength > teststrength] = teststrength to choose the smallest coupling
+                    # as a strength of the triplet
                     tripletstrength += teststrength
 
                 if strong and triplets.any():
@@ -504,7 +492,6 @@ def find_valid_subclusters(graph, maximum_order, nclusters=None, bath=None, stro
                 if nclusters is not None:
                     ltstr = np.concatenate(ltstr)
                     ordered_by_lowest_strength = ltstr.argsort()  # [::-1]  # reverse indexes b/c strength is 1/strength
-                    # ordered_by_lowest_strength = ltstr.argsort()
                     ltriplets = ltriplets[ordered_by_lowest_strength]
                     ltstr = ltstr[ordered_by_lowest_strength]
 
@@ -513,7 +500,6 @@ def find_valid_subclusters(graph, maximum_order, nclusters=None, bath=None, stro
                 if nclusters is not None:
                     ltstr = ltstr[indexes]
                     ordered_by_strength = ltstr.argsort()  # 0 strength - all bonds are strongly coupled
-                    # ordered_by_strength = ltstr.argsort()[::-1]
 
                     ltriplets = ltriplets[ordered_by_strength]
                     ltstr = ltstr[ordered_by_strength]
