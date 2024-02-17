@@ -106,7 +106,7 @@ class Center:
 
                 [\bra{0}\hat{S}_x\ket{j}, \bra{0}\hat{S}_y\ket{j}, \bra{0}\hat{S}_z\ket{j}],
 
-            where :math:`\ket{0}` is the alpha qubit state, and :math:`\ket{\j}` are all states.
+            where :math:`\ket{0}` is the alpha qubit state, and :math:`\ket{j}` are all states.
         """
 
         self.projections_beta_all = None
@@ -118,13 +118,14 @@ class Center:
 
                 [\bra{1}\hat{S}_x\ket{j}, \bra{1}\hat{S}_y\ket{j}, \bra{1}\hat{S}_z\ket{j}],
 
-            where :math:`\ket{1}` is the beta qubit state, and :math:`\ket{\j}` are all states.
+            where :math:`\ket{1}` is the beta qubit state, and :math:`\ket{j}` are all states.
         """
 
         self.energies = None
         """ndarray with shape (2s-1,): Array of the central spin Hamiltonian eigen energies."""
         self.eigenvectors = None
-        """ndarray: Eigen states of the central spin Hamiltonian."""
+        """ndarray with shape (2s-1, 2s-1): Eigenstates of the central spin Hamiltonian.
+               Each *i*-th column of the array is an eigenvector of the corresponding *i*-th energy value."""
 
         self.hamiltonian = None
         """Hamiltonian: Central spin Hamiltonian."""
