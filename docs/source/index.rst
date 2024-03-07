@@ -51,8 +51,8 @@ PyCCE 1.1
 ++++++++++++++++++
 New version of **PyCCE** includes new cluster solvers and a set of little bugfixes. Main changes include
 
-* Implementation of the master equation-based CCE approaches. Checkout the
-    :doc:`tutorials/mecce` for examples of the usage.
+* Implementation of the master equation-based CCE approaches. 
+    Checkout the :doc:`tutorials/mecce` for examples of the usage.
 
 * Various optimization and bugfixes.
 
